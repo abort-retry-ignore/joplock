@@ -1,0 +1,42 @@
+# Sidecar deployment example: Joplock alongside an existing Joplin Server + Postgres
+#
+# Usage:
+#   1. Edit the environment values below to match your existing setup
+#   2. docker compose up -d
+#
+# ALTERNATELY you can just paste the joplock section into your existing joplin server 
+# compose file.
+#
+# On Linux, host.docker.internal is mapped to the host gateway so Joplock
+# can reach services running on the host by default.
+
+services:
+  joplock:
+    image: ghcr.io/abort-retry-ignore/joplock:latest
+    ports:
+      # Host port : container port
+      - '5444:3001'
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3001
+      # Public URL where Joplock is reachable from a browser
+      JOPLOCK_PUBLIC_BASE_URL: http://localhost:5444
+      # Internal URL Joplock uses to call Joplin Server API
+      JOPLIN_SERVER_ORIGIN: http://host.docker.internal:22300
+      # Public URL users already use for Joplin Server (for sync clients)
+      JOPLIN_SERVER_PUBLIC_URL: http://localhost:22300
+      # Base path prefix if Joplin Server sits behind a reverse proxy subpath
+      JOPLIN_PUBLIC_BASE_PATH: ''
+      # Postgres connection — must be the same database used by Joplin Server
+      POSTGRES_HOST: host.docker.internal
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: joplin
+      POSTGRES_USER: joplin
+      POSTGRES_PASSWORD: joplin
+      # Admin account — set both to enable the admin panel in Joplock
+      JOPLOCK_ADMIN_EMAIL: ''
+      JOPLOCK_ADMIN_PASSWORD: ''
+      # Set to true to skip MFA for the admin account defined above
+      IGNORE_ADMIN_MFA: 'false'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'

@@ -1,0 +1,33 @@
+{
+	"name": "joplock",
+	"private": true,
+	"version": "0.1.0",
+	"description": "Thin-client sidecar web UI for stock Joplin Server",
+	"main": "server.js",
+	"scripts": {
+		"start": "node server.js",
+		"test": "node --test tests/*.test.js",
+		"generate:pwa-assets": "node ./scripts/generatePwaAssets.mjs",
+		"docker:build": "docker build -t joplock .",
+		"docker:up": "docker compose up -d",
+		"docker:down": "docker compose down",
+		"docker:up:build": "docker compose -f docker-compose-build.yml up -d --build",
+		"docker:down:build": "docker compose -f docker-compose-build.yml down",
+		"docker:up:dev": "docker compose -f docker-compose.dev.yml up -d --build",
+		"docker:down:dev": "docker compose -f docker-compose.dev.yml down",
+		"docker:up:full": "docker compose -f docker-compose.example-full.yml up -d",
+		"docker:down:full": "docker compose -f docker-compose.example-full.yml down"
+	},
+	"dependencies": {
+		"@adobe/css-tools": "4.4.4",
+		"@mixmark-io/domino": "2.2.0",
+		"bcryptjs": "^3.0.3",
+		"html-entities": "1.4.0",
+		"pg": "8.16.3",
+		"qr-image": "^3.2.0"
+	},
+	"devDependencies": {
+		"jsdom": "26.1.0",
+		"sharp": "^0.34.5"
+	}
+}

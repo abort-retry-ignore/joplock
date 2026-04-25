@@ -1,0 +1,67 @@
+# Full-stack development example: Postgres + Joplin Server + Joplock (built from source)
+#
+# Same as docker-compose.example-full.yml but builds Joplock from source
+# instead of pulling the pre-built image.
+#
+# Usage:
+#   docker compose -f docker-compose.example-full-build.yml up -d --build
+#
+# Joplock UI:      http://localhost:5444
+# Joplin Server:   internal only (not exposed to host by default)
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: joplin
+      POSTGRES_PASSWORD: joplin
+      POSTGRES_DB: joplin
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  server:
+    image: joplin/server:latest
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      APP_PORT: 22300
+      APP_BASE_URL: http://server:22300
+      SIGNUP_ENABLED: 'true'
+      DB_CLIENT: pg
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: joplin
+      POSTGRES_USER: joplin
+      POSTGRES_PASSWORD: joplin
+
+  joplock:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - '5444:3001'
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3001
+      JOPLOCK_PUBLIC_BASE_URL: http://localhost:5444
+      JOPLIN_SERVER_ORIGIN: http://server:22300
+      JOPLIN_SERVER_PUBLIC_URL: http://server:22300
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: joplin
+      POSTGRES_USER: joplin
+      POSTGRES_PASSWORD: joplin
+      # Create or reset Admin account in Joplin Server — optional, 
+      # set to enable the admin panel or change admin password
+      # also can be used to turn off MFA if lost
+      JOPLOCK_ADMIN_EMAIL: ''
+      JOPLOCK_ADMIN_PASSWORD: ''
+      IGNORE_ADMIN_MFA: 'false'
+
+volumes:
+  db_data:

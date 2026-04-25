@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild index.js --bundle --minify --outfile=../public/hljs.min.js --format=iife --global-name=__hljs"
+  },
+  "dependencies": {
+    "highlight.js": "^11.11.1",
+    "esbuild": "^0.20.0"
+  }
+}

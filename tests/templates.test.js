@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const { autosaveConflictFragment, editorFragment, layoutPage, loggedOutPage, navigationFragment, renderMarkdown, settingsPage, stripMarkdownForTitle } = require('../app/templates');
+const { autosaveConflictFragment, editorFragment, layoutPage, loggedOutPage, mobileEditorFragment, navigationFragment, renderMarkdown, settingsPage, stripMarkdownForTitle } = require('../app/templates');
 
 test('autosaveConflictFragment wires overwrite and create copy actions', () => {
 	const html = autosaveConflictFragment('n1');
@@ -209,18 +209,37 @@ test('logged in layout exposes mobile startup resume data', () => {
 	const html = layoutPage({
 		user: { email: 'user@example.com', fullName: 'User' },
 		navContent: '<div>nav</div>',
-		mobileEditorContent: '<form id="note-editor-form"><textarea id="note-body">Body</textarea></form>',
+		mobileEditorContent: mobileEditorFragment({ id: 'n1', title: 'Hello', body: 'Body', parentId: 'f1', createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'Folder 1' }], 'f1'),
 		mobileStartup: { folderId: '__all_notes__', folderTitle: 'All Notes', noteId: 'n1', noteTitle: 'Hello' },
 	});
 	assert.ok(html.includes('var _mobileStartup={"folderId":"__all_notes__","folderTitle":"All Notes","noteId":"n1","noteTitle":"Hello"};'));
+	assert.ok(html.includes('<span class="mobile-editor-status" id="mobile-editor-status"></span>'));
+	assert.ok(html.includes('id="mobile-editor-search-open"'));
+	assert.ok(html.includes('id="mobile-editor-search-input"'));
+	assert.ok(html.includes('id="mobile-search-nav-counter"'));
+	assert.ok(html.includes('id="mobile-search-prev-btn"'));
+	assert.ok(html.includes('id="mobile-search-next-btn"'));
 	assert.ok(html.includes('function activeEditorForm(){if(isMobileShellMode()){'));
+	assert.ok(html.includes('function activeSearchInput(){if(isMobileShellMode()){'));
 	assert.ok(html.includes('function queryActiveEditor(selector){var form=activeEditorForm();'));
 	assert.ok(html.includes('function mobileResumeTarget(){'));
 	assert.ok(html.includes('<div class="mobile-screen-body mobile-editor-body" id="mobile-editor-body">'));
-	assert.ok(html.includes('<form id="note-editor-form"><textarea id="note-body">Body</textarea></form>'));
+	assert.ok(html.includes('hx-put="/fragments/editor/n1"'));
+	assert.ok(html.includes("setSaveState('','');snapshotHash();"));
+	assert.ok(html.includes("mobileStatus.innerHTML=dirty?'<span class=\"autosave-edited\">Edited</span>':(saved?'<span class=\"autosave-ok\">Saved</span>':'');"));
+	assert.ok(!html.includes('<div class="editor-titlebar">'));
+	assert.ok(html.includes('<div class="editor-toolbar" id="editor-toolbar">'));
 	assert.ok(html.includes('showMobileScreen(\'editor\',\'forward\')'));
 	assert.ok(!html.includes('htmx.ajax(\'GET\',\'/fragments/editor/\'+encodeURIComponent(_mobileNoteId)+\'?currentFolderId=\'+encodeURIComponent(_mobileFolderId),{target:\'#mobile-editor-body\',swap:\'innerHTML\'})'));
 	assert.ok(!html.includes('function getTA(){return document.getElementById(\'note-body\')}'));
+	assert.ok(html.includes('window.mobileEditorSearchOpen=function(){'));
+	assert.ok(html.includes('window.mobileEditorSearchClose=function(){'));
+	assert.ok(html.includes('var _cmSearchMatches=[];'));
+	assert.ok(html.includes('function collectCodeMirrorSearchMatches(query){'));
+	assert.ok(html.includes('function setCodeMirrorSearchActive(idx){'));
+	assert.ok(html.includes('var q=new window.CM.SearchQuery({search:term,caseSensitive:false});'));
+	assert.ok(html.includes('_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)})'));
+	assert.ok(!html.includes('...C.searchKeymap...'));
 });
 
 test('logged out layout does not show global auth code field', () => {

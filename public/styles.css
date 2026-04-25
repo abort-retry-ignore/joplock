@@ -1316,8 +1316,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .editor-preview[contenteditable="true"] .preview-img:active { border-color: var(--accent); }
 
 /* Autosave */
-.autosave-ok { color: var(--accent); font-size: 11px; opacity: 0.8; }
-.autosave-edited { color: var(--text-dim); font-size: 11px; opacity: 0.9; }
+.autosave-ok { color: #5fd38d; font-size: 11px; opacity: 0.9; }
+.autosave-edited { color: var(--danger); font-size: 11px; opacity: 0.95; }
 .autosave-error { color: var(--danger); font-size: 11px; }
 .autosave-saving { color: var(--text-dim); font-size: 11px; opacity: 0.9; }
 .autosave-offline { color: var(--danger); font-size: 11px; animation: pulse-offline 2s ease-in-out infinite; }
@@ -1937,19 +1937,60 @@ select.login-input option {
 		flex-shrink: 0;
 		font-family: inherit;
 	}
-	.mobile-mode-toggle {
-		min-width: 58px;
-		height: 32px;
+	.mobile-editor-search-header {
+		padding-left: 8px;
+		padding-right: 8px;
+	}
+	.mobile-editor-search-input {
+		flex: 1;
+		min-width: 0;
+		height: 34px;
 		padding: 0 10px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: var(--bg-input);
+		color: var(--text);
+		font: inherit;
+	}
+	.mobile-editor-search-input:focus {
+		outline: none;
+		border-color: var(--border-focus);
+	}
+	.mobile-search-nav-counter {
+		flex-shrink: 0;
+		min-width: 40px;
+		text-align: center;
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+		color: var(--text);
+	}
+	.mobile-search-nav-btn {
+		width: 34px;
+		height: 34px;
+		padding: 0;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 50%;
+		background: var(--bg-input);
+		color: var(--text);
+		font-size: 16px;
+	}
+	.mobile-mode-toggle {
+		width: 34px;
+		height: 34px;
+		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border: 1px solid var(--border);
+		border-radius: 50%;
 		background: var(--bg-input);
 		color: var(--text-muted);
-		font-size: 12px;
+		font-size: 11px;
 		font-weight: 600;
+		flex-shrink: 0;
 	}
 	.mobile-header-btn.mobile-mode-toggle.active {
 		background: var(--accent);
@@ -1966,6 +2007,13 @@ select.login-input option {
 		color: var(--text-muted);
 		min-width: 3.5em;
 		text-align: right;
+	}
+	.mobile-editor-status .autosave-ok,
+	.mobile-editor-status .autosave-edited,
+	.mobile-editor-status .autosave-error,
+	.mobile-editor-status .autosave-saving {
+		font-size: 12px;
+		opacity: 1;
 	}
 
 	/* Screen body */

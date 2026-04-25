@@ -1693,7 +1693,7 @@ Code block example
 						selectedNoteId = resumed.id;
 						selectedNoteContextFolderId = selectedFolderId || null;
 						editorContent = templates.editorFragment(resumed, folders.filter(folder => folder.id !== TRASH_FOLDER_ID), selectedFolderId || resumed.parentId);
-						mobileEditorContent = editorContent;
+						mobileEditorContent = templates.mobileEditorFragment(resumed, folders.filter(folder => folder.id !== TRASH_FOLDER_ID), selectedFolderId || resumed.parentId);
 						mobileStartup = {
 							folderId: selectedFolderId || resumed.parentId || '',
 							folderTitle: selectedFolderId === ALL_NOTES_FOLDER_ID ? 'All Notes' : ((folders.find(folder => folder.id === (selectedFolderId || resumed.parentId || '')) || {}).title || 'Notes'),

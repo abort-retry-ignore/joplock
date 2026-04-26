@@ -2238,11 +2238,15 @@ select.login-input option {
 		transform: none !important;
 		grid-column: 1;
 		border-right: 1px solid var(--border);
+		min-height: 0;
+		overflow: hidden;
 	}
 	#mobile-notes-screen {
 		position: static;
 		transform: none !important;
 		grid-column: 2;
+		min-height: 0;
+		overflow: hidden;
 	}
 	#mobile-editor-screen {
 		position: absolute;

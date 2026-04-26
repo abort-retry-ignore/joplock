@@ -6,18 +6,18 @@ Every page load fetches all 20k note headers from Postgres (parsing 20k JSON blo
 
 ## Implementation Status
 
-### DONE (commit `fd468fe`)
+### DONE
 
 - Phase 1: Database indexes and new queries
 - Phase 2: Server / nav refactor (lazy folder loading)
 - Phase 3: Client-side folder expand with htmx lazy loading
 - Phase 5: Mobile pagination
-- Tests: 129/129 passing
+- Phase 6: Search pagination + pg_trgm trigram index
+- Tests: 137/137 passing
 
 ### TODO
 
-- Phase 4: Targeted updates (avoid full nav reload on create/save/delete) — deferred
-- Phase 6: Search pagination + pg_trgm trigram index
+- Phase 4: Targeted updates (avoid full nav reload on create/save/delete) — deferred (low priority; nav reload is now cheap)
 
 ---
 
@@ -88,7 +88,7 @@ Not yet implemented. Currently, note create/save/delete still reload the full na
 
 ---
 
-## Phase 6: Search Pagination + pg_trgm (TODO)
+## Phase 6: Search Pagination + pg_trgm (DONE)
 
 ### 6.1 pg_trgm trigram index for body search
 
@@ -195,20 +195,12 @@ Same pattern, targeting mobile results container.
 
 ---
 
-## Files Modified (Phase 1-5, DONE)
+## Files Modified (Phase 1-6, DONE)
 
-1. `app/items/itemService.js` — `ensureIndexes()`, `folderNoteCountsByUserId()`, `noteHeadersByFolder()`, exported constants
-2. `app/createServer.js` — `navData()` refactored, `GET /fragments/folder-notes` endpoint, all `navigationFragment` calls updated, mobile endpoints paginated, `NOTE_PAGE_SIZE`/`VIRTUAL_*` imported
-3. `app/templates.js` — `navigationFragment` lazy mode, `folderNotesPageFragment`, `toggleNavFolder` lazy load, `initNavPanel` lazy load, `mobileFoldersFragment` counts Map, `mobileNotesFragment` pagination
+1. `app/items/itemService.js` — `ensureIndexes()` (B-tree + pg_trgm + GIN indexes), `folderNoteCountsByUserId()`, `noteHeadersByFolder()`, `searchNotes(userId, query, limit, offset)`, exported constants
+2. `app/createServer.js` — `navData()` refactored, `GET /fragments/folder-notes` endpoint, all `navigationFragment` calls updated, mobile endpoints paginated, search endpoints paginated with offset
+3. `app/templates.js` — `navigationFragment` lazy mode, `folderNotesPageFragment`, `toggleNavFolder` lazy load, `initNavPanel` lazy load, `mobileFoldersFragment` counts Map, `mobileNotesFragment` pagination, `searchResultsFragment` Load more, `mobileSearchFragment` Load more
 4. `server.js` — `ensureIndexes()` call on startup
 5. `public/styles.css` — `.notelist-load-more` button styles
-6. `tests/createServer.test.js` — added `folderNoteCountsByUserId`/`noteHeadersByFolder` to default mocks, updated assertions for lazy nav
-7. `tests/templates.test.js` — updated `navigationFragment` tests for counts Map, added `folderNotesPageFragment` tests
-
-## Files to Modify (Phase 6, TODO)
-
-1. `app/items/itemService.js` — `ensureIndexes()` add pg_trgm + GIN index; `searchNotes()` add limit/offset params
-2. `app/createServer.js` — `/fragments/search`, `/fragments/mobile/search` add offset handling
-3. `app/templates.js` — `searchResultsFragment`, `mobileSearchFragment` add Load more button
-4. `tests/createServer.test.js` — update search mock signatures
-5. `tests/templates.test.js` — add search pagination tests
+6. `tests/createServer.test.js` — mocks and assertions for all new endpoints and pagination
+7. `tests/templates.test.js` — tests for all new/updated fragments

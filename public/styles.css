@@ -1338,6 +1338,44 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 @keyframes pulse-offline { 0%,100%{opacity:1} 50%{opacity:0.4} }
 .is-offline .app-statusbar { background: color-mix(in srgb, var(--danger) 12%, var(--statusbar-bg)); }
 .autosave-conflict { display: inline-flex; align-items: center; gap: 6px; }
+/* Full-screen note loading overlay */
+#note-loading-overlay {
+	display: none;
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	background: rgba(0,0,0,0.45);
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 20px;
+}
+#note-loading-overlay.active { display: flex; }
+.mobile-loading-note {
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
+	flex: 1;
+}
+.note-loading-ring {
+	width: 72px;
+	height: 72px;
+	border-radius: 50%;
+	border: 6px solid rgba(255,255,255,0.2);
+	border-top-color: #fff;
+	will-change: transform;
+	animation: note-loading-spin 0.8s linear infinite;
+}
+.note-loading-label {
+	color: #fff;
+	font-size: 15px;
+	letter-spacing: 0.03em;
+	opacity: 0.9;
+}
+@keyframes note-loading-spin {
+	to { transform: rotate(360deg); }
+}
+
 .htmx-indicator { display: none; color: var(--text-dim); font-size: 11px; }
 .htmx-request .htmx-indicator { display: inline; }
 .htmx-request #autosave-status { display: none; }
@@ -2226,8 +2264,8 @@ select.login-input option {
 	}
 }
 
-/* Tablet: 481px–768px — folders + notes side by side */
-@media (min-width: 481px) and (max-width: 768px) {
+/* Tablet: 600px–768px — folders + notes side by side */
+@media (min-width: 600px) and (max-width: 768px) {
 	.mobile-app {
 		display: grid;
 		grid-template-columns: 260px 1fr;

@@ -172,10 +172,8 @@ test('preview round-trip preserves mixed formatting note', () => {
 
 test('logged in layout includes htmlToMarkdown normalization for preview save', () => {
 	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '' });
-	assert.ok(html.includes('function htmlToMarkdown(el){'));
-	assert.ok(html.includes('var nl=String.fromCharCode(10);'));
-	assert.ok(html.includes('md=md.split(\'<br/>\').join(\'<br>\')'));
-	assert.ok(html.includes('while(md.indexOf(\'<br><br>\')>=0)'));
-	assert.ok(html.includes('ch.charCodeAt(0)===92'));
-	assert.ok(html.includes('return out'));
+	// htmlToMarkdown and other editor functions are now in public/app.js
+	assert.ok(html.includes('/app.js'));
+	assert.ok(html.includes('_joplockConfig'));
+	assert.ok(!html.includes('function htmlToMarkdown(el){'));
 });

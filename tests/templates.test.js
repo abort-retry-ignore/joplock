@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const { autosaveConflictFragment, editorFragment, folderNotesPageFragment, layoutPage, loggedOutPage, mobileEditorFragment, mobileSearchFragment, navigationFragment, renderMarkdown, searchResultsFragment, settingsPage, stripMarkdownForTitle } = require('../app/templates');
+const { adminUserRow, autosaveConflictFragment, autosaveStatusFragment, editorFragment, escapeHtml, folderListItem, folderListFragment, folderNotesPageFragment, historyModalFragment, historySnapshotPreviewFragment, layoutPage, loggedOutPage, mfaPage, mobileEditorFragment, mobileFoldersFragment, mobileNotesFragment, mobileSearchFragment, navigationFragment, noteListItem, noteListFragment, noteMetaFragment, noteSyncStateFragment, renderInlineMarkdown, renderMarkdown, searchResultsFragment, settingsPage, stripMarkdownForTitle } = require('../app/templates');
 
 test('autosaveConflictFragment wires overwrite and create copy actions', () => {
 	const html = autosaveConflictFragment('n1');
@@ -161,8 +161,7 @@ test('logged in layout uses logout navigation link', () => {
 	assert.ok(html.includes('<a href="/settings" class="btn btn-icon status-settings-link" title="Settings">&#9881;</a>'));
 	assert.ok(html.includes('<a href="/logout" class="btn btn-sm btn-secondary logout-link" onclick="return confirmLogout(event)">Logout</a>'));
 	assert.ok(html.includes('<a href="/logout" class="mobile-header-btn" title="Logout" onclick="return confirmLogout(event)">&#8618;</a>'));
-	assert.ok(html.includes('function confirmLogout(event){'));
-	assert.ok(html.includes('Your notes and other server data remain on the server.'));
+	assert.ok(html.includes('/app.js'));
 	assert.ok(!html.includes('logoutNow(event)'));
 	assert.ok(!html.includes('hx-post="/logout"'));
 });
@@ -178,7 +177,7 @@ test('settings page renders font controls and MFA details', () => {
 	assert.ok(html.includes('Two-Factor Authentication'));
 	assert.ok(html.includes('Use monospace for note text'));
 	assert.ok(html.includes('Reopen the last edited note on startup'));
-	assert.ok(html.includes('Enable auto-logout after inactivity'));
+	assert.ok(html.includes('Expire session after inactivity'));
 	assert.ok(html.includes('name="autoLogoutMinutes"'));
 	assert.ok(html.includes('class="login-eye"'));
 	assert.ok(html.includes('saveSetting')); // auto-save function
@@ -214,33 +213,21 @@ test('logged in layout exposes mobile startup resume data', () => {
 		mobileEditorContent: mobileEditorFragment({ id: 'n1', title: 'Hello', body: 'Body', parentId: 'f1', createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'Folder 1' }], 'f1'),
 		mobileStartup: { folderId: '__all_notes__', folderTitle: 'All Notes', noteId: 'n1', noteTitle: 'Hello' },
 	});
-	assert.ok(html.includes('var _mobileStartup={"folderId":"__all_notes__","folderTitle":"All Notes","noteId":"n1","noteTitle":"Hello"};'));
+	assert.ok(html.includes('"noteId":"n1","noteTitle":"Hello"'));
+	assert.ok(html.includes('mobileStartup:{"folderId":"__all_notes__","folderTitle":"All Notes","noteId":"n1","noteTitle":"Hello"}'));
 	assert.ok(html.includes('<span class="mobile-editor-status" id="mobile-editor-status"></span>'));
 	assert.ok(html.includes('id="mobile-editor-search-open"'));
 	assert.ok(html.includes('id="mobile-editor-search-input"'));
 	assert.ok(html.includes('id="mobile-search-nav-counter"'));
 	assert.ok(html.includes('id="mobile-search-prev-btn"'));
 	assert.ok(html.includes('id="mobile-search-next-btn"'));
-	assert.ok(html.includes('function activeEditorForm(){if(isMobileShellMode()){'));
-	assert.ok(html.includes('function activeSearchInput(){if(isMobileShellMode()){'));
-	assert.ok(html.includes('function queryActiveEditor(selector){var form=activeEditorForm();'));
-	assert.ok(html.includes('function mobileResumeTarget(){'));
+	assert.ok(html.includes('/app.js'));
 	assert.ok(html.includes('<div class="mobile-screen-body mobile-editor-body" id="mobile-editor-body">'));
 	assert.ok(html.includes('hx-put="/fragments/editor/n1"'));
-	assert.ok(html.includes("setSaveState('','');snapshotHash();"));
-	assert.ok(html.includes("mobileStatus.innerHTML=dirty?'<span class=\"autosave-edited\">Edited</span>':(saved?'<span class=\"autosave-ok\">Saved</span>':'');"));
 	assert.ok(!html.includes('<div class="editor-titlebar">'));
 	assert.ok(html.includes('<div class="editor-toolbar" id="editor-toolbar">'));
-	assert.ok(html.includes('showMobileScreen(\'editor\',\'forward\')'));
-	assert.ok(!html.includes('htmx.ajax(\'GET\',\'/fragments/editor/\'+encodeURIComponent(_mobileNoteId)+\'?currentFolderId=\'+encodeURIComponent(_mobileFolderId),{target:\'#mobile-editor-body\',swap:\'innerHTML\'})'));
-	assert.ok(!html.includes('function getTA(){return document.getElementById(\'note-body\')}'));
-	assert.ok(html.includes('window.mobileEditorSearchOpen=function(){'));
-	assert.ok(html.includes('window.mobileEditorSearchClose=function(){'));
-	assert.ok(html.includes('var _cmSearchMatches=[];'));
-	assert.ok(html.includes('function collectCodeMirrorSearchMatches(query){'));
-	assert.ok(html.includes('function setCodeMirrorSearchActive(idx){'));
-	assert.ok(html.includes('var q=new window.CM.SearchQuery({search:term,caseSensitive:false});'));
-	assert.ok(html.includes('_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)})'));
+	// JS functions are in public/app.js
+	assert.ok(html.includes('/app.js'));
 	assert.ok(!html.includes('...C.searchKeymap...'));
 });
 
@@ -251,11 +238,9 @@ test('logged out layout does not show global auth code field', () => {
 
 test('logged in layout preserves plain square brackets on preview round trip', () => {
 	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '' });
-	assert.ok(html.includes('function htmlToMarkdown(el){'));
-	assert.ok(html.includes('var root=el.cloneNode(true);'));
-	assert.ok(html.includes("root.querySelectorAll('.pre-copy-btn').forEach(function(btn){btn.remove()})"));
-	assert.ok(html.includes('getTurndown().turndown(root.innerHTML)'));
-	assert.ok(html.includes('$1'));
+	// These functions are now in public/app.js, not inline — check app.js is referenced
+	assert.ok(html.includes('/app.js'));
+	assert.ok(html.includes('_joplockConfig'));
 });
 
 test('logged in layout includes extended Joplin theme options', () => {
@@ -276,39 +261,23 @@ test('logged in layout includes extended Joplin theme options', () => {
 
 test('logged in layout uses ordered list command and block transforms in preview toolbar', () => {
 	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '' });
-	assert.ok(html.includes('function syncEditorModeButtons(){'));
-	assert.ok(html.includes('mdBtn.classList.toggle(\'active\',mode===\'markdown\')'));
-	assert.ok(html.includes('pvBtn.classList.toggle(\'active\',mode===\'preview\')'));
-	assert.ok(html.includes('var _previewDirty=false;'));
-	assert.ok(html.includes('if(pv.contentEditable===\'true\'&&_previewDirty){syncPV()}'));
+	// Editor functions are now in public/app.js — verify it's referenced and toolbar HTML is present
+	assert.ok(html.includes('/app.js'));
 	assert.ok(!html.includes('clean-md-toggle'));
-	assert.ok(html.includes('function transformPVBlock(tagName,defaultText)'));
-	assert.ok(html.includes('document.execCommand(\'insertOrderedList\',false,null)'));
-	assert.ok(html.includes('if(p===\'> \'&&transformPVBlock(\'blockquote\',\'Quote\'))return'));
-	assert.ok(html.includes('var fenced=String.fromCharCode(10)+String.fromCharCode(96,96,96)+String.fromCharCode(10)'));
-	assert.ok(html.includes('if(a===fenced&&b===fenced&&transformPVBlock(\'pre\',\'code\'))return'));
-	assert.ok(html.includes('var inlineCode=String.fromCharCode(96)'));
-	assert.ok(html.includes('if(a===inlineCode&&b===inlineCode){document.execCommand(\'insertHTML\',false,\'<code spellcheck="false">\'+(window.getSelection().toString()||\'code\')+\'</code>\')'));
-	assert.ok(html.includes('function formatStamp(kind){'));
-	assert.ok(html.includes('var _dateFmt='));
-	assert.ok(html.includes('var _datetimeFmt='));
-	assert.ok(html.includes('fmt.replace(\'YYYY\''));
-	assert.ok(html.includes('function insertStamp(kind){insertTxt(formatStamp(kind))}'));
-	assert.ok(html.includes('var pre=el&&el.closest?el.closest(\'pre\'):null'));
-	assert.ok(html.includes('if(pre&&pv.contains(pre)){e.preventDefault();'));
-	assert.ok(html.includes('if(insertPVText(\'\\n\'))syncPV();return}'));
 });
 
-test('logged in layout emits inline script that parses', () => {
+test('logged in layout emits inline config script that parses', () => {
 	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '<div></div>' });
-	const match = html.match(/<script>([\s\S]*)<\/script>\s*<\/body>/);
-	assert.ok(match);
+	// The last script before </body> is now just the config object
+	const match = html.match(/<script>\s*(window\._joplockConfig[\s\S]*?)<\/script>\s*<\/body>/);
+	assert.ok(match, 'should have inline config script before </body>');
 	assert.doesNotThrow(() => new vm.Script(match[1]));
-	assert.ok(match[1].includes('function openFolderContextMenu(event,id,title)'));
-	assert.ok(match[1].includes('function submitFolderEdit(event)'));
-	assert.ok(match[1].includes('window.open(href,\'_blank\',\'noopener\')'));
-	assert.ok(match[1].includes('document.execCommand(\'insertHTML\',false,\'<a href="/resources/'));
-	assert.ok(match[1].includes('function confirmLogout(event){'));
+	assert.ok(match[1].includes('window._joplockConfig'));
+	assert.ok(match[1].includes('noteOpenMode'));
+	assert.ok(match[1].includes('liveSearch'));
+	// Functions are in app.js, not inline
+	assert.ok(!html.includes('function openFolderContextMenu(event,id,title)'));
+	assert.ok(html.includes('/app.js'));
 });
 
 test('styles define ordered list spacing and matrix note text token', () => {
@@ -387,4 +356,291 @@ test('mobileSearchFragment returns empty hint when no notes', () => {
 	const html = mobileSearchFragment([]);
 	assert.ok(html.includes('No results found'));
 	assert.ok(!html.includes('notelist-load-more'));
+});
+
+// --- escapeHtml ---
+
+test('escapeHtml escapes special characters', () => {
+	assert.equal(escapeHtml('<script>alert("x")</script>'), '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;');
+	assert.equal(escapeHtml("a'b"), 'a&#39;b');
+	assert.equal(escapeHtml('a&b'), 'a&amp;b');
+});
+
+test('escapeHtml coerces non-string values', () => {
+	assert.equal(escapeHtml(42), '42');
+	assert.equal(escapeHtml(null), 'null');
+	assert.equal(escapeHtml(undefined), 'undefined');
+});
+
+// --- folderListItem ---
+
+test('folderListItem renders folder button with htmx attributes', () => {
+	const html = folderListItem({ id: 'f1', title: 'Work', noteCount: 5 }, 'f1');
+	assert.ok(html.includes('class="sidebar-item active"'));
+	assert.ok(html.includes('data-folder-id="f1"'));
+	assert.ok(html.includes('hx-get="/fragments/notes?folderId=f1"'));
+	assert.ok(html.includes('Work'));
+	assert.ok(html.includes('>5<'));
+});
+
+test('folderListItem not active when different folder selected', () => {
+	const html = folderListItem({ id: 'f1', title: 'Work' }, 'f2');
+	assert.ok(!html.includes('class="sidebar-item active"'));
+});
+
+test('folderListItem shows Untitled for empty title', () => {
+	const html = folderListItem({ id: 'f1', title: '' }, '');
+	assert.ok(html.includes('Untitled'));
+});
+
+// --- folderListFragment ---
+
+test('folderListFragment renders all folders', () => {
+	const html = folderListFragment([
+		{ id: 'f1', title: 'A' },
+		{ id: 'f2', title: 'B' },
+	], 'f1');
+	assert.ok(html.includes('data-folder-id="f1"'));
+	assert.ok(html.includes('data-folder-id="f2"'));
+});
+
+test('folderListFragment shows empty hint when no folders', () => {
+	const html = folderListFragment([], '');
+	assert.ok(html.includes('No notebooks yet'));
+});
+
+// --- noteListItem ---
+
+test('noteListItem renders note button with editor link', () => {
+	const html = noteListItem({ id: 'n1', title: 'My Note' }, 'n1', 'f1');
+	assert.ok(html.includes('class="notelist-item active"'));
+	assert.ok(html.includes('data-note-id="n1"'));
+	assert.ok(html.includes('hx-get="/fragments/editor/n1?currentFolderId=f1"'));
+	assert.ok(html.includes('My Note'));
+});
+
+test('noteListItem not active when different note selected', () => {
+	const html = noteListItem({ id: 'n1', title: 'Note' }, 'n2', 'f1');
+	assert.ok(!html.includes('class="notelist-item active"'));
+});
+
+test('noteListItem strips markdown from title', () => {
+	const html = noteListItem({ id: 'n1', title: '# **Bold Title**' }, '', '');
+	assert.ok(html.includes('Bold Title'));
+	assert.ok(!html.includes('**'));
+});
+
+// --- noteListFragment ---
+
+test('noteListFragment renders header with new note button and search', () => {
+	const html = noteListFragment([{ id: 'n1', title: 'Note' }], 'n1', 'f1');
+	assert.ok(html.includes('+ New note'));
+	assert.ok(html.includes('hx-post="/fragments/notes"'));
+	assert.ok(html.includes('notelist-search'));
+	assert.ok(html.includes('Note'));
+});
+
+test('noteListFragment shows empty hint when no notes', () => {
+	const html = noteListFragment([], '', 'f1');
+	assert.ok(html.includes('No notes'));
+});
+
+test('noteListFragment omits new note button without folderId', () => {
+	const html = noteListFragment([], '', '');
+	assert.ok(!html.includes('+ New note'));
+});
+
+// --- noteSyncStateFragment ---
+
+test('noteSyncStateFragment includes updatedTime hidden field', () => {
+	const html = noteSyncStateFragment({ updatedTime: 12345 });
+	assert.ok(html.includes('name="baseUpdatedTime" value="12345"'));
+	assert.ok(html.includes('name="forceSave"'));
+	assert.ok(html.includes('name="createCopy"'));
+});
+
+// --- noteMetaFragment ---
+
+test('noteMetaFragment includes data attributes for times', () => {
+	const html = noteMetaFragment({ createdTime: 100, updatedTime: 200 });
+	assert.ok(html.includes('data-created-time="100"'));
+	assert.ok(html.includes('data-updated-time="200"'));
+});
+
+// --- autosaveStatusFragment ---
+
+test('autosaveStatusFragment returns Saved span', () => {
+	const html = autosaveStatusFragment();
+	assert.ok(html.includes('autosave-ok'));
+	assert.ok(html.includes('Saved'));
+});
+
+// --- historyModalFragment ---
+
+test('historyModalFragment renders snapshots list', () => {
+	const snapshots = [
+		{ id: 's1', savedTime: Date.now(), title: 'First' },
+		{ id: 's2', savedTime: Date.now() - 60000, title: 'Second' },
+	];
+	const html = historyModalFragment('n1', snapshots);
+	assert.ok(html.includes('data-snapshot-id="s1"'));
+	assert.ok(html.includes('data-snapshot-id="s2"'));
+	assert.ok(html.includes('history-item-active'));
+	assert.ok(html.includes('selectHistorySnapshot'));
+	assert.ok(html.includes('restoreHistorySnapshot'));
+	assert.ok(html.includes('closeHistoryModal'));
+	assert.ok(html.includes('hx-get="/fragments/history-snapshot/s1"'));
+});
+
+test('historyModalFragment shows empty state', () => {
+	const html = historyModalFragment('n1', []);
+	assert.ok(html.includes('No saved snapshots'));
+	assert.ok(!html.includes('restoreHistorySnapshot'));
+});
+
+// --- historySnapshotPreviewFragment ---
+
+test('historySnapshotPreviewFragment renders body preview', () => {
+	const html = historySnapshotPreviewFragment({ body: 'Hello world' });
+	assert.ok(html.includes('Hello world'));
+	assert.ok(html.includes('history-snapshot-body'));
+});
+
+test('historySnapshotPreviewFragment truncates long body', () => {
+	const body = 'x'.repeat(4000);
+	const html = historySnapshotPreviewFragment({ body });
+	assert.ok(html.includes('…'));
+});
+
+// --- renderInlineMarkdown ---
+
+test('renderInlineMarkdown renders bold, italic, strikethrough, underline, code', () => {
+	assert.equal(renderInlineMarkdown('**bold**'), '<strong>bold</strong>');
+	assert.equal(renderInlineMarkdown('*italic*'), '<em>italic</em>');
+	assert.equal(renderInlineMarkdown('~~strike~~'), '<del>strike</del>');
+	assert.equal(renderInlineMarkdown('++under++'), '<u>under</u>');
+	assert.equal(renderInlineMarkdown('`code`'), '<code spellcheck="false">code</code>');
+});
+
+test('renderInlineMarkdown returns empty for falsy input', () => {
+	assert.equal(renderInlineMarkdown(''), '');
+	assert.equal(renderInlineMarkdown(null), '');
+	assert.equal(renderInlineMarkdown(undefined), '');
+});
+
+// --- adminUserRow ---
+
+test('adminUserRow renders enabled user with actions', () => {
+	const html = adminUserRow({ id: 'u1', email: 'a@b.com', full_name: 'Alice', enabled: true, created_time: 1700000000000 }, 'u2');
+	assert.ok(html.includes('a@b.com'));
+	assert.ok(html.includes('Alice'));
+	assert.ok(html.includes('badge-ok'));
+	assert.ok(html.includes('Enabled'));
+	assert.ok(html.includes('Disable User'));
+	assert.ok(html.includes('Delete User'));
+	assert.ok(html.includes('/admin/users/u1/password'));
+	assert.ok(html.includes('/admin/users/u1/disable'));
+	assert.ok(html.includes('/admin/users/u1/delete'));
+});
+
+test('adminUserRow hides disable/delete for self', () => {
+	const html = adminUserRow({ id: 'u1', email: 'a@b.com', enabled: true, created_time: 0 }, 'u1');
+	assert.ok(html.includes('your admin account'));
+	assert.ok(!html.includes('Disable User'));
+	assert.ok(!html.includes('Delete User'));
+});
+
+test('adminUserRow shows MFA badge when totp enabled', () => {
+	const html = adminUserRow({ id: 'u1', email: 'a@b.com', enabled: true, created_time: 0, totpEnabled: true, totpSeed: 'ABC', totpQr: 'data:qr' }, 'u2');
+	assert.ok(html.includes('badge-mfa'));
+	assert.ok(html.includes('MFA'));
+	assert.ok(html.includes('Disable MFA'));
+	assert.ok(html.includes('/admin/users/u1/mfa/disable'));
+});
+
+test('adminUserRow shows enable MFA when totp not enabled', () => {
+	const html = adminUserRow({ id: 'u1', email: 'a@b.com', enabled: true, created_time: 0, totpEnabled: false }, 'u2');
+	assert.ok(html.includes('Enable MFA'));
+	assert.ok(html.includes('/admin/users/u1/mfa/enable'));
+});
+
+test('adminUserRow shows disabled badge and enable button', () => {
+	const html = adminUserRow({ id: 'u1', email: 'a@b.com', enabled: false, created_time: 0 }, 'u2');
+	assert.ok(html.includes('badge-off'));
+	assert.ok(html.includes('Disabled'));
+	assert.ok(html.includes('Enable User'));
+	assert.ok(html.includes('/admin/users/u1/enable'));
+});
+
+// --- mfaPage ---
+
+test('mfaPage renders MFA challenge form', () => {
+	const html = mfaPage();
+	assert.ok(html.includes('Two-Factor Authentication'));
+	assert.ok(html.includes('action="/login/mfa"'));
+	assert.ok(html.includes('name="totp"'));
+	assert.ok(html.includes('pattern="[0-9]{6}"'));
+	assert.ok(html.includes('Back to login'));
+});
+
+test('mfaPage shows error when provided', () => {
+	const html = mfaPage({ error: 'Invalid code' });
+	assert.ok(html.includes('Invalid code'));
+});
+
+test('mfaPage escapes error HTML', () => {
+	const html = mfaPage({ error: '<script>alert(1)</script>' });
+	assert.ok(html.includes('&lt;script&gt;'));
+	assert.ok(!html.includes('<script>alert'));
+});
+
+// --- mobileFoldersFragment ---
+
+test('mobileFoldersFragment renders All Notes and folder rows with Map counts', () => {
+	const counts = new Map([['__all__', 5], ['f1', 3], ['__trash__', 1]]);
+	const folders = [{ id: 'f1', title: 'Work' }];
+	const html = mobileFoldersFragment(folders, counts);
+	assert.ok(html.includes('All Notes'));
+	assert.ok(html.includes('>5<'));
+	assert.ok(html.includes('Work'));
+	assert.ok(html.includes('>3<'));
+	assert.ok(html.includes('mobilePushNotes'));
+	assert.ok(html.includes('mobileNewNoteInFolder'));
+});
+
+test('mobileFoldersFragment shows empty state when no folders', () => {
+	const html = mobileFoldersFragment([], new Map([['__all__', 0]]));
+	assert.ok(html.includes('No notebooks yet'));
+});
+
+test('mobileFoldersFragment filters out trash folder', () => {
+	const folders = [
+		{ id: 'f1', title: 'Work' },
+		{ id: 'de1e7ede1e7ede1e7ede1e7ede1e7ede', title: 'Trash' },
+	];
+	const html = mobileFoldersFragment(folders, new Map([['__all__', 0]]));
+	assert.ok(html.includes('Work'));
+	assert.ok(!html.includes('>Trash<'));
+});
+
+// --- mobileNotesFragment ---
+
+test('mobileNotesFragment renders notes with editor links', () => {
+	const notes = [{ id: 'n1', title: 'Note 1' }, { id: 'n2', title: 'Note 2' }];
+	const html = mobileNotesFragment(notes, 'f1', 'Work');
+	assert.ok(html.includes('Note 1'));
+	assert.ok(html.includes('Note 2'));
+	assert.ok(html.includes('mobilePushEditor'));
+});
+
+test('mobileNotesFragment shows empty state', () => {
+	const html = mobileNotesFragment([], 'f1', 'Work');
+	assert.ok(html.includes('No notes yet'));
+});
+
+test('mobileNotesFragment shows Load more when hasMore', () => {
+	const notes = [{ id: 'n1', title: 'Note' }];
+	const html = mobileNotesFragment(notes, 'f1', 'Work', true, 50);
+	assert.ok(html.includes('Load more'));
+	assert.ok(html.includes('/fragments/mobile/notes?folderId=f1&offset=50'));
 });

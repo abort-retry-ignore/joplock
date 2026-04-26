@@ -19,6 +19,23 @@ const isSessionExpired = (createdTime, now = Date.now()) => {
 };
 
 const createSessionService = database => {
+	let _tableReady = null;
+
+	const ensureTable = async () => {
+		if (_tableReady !== null) return;
+		try {
+			await database.query(`
+				CREATE TABLE IF NOT EXISTS joplock_sessions (
+					session_id VARCHAR(64) PRIMARY KEY,
+					last_seen BIGINT NOT NULL
+				)
+			`);
+			_tableReady = true;
+		} catch {
+			_tableReady = false;
+		}
+	};
+
 	return {
 		async userBySessionId(sessionId) {
 			if (!sessionId) return null;
@@ -61,6 +78,47 @@ const createSessionService = database => {
 				createdTime: Number(row.created_time || 0),
 				updatedTime: Number(row.updated_time || 0),
 			};
+		},
+
+		async touchSession(sessionId, now = Date.now()) {
+			await ensureTable();
+			if (!_tableReady) return;
+			try {
+				await database.query(`
+					INSERT INTO joplock_sessions (session_id, last_seen)
+					VALUES ($1, $2)
+					ON CONFLICT (session_id) DO UPDATE SET last_seen = EXCLUDED.last_seen
+				`, [sessionId, now]);
+			} catch {
+				// non-fatal
+			}
+		},
+
+		async getLastSeen(sessionId) {
+			await ensureTable();
+			if (!_tableReady) return null;
+			try {
+				const result = await database.query(
+					'SELECT last_seen FROM joplock_sessions WHERE session_id = $1 LIMIT 1',
+					[sessionId],
+				);
+				return result.rows[0] ? Number(result.rows[0].last_seen) : null;
+			} catch {
+				return null;
+			}
+		},
+
+		async deleteSession(sessionId) {
+			await ensureTable();
+			if (!_tableReady) return;
+			try {
+				await database.query(
+					'DELETE FROM joplock_sessions WHERE session_id = $1',
+					[sessionId],
+				);
+			} catch {
+				// non-fatal
+			}
 		},
 	};
 };

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const { autosaveConflictFragment, editorFragment, folderNotesPageFragment, layoutPage, loggedOutPage, mobileEditorFragment, navigationFragment, renderMarkdown, settingsPage, stripMarkdownForTitle } = require('../app/templates');
+const { autosaveConflictFragment, editorFragment, folderNotesPageFragment, layoutPage, loggedOutPage, mobileEditorFragment, mobileSearchFragment, navigationFragment, renderMarkdown, searchResultsFragment, settingsPage, stripMarkdownForTitle } = require('../app/templates');
 
 test('autosaveConflictFragment wires overwrite and create copy actions', () => {
 	const html = autosaveConflictFragment('n1');
@@ -345,4 +345,46 @@ test('styles color folders differently from notes', () => {
 	assert.ok(css.includes('.notelist-item-title {'));
 	assert.ok(css.includes('color: var(--accent);'));
 	assert.ok(css.includes('color: var(--text);'));
+});
+
+test('searchResultsFragment renders note items', () => {
+	const notes = [{ id: 'n1', title: 'My Note', body: '', bodyPreview: '', parentId: 'f1', deletedTime: 0 }];
+	const html = searchResultsFragment(notes);
+	assert.ok(html.includes('My Note'));
+	assert.ok(!html.includes('notelist-load-more'), 'no Load more when hasMore=false');
+});
+
+test('searchResultsFragment shows Load more when hasMore=true', () => {
+	const notes = [{ id: 'n1', title: 'My Note', body: '', bodyPreview: '', parentId: 'f1', deletedTime: 0 }];
+	const html = searchResultsFragment(notes, true, 50, 'hello world');
+	assert.ok(html.includes('notelist-load-more'));
+	assert.ok(html.includes('/fragments/search?q=hello%20world&offset=50'));
+	assert.ok(html.includes('hx-target="#notelist-items"'));
+});
+
+test('searchResultsFragment returns empty hint when no notes', () => {
+	const html = searchResultsFragment([]);
+	assert.ok(html.includes('No results'));
+	assert.ok(!html.includes('notelist-load-more'));
+});
+
+test('mobileSearchFragment renders note items', () => {
+	const notes = [{ id: 'n1', title: 'My Note', body: '', bodyPreview: '', parentId: 'f1', deletedTime: 0 }];
+	const html = mobileSearchFragment(notes);
+	assert.ok(html.includes('My Note'));
+	assert.ok(!html.includes('notelist-load-more'), 'no Load more when hasMore=false');
+});
+
+test('mobileSearchFragment shows Load more when hasMore=true', () => {
+	const notes = [{ id: 'n1', title: 'My Note', body: '', bodyPreview: '', parentId: 'f1', deletedTime: 0 }];
+	const html = mobileSearchFragment(notes, true, 50, 'cats');
+	assert.ok(html.includes('notelist-load-more'));
+	assert.ok(html.includes('/fragments/mobile/search?q=cats&offset=50'));
+	assert.ok(html.includes('hx-target="#mobile-search-results"'));
+});
+
+test('mobileSearchFragment returns empty hint when no notes', () => {
+	const html = mobileSearchFragment([]);
+	assert.ok(html.includes('No results found'));
+	assert.ok(!html.includes('notelist-load-more'));
 });

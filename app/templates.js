@@ -895,9 +895,16 @@ const renderMarkdown = (markdown) => {
 	return html;
 };
 
-const searchResultsFragment = (notes) => {
+const searchResultsFragment = (notes, hasMore = false, nextOffset = 0, query = '') => {
 	if (!notes.length) return '<div class="empty-hint">No results</div>';
-	return notes.map(n => noteListItem(n, '', 'search')).join('');
+	const items = notes.map(n => noteListItem(n, '', 'search')).join('');
+	if (!hasMore) return items;
+	const loadMore = `<button class="notelist-load-more"
+		hx-get="/fragments/search?q=${encodeURIComponent(query)}&offset=${nextOffset}"
+		hx-target="#notelist-items"
+		hx-swap="beforeend"
+		hx-on::after-request="this.remove()">Load more results&hellip;</button>`;
+	return items + loadMore;
 };
 
 // Full page
@@ -1920,12 +1927,19 @@ const mobileNotesFragment = (notes, folderId, folderTitle, hasMore = false, next
 	return items + loadMore;
 };
 
-const mobileSearchFragment = (notes) => {
+const mobileSearchFragment = (notes, hasMore = false, nextOffset = 0, query = '') => {
 	if (!notes.length) return '<div class="empty-hint" style="padding:24px 16px;text-align:center"><div style="font-size:40px;margin-bottom:8px">&#128269;</div><div>No results found</div></div>';
-	return notes.map(n => `<button class="mobile-note-row" data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}" onclick="window._pendingNoteSearchTerm=((document.getElementById('mobile-search-input')||{}).value||'').trim();mobilePushEditor(${escapeHtml(JSON.stringify(n.id))},${escapeHtml(JSON.stringify(n.parentId || ''))})">
+	const items = notes.map(n => `<button class="mobile-note-row" data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}" onclick="window._pendingNoteSearchTerm=((document.getElementById('mobile-search-input')||{}).value||'').trim();mobilePushEditor(${escapeHtml(JSON.stringify(n.id))},${escapeHtml(JSON.stringify(n.parentId || ''))})">
 		<span class="mobile-note-title">${escapeHtml(stripMarkdownForTitle(n.title || 'Untitled') || 'Untitled')}</span>
 		<span class="mobile-note-arrow">&#8250;</span>
 	</button>`).join('');
+	if (!hasMore) return items;
+	const loadMore = `<button class="notelist-load-more" style="padding:12px 16px"
+		hx-get="/fragments/mobile/search?q=${encodeURIComponent(query)}&offset=${nextOffset}"
+		hx-target="#mobile-search-results"
+		hx-swap="beforeend"
+		hx-on::after-request="this.remove()">Load more results&hellip;</button>`;
+	return items + loadMore;
 };
 
 

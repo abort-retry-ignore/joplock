@@ -1146,8 +1146,10 @@ Code block example
 
 				const query = url.searchParams.get('q') || '';
 				if (!query.trim()) { sendHtml(response, 200, ''); return; }
-				const notes = await itemService.searchNotes(auth.user.id, query);
-				sendHtml(response, 200, templates.searchResultsFragment(notes));
+				const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+				const notes = await itemService.searchNotes(auth.user.id, query, 50, offset);
+				const hasMore = notes.length === 50;
+				sendHtml(response, 200, templates.searchResultsFragment(notes, hasMore, offset + notes.length, query));
 			} catch (error) {
 				sendHtml(response, 500, '<div class="empty-hint">Search error</div>');
 			}
@@ -1226,8 +1228,10 @@ Code block example
 				const auth = await authenticatedUser(request);
 				if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return; }
 				const query = url.searchParams.get('q') || '';
-				const notes = query ? (await itemService.searchNotes(auth.user.id, query)).filter(n => !n.deletedTime) : [];
-				sendHtml(response, 200, templates.mobileSearchFragment(notes));
+				const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+				const notes = query ? await itemService.searchNotes(auth.user.id, query, 50, offset) : [];
+				const hasMore = notes.length === 50;
+				sendHtml(response, 200, templates.mobileSearchFragment(notes, hasMore, offset + notes.length, query));
 			} catch (error) {
 				sendHtml(response, 500, '<div class="empty-hint">Search error</div>');
 			}

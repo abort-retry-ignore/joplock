@@ -65,6 +65,19 @@ const ensureIndexes = async database => {
 		CREATE INDEX IF NOT EXISTS idx_items_owner_type_parent_updated
 		ON items (owner_id, jop_type, jop_parent_id, jop_updated_time DESC)
 	`);
+	// pg_trgm enables GIN trigram indexes for fast ILIKE body/title search
+	await database.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+	await database.query(`
+		CREATE INDEX IF NOT EXISTS idx_items_search_trgm
+		ON items
+		USING GIN (
+			(
+				COALESCE(convert_from(content, 'UTF8')::json->>'title', '') || ' ' ||
+				COALESCE(convert_from(content, 'UTF8')::json->>'body', '')
+			) gin_trgm_ops
+		)
+		WHERE jop_type = 1
+	`);
 };
 
 const createItemService = database => {
@@ -192,7 +205,7 @@ const createItemService = database => {
 			return result.rows.map(mapNoteHeaderRow);
 		},
 
-		async searchNotes(userId, query) {
+		async searchNotes(userId, query, limit = 50, offset = 0) {
 			if (!query || !query.trim()) return [];
 			const pattern = `%${query.trim()}%`;
 			const result = await database.query(`
@@ -212,8 +225,8 @@ const createItemService = database => {
 						) ILIKE $3
 					)
 				ORDER BY jop_updated_time DESC, created_time DESC
-				LIMIT 50
-			`, [userId, MODEL_TYPE_NOTE, pattern]);
+				LIMIT $4 OFFSET $5
+			`, [userId, MODEL_TYPE_NOTE, pattern, limit, offset]);
 
 			return result.rows.map(mapNoteRow);
 		},

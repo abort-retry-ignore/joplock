@@ -848,6 +848,38 @@ test('GET /fragments/search returns matching notes', async () => {
 	});
 });
 
+test('GET /fragments/search shows Load more when exactly 50 results returned', async () => {
+	await withServer({
+		itemService: {
+			searchNotes: async (_uid, _query, limit, offset) => {
+				assert.equal(limit, 50);
+				assert.equal(offset, 0);
+				return Array.from({ length: 50 }, (_, i) => ({ id: `n${i}`, title: `Note ${i}`, body: '', bodyPreview: '', parentId: 'f1' }));
+			},
+		},
+	}, async port => {
+		const res = await request(port, { path: '/fragments/search?q=test' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('notelist-load-more'), 'should include Load more button');
+		assert.ok(res.body.includes('/fragments/search?q=test&offset=50'), 'Load more URL should have offset=50');
+	});
+});
+
+test('GET /fragments/search passes offset to searchNotes', async () => {
+	let receivedOffset;
+	await withServer({
+		itemService: {
+			searchNotes: async (_uid, _query, _limit, offset) => {
+				receivedOffset = offset;
+				return [{ id: 'n1', title: 'Note', body: '', bodyPreview: '', parentId: 'f1' }];
+			},
+		},
+	}, async port => {
+		await request(port, { path: '/fragments/search?q=test&offset=50' });
+		assert.equal(receivedOffset, 50);
+	});
+});
+
 // --- Resource tests ---
 
 test('GET /resources/:id serves binary blob with correct content-type', async () => {

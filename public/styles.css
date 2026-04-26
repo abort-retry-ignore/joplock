@@ -1319,13 +1319,13 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .editor-preview ul, .editor-preview ol { padding-left: 1.5em; margin: 0.5em 0; }
 .editor-preview li { margin: 0.25em 0; }
 .editor-preview .md-checkbox {
-	margin: 0.05em 0;
+	margin: 0.25em 0;
 	display: flex;
 	align-items: baseline;
 	gap: 0.35em;
 }
 .editor-preview .md-checkbox.checked { text-decoration: line-through; color: var(--accent); opacity: 0.85; }
-.editor-preview .md-checkbox .md-cb-icon { font-size: 1.3em; font-weight: bold; text-decoration: none; flex-shrink: 0; }
+.editor-preview .md-checkbox .md-cb-icon { font-size: 1.1em; font-weight: bold; text-decoration: none; flex-shrink: 0; line-height: 1; }
 .editor-preview .md-checkbox.checked .md-cb-icon { color: var(--accent); opacity: 1; }
 .preview-img { max-width: 100%; border-radius: 6px; margin: 8px 0; cursor: default; }
 .editor-preview[contenteditable="true"] .preview-img { cursor: nwse-resize; border: 1px solid transparent; }

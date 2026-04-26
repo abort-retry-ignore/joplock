@@ -1324,7 +1324,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: baseline;
 	gap: 0.35em;
 }
-.editor-preview .md-checkbox.checked { color: var(--accent); opacity: 0.85; }
+.editor-preview .md-checkbox.checked { opacity: 0.85; }
 .editor-preview .md-checkbox .md-cb-icon { font-size: 1.1em; font-weight: bold; text-decoration: none; flex-shrink: 0; line-height: 1; }
 .editor-preview .md-checkbox.checked .md-cb-icon { color: var(--accent); opacity: 1; }
 .preview-img { max-width: 100%; border-radius: 6px; margin: 8px 0; cursor: default; }

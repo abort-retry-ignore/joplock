@@ -1089,7 +1089,7 @@ Code block example
 				response.writeHead(200, {
 					'Content-Type': mime,
 					'Content-Length': blob.length,
-					'Cache-Control': 'no-store',
+					'Cache-Control': 'public, max-age=31536000, immutable',
 					'Content-Disposition': disposition,
 				});
 				response.end(blob);

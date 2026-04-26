@@ -898,7 +898,7 @@ test('GET /resources/:id serves binary blob with correct content-type', async ()
 	}, async port => {
 		const res = await request(port, { path: '/resources/abcdef01234567890abcdef012345678' });
 		assert.equal(res.statusCode, 200);
-		assert.equal(res.headers['cache-control'], 'no-store');
+		assert.equal(res.headers['cache-control'], 'public, max-age=31536000, immutable');
 		assert.equal(res.headers['content-type'], 'image/png');
 		assert.equal(res.headers['content-disposition'], 'inline; filename="test.png"');
 		assert.ok(res.rawBody.equals(blobData));

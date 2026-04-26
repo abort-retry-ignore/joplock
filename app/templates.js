@@ -850,8 +850,8 @@ const renderMarkdown = (markdown) => {
 	html = html.replace(/\[([^\]]*)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
 	// Checkboxes
-	html = html.replace(/^- \[x\](?:\s+(.*))?$/gm, (_m, text) => `<div class="md-checkbox checked"><span class="md-cb-icon">&#9745;</span>&nbsp;${text || ''}</div>`);
-	html = html.replace(/^- \[ \](?:\s+(.*))?$/gm, (_m, text) => `<div class="md-checkbox"><span class="md-cb-icon">&#9744;</span>&nbsp;${text || ''}</div>`);
+	html = html.replace(/^- \[x\](?:\s+(.*))?$/gm, (_m, text) => `<div class="md-checkbox checked">&#9745;&nbsp;${text || ''}</div>`);
+	html = html.replace(/^- \[ \](?:\s+(.*))?$/gm, (_m, text) => `<div class="md-checkbox">&#9744;&nbsp;${text || ''}</div>`);
 
 	// Unordered lists
 	html = html.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');

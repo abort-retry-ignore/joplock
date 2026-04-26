@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { sessionIdFromHeaders } = require('./auth/cookies');
 const { generateSeed, otpauthUri, qrCodeDataUrl, verifyWithSeed } = require('./auth/mfaService');
 const { NOTE_PAGE_SIZE, VIRTUAL_ALL_NOTES_ID, VIRTUAL_TRASH_ID } = require('./items/itemService');
@@ -30,11 +31,25 @@ const send = (response, statusCode, body, headers = {}) => {
 	response.end(body);
 };
 
-const sendHtml = (response, statusCode, html) => {
-	send(response, statusCode, html, {
-		'Cache-Control': 'no-store',
-		'Content-Type': 'text/html; charset=utf-8',
-	});
+const _sendHtml = (response, statusCode, html, request = null, log = null) => {
+	const acceptEncoding = (request && request.headers && request.headers['accept-encoding']) || '';
+	if (acceptEncoding.includes('gzip') && html && html.length > 512) {
+		zlib.gzip(Buffer.from(html), (err, compressed) => {
+			if (err) {
+				if (log) log(`gzip error: ${err.message}, sending uncompressed`);
+				response.writeHead(statusCode, { 'Cache-Control': 'no-store', 'Content-Type': 'text/html; charset=utf-8' });
+				response.end(html);
+			} else {
+				if (log) log(`gzip ${html.length}b -> ${compressed.length}b (${Math.round((1 - compressed.length / html.length) * 100)}% reduction)`);
+				response.writeHead(statusCode, { 'Cache-Control': 'no-store', 'Content-Type': 'text/html; charset=utf-8', 'Content-Encoding': 'gzip' });
+				response.end(compressed);
+			}
+		});
+	} else {
+		if (log && html && html.length > 512) log(`gzip skipped (no accept-encoding: gzip from client)`);
+		response.writeHead(statusCode, { 'Cache-Control': 'no-store', 'Content-Type': 'text/html; charset=utf-8' });
+		response.end(html);
+	}
 };
 
 const sendJson = (response, statusCode, body) => {
@@ -370,6 +385,9 @@ Code block example
 			log(`${request.method} ${url.pathname} -> ${response.statusCode} (${Date.now() - reqStart}ms)`);
 			return origEnd(...args);
 		};
+
+		// Per-request sendHtml that automatically gzips when client supports it
+		const sendHtml = (res, statusCode, html) => _sendHtml(res, statusCode, html, request, log);
 
 		// --- Health check ---
 		if (url.pathname === '/health') {

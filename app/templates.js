@@ -892,6 +892,10 @@ const renderMarkdown = (markdown) => {
 		return `<pre spellcheck="false"><code${cls}>${escapeHtml(b.code)}</code></pre>`;
 	});
 
+	// Strip any hx-* attributes from rendered HTML to prevent htmx from
+	// processing user content (e.g. data: URI images or pasted HTML with htmx attrs)
+	html = html.replace(/\s+hx-[a-z-]+="[^"]*"/g, '');
+
 	return html;
 };
 

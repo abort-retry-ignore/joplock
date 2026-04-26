@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { sessionIdFromHeaders } = require('./auth/cookies');
 const { generateSeed, otpauthUri, qrCodeDataUrl, verifyWithSeed } = require('./auth/mfaService');
+const { NOTE_PAGE_SIZE, VIRTUAL_ALL_NOTES_ID, VIRTUAL_TRASH_ID } = require('./items/itemService');
 const templates = require('./templates');
 
 const contentTypes = {
@@ -134,11 +135,11 @@ const nextConflictCopyTitle = (title, existingTitles) => {
 const TRASH_FOLDER_ID = 'de1e7ede1e7ede1e7ede1e7ede1e7ede';
 const ALL_NOTES_FOLDER_ID = '__all_notes__';
 
-const allNotesFolder = notes => ({
+const allNotesFolder = count => ({
 	id: ALL_NOTES_FOLDER_ID,
 	parentId: '',
 	title: 'All Notes',
-	noteCount: notes.filter(note => !note.deletedTime).length,
+	noteCount: count,
 	createdTime: 0,
 	updatedTime: 0,
 	isVirtualAllNotes: true,
@@ -169,11 +170,11 @@ const contentDispositionFilename = value => `${value || 'attachment'}`.replace(/
 
 const shouldInlineResource = mime => /^(image\/.+|application\/pdf|text\/plain)$/i.test(`${mime || ''}`);
 
-const trashFolder = notes => ({
+const trashFolder = count => ({
 	id: TRASH_FOLDER_ID,
 	parentId: '',
 	title: 'Trash',
-	noteCount: notes.length,
+	noteCount: count,
 	createdTime: 0,
 	updatedTime: 0,
 });
@@ -235,14 +236,12 @@ const createServer = options => {
 	};
 
 	const navData = async userId => {
-		const [folders, notes, trashedNotes] = await Promise.all([
+		const [folders, counts] = await Promise.all([
 			itemService.foldersByUserId(userId),
-			itemService.noteHeadersByUserId(userId),
-			itemService.noteHeadersByUserId(userId, { deleted: 'only' }),
+			itemService.folderNoteCountsByUserId(userId),
 		]);
-		const allNotes = mapNavNotes(notes.concat(trashedNotes));
-		const allFolders = [allNotesFolder(notes)].concat(folders, [trashFolder(trashedNotes)]);
-		return { folders: allFolders, notes: allNotes };
+		const allFolders = [allNotesFolder(counts.get('__all__') || 0)].concat(folders, [trashFolder(counts.get('__trash__') || 0)]);
+		return { folders: allFolders, counts };
 	};
 
 	const ensureStarterContent = async (user, request) => {
@@ -815,8 +814,8 @@ Code block example
 					parentId: existing.parentId,
 				}, upstreamRequestContext(request));
 				const refreshed = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
-				const { folders, notes } = await navData(auth.user.id);
-				sendHtml(response, 200, `${templates.autosaveStatusFragment()}<div id="nav-panel" hx-swap-oob="innerHTML">${templates.navigationFragment(folders, notes, selectedFolderForNav(currentFolderId || existing.parentId), noteId, '', selectedFolderForNav(currentFolderId || existing.parentId))}</div><div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(refreshed || existing, folders.filter(f => f.id !== TRASH_FOLDER_ID), selectedFolderForNav(currentFolderId || existing.parentId))}</div>`);
+				const { folders, counts } = await navData(auth.user.id);
+				sendHtml(response, 200, `${templates.autosaveStatusFragment()}<div id="nav-panel" hx-swap-oob="innerHTML">${templates.navigationFragment(folders, counts, selectedFolderForNav(currentFolderId || existing.parentId), noteId, '', selectedFolderForNav(currentFolderId || existing.parentId))}</div><div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(refreshed || existing, folders.filter(f => f.id !== TRASH_FOLDER_ID), selectedFolderForNav(currentFolderId || existing.parentId))}</div>`);
 			} catch (error) {
 				sendHtml(response, error.statusCode || 500, `<span class="autosave-error">Restore failed: ${templates.escapeHtml(error.message || `${error}`)}</span>`);
 			}
@@ -834,8 +833,8 @@ Code block example
 				if (!title) { sendHtml(response, 400, '<div class="empty-hint">Folder title is required.</div>'); return; }
 
 				await itemWriteService.createFolder(auth.user.sessionId, { title, parentId: body.parentId || '' }, upstreamRequestContext(request));
-				const { folders, notes } = await navData(auth.user.id);
-				sendHtml(response, 200, templates.navigationFragment(folders, notes, '', ''));
+				const { folders, counts } = await navData(auth.user.id);
+				sendHtml(response, 200, templates.navigationFragment(folders, counts, '', ''));
 			} catch (error) {
 				sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 			}
@@ -849,8 +848,8 @@ Code block example
 
 				const folderId = decodeURIComponent(url.pathname.slice('/fragments/folders/'.length));
 				await itemWriteService.deleteFolder(auth.user.sessionId, folderId, upstreamRequestContext(request));
-				const { folders, notes } = await navData(auth.user.id);
-				sendHtml(response, 200, templates.navigationFragment(folders, notes, '', ''));
+				const { folders, counts } = await navData(auth.user.id);
+				sendHtml(response, 200, templates.navigationFragment(folders, counts, '', ''));
 			} catch (error) {
 				sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 			}
@@ -871,8 +870,8 @@ Code block example
 				if (!existingFolder) { sendHtml(response, 404, '<div class="empty-hint">Folder not found.</div>'); return; }
 
 				await itemWriteService.updateFolder(auth.user.sessionId, existingFolder, { title }, upstreamRequestContext(request));
-				const { folders, notes } = await navData(auth.user.id);
-				sendHtml(response, 200, templates.navigationFragment(folders, notes, folderId, ''));
+				const { folders, counts } = await navData(auth.user.id);
+				sendHtml(response, 200, templates.navigationFragment(folders, counts, folderId, ''));
 			} catch (error) {
 				sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 			}
@@ -888,9 +887,32 @@ Code block example
 				const rawQuery = url.searchParams.get('q') || '';
 				const query = rawQuery.trim();
 				const data = await navData(auth.user.id);
-				const notes = query ? mapNavNotes(await itemService.searchNotes(auth.user.id, query)) : data.notes;
+				// In search mode, pass a notes array; otherwise pass counts Map for lazy loading
+				const notesOrCounts = query ? mapNavNotes(await itemService.searchNotes(auth.user.id, query)) : data.counts;
 				const navFolders = data.folders;
-				sendHtml(response, 200, templates.navigationFragment(navFolders, notes, '', '', rawQuery));
+				sendHtml(response, 200, templates.navigationFragment(navFolders, notesOrCounts, '', '', rawQuery));
+			} catch (error) {
+				sendHtml(response, 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
+			}
+			return;
+		}
+
+		// --- htmx fragment: lazy-load notes for a folder ---
+		if (url.pathname === '/fragments/folder-notes' && request.method === 'GET') {
+			try {
+				const auth = await authenticatedUser(request);
+				if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return; }
+
+				const folderId = url.searchParams.get('folderId') || '__all__';
+				const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+				const selectedNoteId = url.searchParams.get('selectedNoteId') || '';
+				const notes = await itemService.noteHeadersByFolder(auth.user.id, folderId, NOTE_PAGE_SIZE, offset);
+				const counts = await itemService.folderNoteCountsByUserId(auth.user.id);
+				const virtualId = folderId === '__all__' ? VIRTUAL_ALL_NOTES_ID : (folderId === '__trash__' ? VIRTUAL_TRASH_ID : folderId);
+				const totalCount = counts.get(virtualId) || counts.get(folderId) || 0;
+				const hasMore = offset + notes.length < totalCount;
+				const contextFolderId = folderId === '__all__' ? VIRTUAL_ALL_NOTES_ID : folderId;
+				sendHtml(response, 200, templates.folderNotesPageFragment(notes, contextFolderId, selectedNoteId, hasMore, offset + notes.length, totalCount));
 			} catch (error) {
 				sendHtml(response, 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 			}
@@ -913,11 +935,11 @@ Code block example
 					parentId,
 				}, upstreamRequestContext(request));
 
-				const [{ folders, notes }, note] = await Promise.all([
+				const [{ folders, counts }, note] = await Promise.all([
 					navData(auth.user.id),
 					itemService.noteByUserIdAndJopId(auth.user.id, created.id),
 				]);
-				sendHtml(response, 200, `${templates.navigationFragment(folders, notes, selectedFolderForNav(currentFolderId), created.id, '', selectedFolderForNav(currentFolderId))}<div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(note, folders.filter(folder => folder.id !== TRASH_FOLDER_ID), selectedFolderForNav(currentFolderId))}</div>`);
+				sendHtml(response, 200, `${templates.navigationFragment(folders, counts, selectedFolderForNav(currentFolderId), created.id, '', selectedFolderForNav(currentFolderId))}<div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(note, folders.filter(folder => folder.id !== TRASH_FOLDER_ID), selectedFolderForNav(currentFolderId))}</div>`);
 			} catch (error) {
 				sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 			}
@@ -943,11 +965,11 @@ Code block example
 					parentId: general.id,
 				}, upstreamRequestContext(request));
 
-				const [{ folders: navFolders, notes }, note] = await Promise.all([
+				const [{ folders: navFolders, counts }, note] = await Promise.all([
 					navData(auth.user.id),
 					itemService.noteByUserIdAndJopId(auth.user.id, created.id),
 				]);
-				sendHtml(response, 200, `${templates.navigationFragment(navFolders, notes, selectedFolderForNav(general.id), created.id, '', selectedFolderForNav(general.id))}<div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(note, navFolders.filter(f => f.id !== TRASH_FOLDER_ID), selectedFolderForNav(general.id))}</div>`);
+				sendHtml(response, 200, `${templates.navigationFragment(navFolders, counts, selectedFolderForNav(general.id), created.id, '', selectedFolderForNav(general.id))}<div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(note, navFolders.filter(f => f.id !== TRASH_FOLDER_ID), selectedFolderForNav(general.id))}</div>`);
 			} catch (error) {
 				sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 			}
@@ -968,8 +990,8 @@ Code block example
 				} else {
 					await itemWriteService.trashNote(auth.user.sessionId, existing, upstreamRequestContext(request));
 				}
-				const { folders, notes } = await navData(auth.user.id);
-				sendHtml(response, 200, `${templates.navigationFragment(folders, notes, TRASH_FOLDER_ID, '')}<div id="editor-panel" hx-swap-oob="innerHTML"><div class="editor-empty">Select a note</div></div>`);
+				const { folders, counts } = await navData(auth.user.id);
+				sendHtml(response, 200, `${templates.navigationFragment(folders, counts, TRASH_FOLDER_ID, '')}<div id="editor-panel" hx-swap-oob="innerHTML"><div class="editor-empty">Select a note</div></div>`);
 			} catch (error) {
 				sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 			}
@@ -996,11 +1018,11 @@ Code block example
 					}
 				}
 				await itemWriteService.restoreNote(auth.user.sessionId, existing, restoreParentId, upstreamRequestContext(request));
-				const [{ folders: navFolders, notes }, restoredNote] = await Promise.all([
+				const [{ folders: navFolders, counts }, restoredNote] = await Promise.all([
 					navData(auth.user.id),
 					itemService.noteByUserIdAndJopId(auth.user.id, noteId),
 				]);
-				sendHtml(response, 200, `${templates.navigationFragment(navFolders, notes, restoreParentId, noteId, '', restoreParentId)}<div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(restoredNote, navFolders.filter(folder => folder.id !== TRASH_FOLDER_ID))}</div>`);
+				sendHtml(response, 200, `${templates.navigationFragment(navFolders, counts, restoreParentId, noteId, '', restoreParentId)}<div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(restoredNote, navFolders.filter(folder => folder.id !== TRASH_FOLDER_ID))}</div>`);
 			} catch (error) {
 				sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 			}
@@ -1015,8 +1037,8 @@ Code block example
 				for (const note of trashedNotes) {
 					await itemWriteService.deleteNote(auth.user.sessionId, note.id, upstreamRequestContext(request));
 				}
-				const { folders, notes } = await navData(auth.user.id);
-				sendHtml(response, 200, `${templates.navigationFragment(folders, notes, '', '')}<div id="editor-panel" hx-swap-oob="innerHTML"><div class="editor-empty">Select a note</div></div>`);
+				const { folders, counts } = await navData(auth.user.id);
+				sendHtml(response, 200, `${templates.navigationFragment(folders, counts, '', '')}<div id="editor-panel" hx-swap-oob="innerHTML"><div class="editor-empty">Select a note</div></div>`);
 			} catch (error) {
 				sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 			}
@@ -1137,11 +1159,11 @@ Code block example
 			try {
 				const auth = await authenticatedUser(request);
 				if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return; }
-				const [folders, notes] = await Promise.all([
+				const [folders, counts] = await Promise.all([
 					itemService.foldersByUserId(auth.user.id),
-					itemService.noteHeadersByUserId(auth.user.id),
+					itemService.folderNoteCountsByUserId(auth.user.id),
 				]);
-				sendHtml(response, 200, templates.mobileFoldersFragment(folders, notes));
+				sendHtml(response, 200, templates.mobileFoldersFragment(folders, counts));
 			} catch (error) {
 				sendHtml(response, 500, '<div class="empty-hint">Error</div>');
 			}
@@ -1153,12 +1175,13 @@ Code block example
 			try {
 				const auth = await authenticatedUser(request);
 				if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return; }
-				const folderId = url.searchParams.get('folderId') || '';
-				const notes = folderId === '__all__'
-					? await itemService.noteHeadersByUserId(auth.user.id)
-					: (await itemService.noteHeadersByUserId(auth.user.id)).filter(n => n.parentId === folderId);
-				const filtered = notes.filter(n => !n.deletedTime);
-				sendHtml(response, 200, templates.mobileNotesFragment(filtered, folderId));
+				const folderId = url.searchParams.get('folderId') || '__all__';
+				const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+				const notes = await itemService.noteHeadersByFolder(auth.user.id, folderId, NOTE_PAGE_SIZE, offset);
+				const counts = await itemService.folderNoteCountsByUserId(auth.user.id);
+				const totalCount = counts.get(folderId) || counts.get('__all__') || 0;
+				const hasMore = offset + notes.length < totalCount;
+				sendHtml(response, 200, templates.mobileNotesFragment(notes, folderId, '', hasMore, offset + notes.length));
 			} catch (error) {
 				sendHtml(response, 500, '<div class="empty-hint">Error</div>');
 			}
@@ -1181,14 +1204,15 @@ Code block example
 					if (general) folderId = general.id;
 				}
 				const note = await itemWriteService.createNote(auth.user.sessionId, { title: 'Untitled note', body: '', parentId: folderId }, upstreamRequestContext(request));
-				const notes = folderId && folderId !== '__all__'
-					? (await itemService.noteHeadersByUserId(auth.user.id)).filter(n => !n.deletedTime && n.parentId === folderId)
-					: (await itemService.noteHeadersByUserId(auth.user.id)).filter(n => !n.deletedTime);
+				const notes = await itemService.noteHeadersByFolder(auth.user.id, folderId || '__all__', NOTE_PAGE_SIZE, 0);
+				const counts = await itemService.folderNoteCountsByUserId(auth.user.id);
+				const totalCount = folderId && folderId !== '__all__' ? (counts.get(folderId) || 0) : (counts.get('__all__') || 0);
+				const hasMore = notes.length < totalCount;
 				response.writeHead(200, {
 					'Content-Type': 'text/html; charset=utf-8',
 					'X-Mobile-Note-Id': note.id || '',
 				});
-				response.end(templates.mobileNotesFragment(notes, folderId));
+				response.end(templates.mobileNotesFragment(notes, folderId, '', hasMore, notes.length));
 			} catch (error) {
 				console.error('[mobile] notes/new error:', error);
 				sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error && (error.message || `${error}`) || 'creating note')}</div>`);
@@ -1248,18 +1272,20 @@ Code block example
 				if (!existing) { sendHtml(response, 404, '<span class="autosave-error">Note not found</span>'); return; }
 				const currentFolderId = `${body.currentFolderId || body.parentId || existing.parentId || ''}`;
 				if (createCopy) {
-					const [{ folders, notes }] = await Promise.all([
+					const parentFolderId = body.parentId || existing.parentId || '';
+					const [{ folders, counts }, siblingNotes] = await Promise.all([
 						navData(auth.user.id),
+						itemService.noteHeadersByFolder(auth.user.id, parentFolderId || '__all__', 500, 0),
 					]);
-					const copyTitle = nextConflictCopyTitle(plainNoteTitle(body.title), notes.map(note => note.title));
+					const copyTitle = nextConflictCopyTitle(plainNoteTitle(body.title), siblingNotes.map(note => note.title));
 					const created = await itemWriteService.createNote(auth.user.sessionId, {
 						title: copyTitle,
 						body: body.body,
-						parentId: body.parentId || existing.parentId,
+						parentId: parentFolderId,
 					}, upstreamRequestContext(request));
 					const createdNote = await itemService.noteByUserIdAndJopId(auth.user.id, created.id);
-					await saveLastNoteState(settingsService, auth.user.id, currentSettings, created.id, currentFolderId || (createdNote && createdNote.parentId) || body.parentId || existing.parentId);
-					sendHtml(response, 200, `${templates.autosaveStatusFragment()}<div id="nav-panel" hx-swap-oob="innerHTML">${templates.navigationFragment(folders, notes.concat([{ id: created.id, title: copyTitle, parentId: body.parentId || existing.parentId, updatedTime: createdNote ? createdNote.updatedTime : 0, deletedTime: 0 }]), selectedFolderForNav(currentFolderId), created.id, '', selectedFolderForNav(currentFolderId))}</div><div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(createdNote, folders.filter(folder => folder.id !== TRASH_FOLDER_ID), selectedFolderForNav(currentFolderId))}</div>`);
+					await saveLastNoteState(settingsService, auth.user.id, currentSettings, created.id, currentFolderId || (createdNote && createdNote.parentId) || parentFolderId);
+					sendHtml(response, 200, `${templates.autosaveStatusFragment()}<div id="nav-panel" hx-swap-oob="innerHTML">${templates.navigationFragment(folders, counts, selectedFolderForNav(currentFolderId), created.id, '', selectedFolderForNav(currentFolderId))}</div><div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(createdNote, folders.filter(folder => folder.id !== TRASH_FOLDER_ID), selectedFolderForNav(currentFolderId))}</div>`);
 					return;
 				}
 				if (!forceSave && baseUpdatedTime && Number(existing.updatedTime || 0) !== baseUpdatedTime) {
@@ -1283,8 +1309,8 @@ Code block example
 				const needsNav = titleChanged || folderChanged;
 				let navOob = '';
 				if (needsNav) {
-					const { folders, notes } = await navData(auth.user.id);
-					navOob = `<div id="nav-panel" hx-swap-oob="innerHTML">${templates.navigationFragment(folders, notes, selectedFolderForNav(currentFolderId), noteId, '', selectedFolderForNav(currentFolderId))}</div>`;
+					const { folders, counts } = await navData(auth.user.id);
+					navOob = `<div id="nav-panel" hx-swap-oob="innerHTML">${templates.navigationFragment(folders, counts, selectedFolderForNav(currentFolderId), noteId, '', selectedFolderForNav(currentFolderId))}</div>`;
 				}
 				sendHtml(response, 200, `${templates.autosaveStatusFragment()}${navOob}${templates.noteSyncStateFragment(refreshed || existing).replace('<span id="editor-sync-state">', '<span id="editor-sync-state" hx-swap-oob="outerHTML">')}${templates.noteMetaFragment(refreshed || existing).replace('<span id="note-meta"', '<span id="note-meta" hx-swap-oob="outerHTML"')}`);
 			} catch (error) {
@@ -1678,7 +1704,7 @@ Code block example
 				try {
 					await ensureStarterContent(auth.user, request);
 				} catch {}
-				let { folders, notes } = await navData(auth.user.id);
+				let { folders, counts } = await navData(auth.user.id);
 				let selectedFolderId = '';
 				let selectedNoteId = '';
 				let selectedNoteContextFolderId = null;
@@ -1710,7 +1736,7 @@ Code block example
 					settings,
 					mobileStartup,
 					mobileEditorContent,
-					navContent: templates.navigationFragment(folders, notes, selectedFolderId, selectedNoteId, '', selectedNoteContextFolderId),
+					navContent: templates.navigationFragment(folders, counts, selectedFolderId, selectedNoteId, '', selectedNoteContextFolderId),
 					editorContent,
 					joplinBasePath: joplinPublicBasePath,
 				}));
@@ -1737,11 +1763,11 @@ Code block example
 				return;
 			}
 			const settings = await userSettings(auth.user.id);
-			const { folders, notes } = await navData(auth.user.id);
+			const { folders, counts } = await navData(auth.user.id);
 			sendHtml(response, 200, templates.layoutPage({ debug,
 				user: auth.user,
 				settings,
-				navContent: templates.navigationFragment(folders, notes, '', ''),
+				navContent: templates.navigationFragment(folders, counts, '', ''),
 				joplinBasePath: joplinPublicBasePath,
 			}));
 		} catch (error) {

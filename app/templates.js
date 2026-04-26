@@ -178,18 +178,31 @@ const historySnapshotPreviewFragment = snapshot => {
 	return `<div class="history-snapshot-content"><pre class="history-snapshot-body">${escapeHtml(preview)}</pre></div>`;
 };
 
-const navigationFragment = (folders, notes, selectedFolderId, selectedNoteId, query = '', selectedNoteContextFolderId = null) => {
-	const notesByFolder = new Map();
-	for (const note of notes || []) {
-		const key = note.parentId || '';
-		if (!notesByFolder.has(key)) notesByFolder.set(key, []);
-		notesByFolder.get(key).push(note);
-	}
+// folderNotesPageFragment: renders a page of note items + optional "load more" button.
+// Used by /fragments/folder-notes for lazy loading.
+const folderNotesPageFragment = (notes, contextFolderId, selectedNoteId, hasMore, nextOffset, totalCount) => {
+	const items = (notes || []).map(n => noteListItem(n, selectedNoteId, contextFolderId, null)).join('');
+	if (!hasMore) return items || '<div class="empty-hint nav-empty">No notes</div>';
+	const remaining = totalCount - nextOffset;
+	const loadMoreBtn = `<button class="notelist-load-more"
+		hx-get="/fragments/folder-notes?folderId=${encodeURIComponent(contextFolderId)}&offset=${nextOffset}&selectedNoteId=${encodeURIComponent(selectedNoteId || '')}"
+		hx-target="closest .nav-folder-notes"
+		hx-swap="beforeend"
+		hx-on::after-request="this.remove()">Load ${Math.min(remaining, 100)} more&hellip;</button>`;
+	return (items || '<div class="empty-hint nav-empty">No notes</div>') + loadMoreBtn;
+};
+
+const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNoteId, query = '', selectedNoteContextFolderId = null) => {
+	// countsOrNotes is either a Map (lazy mode: counts per folder) or an array (search results mode).
+	const isSearchMode = Array.isArray(countsOrNotes);
+	const searchNotesList = isSearchMode ? countsOrNotes : [];
+	const counts = isSearchMode ? new Map() : (countsOrNotes || new Map());
+
 	const hasQuery = !!`${query || ''}`.trim();
 
-	const folderSections = hasQuery ? (() => {
-		const searchNotes = (notes || []).filter(n => !n.deletedTime);
-		const count = searchNotes.length;
+	const folderSections = (hasQuery && isSearchMode) ? (() => {
+		const results = searchNotesList.filter(n => !n.deletedTime);
+		const count = results.length;
 		if (!count) return '<div class="empty-hint">No results</div>';
 		return `<div class="nav-folder collapsed" data-folder-id="__search_results__" data-folder-title="Search Results" data-selected="1" data-all-notes="1">
 			<div class="nav-folder-row" onclick="toggleNavFolder('__search_results__')">
@@ -199,18 +212,22 @@ const navigationFragment = (folders, notes, selectedFolderId, selectedNoteId, qu
 				<span class="sidebar-item-count">${count}</span>
 			</div>
 			<div class="nav-folder-notes">
-				${searchNotes.map(n => noteListItem(n, selectedNoteId, '__search_results__', selectedNoteContextFolderId)).join('')}
+				${results.map(n => noteListItem(n, selectedNoteId, '__search_results__', selectedNoteContextFolderId)).join('')}
 			</div>
 		</div>`;
 	})() : (folders || []).map(folder => {
-		const folderNotes = folder.isVirtualAllNotes ? (notes || []).filter(note => !note.deletedTime && note.parentId !== trashFolderId) : (notesByFolder.get(folder.id) || []);
-		const isOpen = folder.id === selectedFolderId || folderNotes.some(n => n.id === selectedNoteId);
-		const count = folderNotes.length;
-		const isExpandable = !!count;
-		const isTrash = folder.id === trashFolderId;
+		const folderId = folder.id;
+		// Map folder ID to the counts key used in folderNoteCountsByUserId
+		const countKey = folder.isVirtualAllNotes ? '__all__' : (folderId === trashFolderId ? '__trash__' : folderId);
+		const count = counts.get(countKey) || folder.noteCount || 0;
+		const isOpen = folderId === selectedFolderId;
+		const isExpandable = count > 0;
+		const isTrash = folderId === trashFolderId;
 		const isAllNotes = !!folder.isVirtualAllNotes;
-		return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}" data-folder-id="${escapeHtml(folder.id)}" data-folder-title="${escapeHtml(folder.title || 'Untitled')}" data-selected="${isOpen ? '1' : ''}"${isAllNotes ? ' data-all-notes="1"' : ''}>
-			<div class="nav-folder-row"${isExpandable ? ` onclick="toggleNavFolder('${escapeHtml(folder.id)}')"` : ''}${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folder.id)}','${escapeHtml(folder.title || 'Untitled')}')"`}>
+		// For the selected folder that contains the open note, pre-populate is handled by JS on expand.
+		// data-selected-note is used by toggleNavFolder to know what to highlight.
+		return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folder.title || 'Untitled')}" data-selected="${isOpen ? '1' : ''}" data-note-count="${count}"${isAllNotes ? ' data-all-notes="1"' : ''}>
+			<div class="nav-folder-row"${isExpandable ? ` onclick="toggleNavFolder('${escapeHtml(folderId)}')"` : ''}${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folder.title || 'Untitled')}')"`}>
 				${isExpandable ? '<button type="button" class="nav-folder-toggle" tabindex="-1">&#9656;</button>' : '<span class="nav-folder-toggle nav-folder-toggle-placeholder"></span>'}
 				<span class="sidebar-item-icon">${isTrash ? '&#128465;' : (isAllNotes ? allNotesIcon : folderOutlineIcon)}</span>
 				<span class="nav-folder-title">${escapeHtml(folder.title || 'Untitled')}</span>
@@ -226,13 +243,12 @@ const navigationFragment = (folders, notes, selectedFolderId, selectedNoteId, qu
 					hx-swap="innerHTML"
 					hx-on:click="event.stopPropagation()">+</button>` : `<button type="button" class="btn-icon-sm nav-folder-add" title="New note"
 					hx-post="/fragments/notes"
-					hx-vals='${escapeHtml(JSON.stringify({ parentId: folder.id }))}'
+					hx-vals='${escapeHtml(JSON.stringify({ parentId: folderId }))}'
 					hx-target="#nav-panel"
 					hx-swap="innerHTML"
 					hx-on:click="event.stopPropagation()">+</button>`)}
 			</div>
-			<div class="nav-folder-notes">
-				${folderNotes.length ? folderNotes.map(n => noteListItem(n, selectedNoteId, folder.id, selectedNoteContextFolderId)).join('') : '<div class="empty-hint nav-empty">No notes</div>'}
+			<div class="nav-folder-notes" data-folder-id="${escapeHtml(folderId)}">
 			</div>
 		</div>`;
 	}).join('');
@@ -1103,7 +1119,22 @@ const layoutPage = (options = {}) => {
 	function submitFolderEdit(event){if(event)event.preventDefault();var input=document.getElementById('folder-edit-title');var title=input?input.value.trim():'';if(!_folderMenuState.id||!title)return false;htmx.ajax('PUT','/fragments/folders/'+encodeURIComponent(_folderMenuState.id),{target:'#nav-panel',swap:'innerHTML',values:{title:title}});closeFolderModal();return false}
 	function navFolderState(){try{return JSON.parse(localStorage.getItem('joplock-nav-folders')||'{}')}catch(e){return {}}}
 	function saveNavFolderState(s){localStorage.setItem('joplock-nav-folders',JSON.stringify(s))}
-	function toggleNavFolder(id,force){var el=document.querySelector('.nav-folder[data-folder-id="'+id.replace(/"/g,'\\"')+'"]');if(!el)return;var collapsed=force===undefined?!el.classList.contains('collapsed'):!force;el.classList.toggle('collapsed',collapsed);var s=navFolderState();s[id]=collapsed?'0':'1';saveNavFolderState(s)}
+	function toggleNavFolder(id,force){
+		var el=document.querySelector('.nav-folder[data-folder-id="'+id.replace(/"/g,'\\"')+'"]');
+		if(!el)return;
+		var collapsed=force===undefined?!el.classList.contains('collapsed'):!force;
+		el.classList.toggle('collapsed',collapsed);
+		var s=navFolderState();s[id]=collapsed?'0':'1';saveNavFolderState(s);
+		// Lazy-load notes on first expand
+		if(!collapsed){
+			var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');
+			if(notesDiv&&!notesDiv.getAttribute('data-loaded')){
+				notesDiv.setAttribute('data-loaded','1');
+				var folderId=notesDiv.getAttribute('data-folder-id');
+				htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'});
+			}
+		}
+	}
 	function getTA(){return queryActiveEditor('#note-body')}
 	function getPV(){var pv=queryActiveEditor('#note-preview');return pv&&pv.style.display!=='none'?pv:null}
 	function isMarkdownVisible(){var host=queryActiveEditor('#cm-host');return !!(host&&host.style.display!=='none')}
@@ -1350,7 +1381,8 @@ const layoutPage = (options = {}) => {
 	function searchNavStep(dir){if(_editorMode==='markdown'&&_cmSearchMatches.length){setCodeMirrorSearchActive(_searchMarkIdx+dir);return}if(!_searchMarks.length)return;_searchMarkIdx=(_searchMarkIdx+dir+_searchMarks.length)%_searchMarks.length;searchNavSetActive(_searchMarkIdx);searchNavShow(_searchMarks.length,_searchMarkIdx)}
 	function searchNavDismiss(){var bar=document.getElementById('search-nav-bar');var mobileCounter=document.getElementById('mobile-search-nav-counter');var mobilePrev=document.getElementById('mobile-search-prev-btn');var mobileNext=document.getElementById('mobile-search-next-btn');if(bar)bar.hidden=true;if(mobileCounter)mobileCounter.hidden=true;if(mobilePrev)mobilePrev.hidden=true;if(mobileNext)mobileNext.hidden=true;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);_searchMarks=[];_searchMarkIdx=0;clearCodeMirrorSearch()}
 	function highlightInPreview(pv,term){if(!pv||!term)return;_searchMarks=[];_searchMarkIdx=0;var walker=document.createTreeWalker(pv,NodeFilter.SHOW_TEXT,{acceptNode:function(n){return n.parentElement&&n.parentElement.closest('script,style,mark')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}},false);var nodes=[];var node;while((node=walker.nextNode()))nodes.push(node);var re=new RegExp(escapeRegex(term),'gi');nodes.forEach(function(n){var matches=[];var m;re.lastIndex=0;while((m=re.exec(n.textContent))!==null)matches.push({start:m.index,end:m.index+m[0].length});if(!matches.length)return;var frag=document.createDocumentFragment();var last=0;matches.forEach(function(r){if(r.start>last)frag.appendChild(document.createTextNode(n.textContent.slice(last,r.start)));var mark=document.createElement('mark');mark.className='search-highlight';mark.textContent=n.textContent.slice(r.start,r.end);_searchMarks.push(mark);frag.appendChild(mark);last=r.end});if(last<n.textContent.length)frag.appendChild(document.createTextNode(n.textContent.slice(last)));n.parentNode.replaceChild(frag,n)});if(_searchMarks.length){searchNavSetActive(0);searchNavShow(_searchMarks.length,0)}else{searchNavShow(0,0)}}
-	function initNavPanel(){_log('initNavPanel');var state=navFolderState();document.querySelectorAll('.nav-folder').forEach(function(el){var id=el.getAttribute('data-folder-id');var selected=el.getAttribute('data-selected')==='1';var open=state[id]===true||state[id]==='1'||state[id]===1;if(state[id]===undefined)open=el.getAttribute('data-all-notes')==='1';if(selected)open=true;el.classList.toggle('collapsed',!open)})}
+	function initNavPanel(){_log('initNavPanel');var state=navFolderState();document.querySelectorAll('.nav-folder').forEach(function(el){var id=el.getAttribute('data-folder-id');var selected=el.getAttribute('data-selected')==='1';var open=state[id]===true||state[id]==='1'||state[id]===1;if(state[id]===undefined)open=el.getAttribute('data-all-notes')==='1';if(selected)open=true;el.classList.toggle('collapsed',!open);// Lazy-load if expanded and not yet loaded
+		if(open){var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');if(notesDiv&&!notesDiv.getAttribute('data-loaded')){notesDiv.setAttribute('data-loaded','1');var folderId=notesDiv.getAttribute('data-folder-id');htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'})}}})}
 	document.body.addEventListener('htmx:afterSettle',function(){initNavPanel();initEditorPanel()});
 	document.body.addEventListener('htmx:beforeRequest',function(e){var elt=e.detail&&e.detail.elt;_log('htmx:beforeRequest',elt&&elt.id,elt&&elt.getAttribute&&elt.getAttribute('hx-get'),elt&&elt.getAttribute&&elt.getAttribute('hx-put'))});
 	document.body.addEventListener('htmx:afterRequest',function(e){var xhr=e.detail&&e.detail.xhr;_log('htmx:afterRequest',e.detail&&e.detail.successful,xhr&&xhr.status,xhr&&typeof xhr.responseText==='string'?xhr.responseText.slice(0,120):'');var elt=e.detail&&e.detail.elt;if(elt&&elt.id==='note-editor-form'&&e.detail.successful){snapshotHash();pushSnapshot();setSaveState('<span class="autosave-ok">Saved</span>','Saved');_log('afterRequest snapshotHash after save')}if(e.detail&&e.detail.successful&&document.body.classList.contains('is-offline')){clearOffline()}});
@@ -1837,14 +1869,21 @@ const mfaPage = (options = {}) => {
 </html>`;
 };
 
-const mobileFoldersFragment = (folders, notes) => {
-	const allCount = (notes || []).filter(n => !n.deletedTime).length;
-	const notesByFolder = new Map();
-	for (const note of notes || []) {
-		if (note.deletedTime) continue;
-		const key = note.parentId || '';
-		if (!notesByFolder.has(key)) notesByFolder.set(key, 0);
-		notesByFolder.set(key, notesByFolder.get(key) + 1);
+const mobileFoldersFragment = (folders, countsOrNotes) => {
+	// Accept either a Map (counts) or legacy notes array
+	let allCount, notesByFolder;
+	if (countsOrNotes instanceof Map) {
+		allCount = countsOrNotes.get('__all__') || 0;
+		notesByFolder = countsOrNotes;
+	} else {
+		const notes = countsOrNotes || [];
+		allCount = notes.filter(n => !n.deletedTime).length;
+		notesByFolder = new Map();
+		for (const note of notes) {
+			if (note.deletedTime) continue;
+			const key = note.parentId || '';
+			notesByFolder.set(key, (notesByFolder.get(key) || 0) + 1);
+		}
 	}
 	const allRow = `<button class="mobile-folder-row" onclick="mobilePushNotes('__all__','All Notes')">
 		<span class="mobile-folder-icon">${allNotesIcon}</span>
@@ -1866,12 +1905,19 @@ const mobileFoldersFragment = (folders, notes) => {
 	return `${allRow}${folderRows || '<div class="empty-hint" style="padding:24px 16px;text-align:center"><div style="font-size:40px;margin-bottom:8px">&#128193;</div><div>No notebooks yet</div><div style="font-size:12px;color:var(--text-muted);margin-top:4px">Create one in the desktop app</div></div>'}`;
 };
 
-const mobileNotesFragment = (notes, folderId, folderTitle) => {
+const mobileNotesFragment = (notes, folderId, folderTitle, hasMore = false, nextOffset = 0) => {
 	if (!notes.length) return '<div class="empty-hint" style="padding:24px 16px;text-align:center"><div style="font-size:40px;margin-bottom:8px">&#128221;</div><div>No notes yet</div><div style="font-size:12px;color:var(--text-muted);margin-top:4px">Tap + to create one</div></div>';
-	return notes.map(n => `<button class="mobile-note-row" data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}" onclick="mobilePushEditor(${escapeHtml(JSON.stringify(n.id))},${escapeHtml(JSON.stringify(folderId))})">
+	const items = notes.map(n => `<button class="mobile-note-row" data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}" onclick="mobilePushEditor(${escapeHtml(JSON.stringify(n.id))},${escapeHtml(JSON.stringify(folderId))})">
 		<span class="mobile-note-title">${escapeHtml(stripMarkdownForTitle(n.title || 'Untitled') || 'Untitled')}</span>
 		<span class="mobile-note-arrow">&#8250;</span>
 	</button>`).join('');
+	if (!hasMore) return items;
+	const loadMore = `<button class="notelist-load-more"
+		hx-get="/fragments/mobile/notes?folderId=${encodeURIComponent(folderId)}&offset=${nextOffset}"
+		hx-target="#mobile-notes-body"
+		hx-swap="beforeend"
+		hx-on::after-request="this.remove()">Load more&hellip;</button>`;
+	return items + loadMore;
 };
 
 const mobileSearchFragment = (notes) => {
@@ -1888,6 +1934,7 @@ module.exports = {
 	folderListItem,
 	folderListFragment,
 	navigationFragment,
+	folderNotesPageFragment,
 	noteListItem,
 	noteListFragment,
 	noteSyncStateFragment,

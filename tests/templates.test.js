@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const { autosaveConflictFragment, editorFragment, layoutPage, loggedOutPage, mobileEditorFragment, navigationFragment, renderMarkdown, settingsPage, stripMarkdownForTitle } = require('../app/templates');
+const { autosaveConflictFragment, editorFragment, folderNotesPageFragment, layoutPage, loggedOutPage, mobileEditorFragment, navigationFragment, renderMarkdown, settingsPage, stripMarkdownForTitle } = require('../app/templates');
 
 test('autosaveConflictFragment wires overwrite and create copy actions', () => {
 	const html = autosaveConflictFragment('n1');
@@ -48,29 +48,30 @@ test('navigationFragment shows trash folder empty action', () => {
 });
 
 test('navigationFragment shows virtual all notes without notebook actions', () => {
+	// In lazy mode, pass a counts Map — notes are NOT rendered inline
+	const counts = new Map([['__all__', 1], ['f1', 1], ['__trash__', 0]]);
 	const html = navigationFragment([
 		{ id: '__all_notes__', title: 'All Notes', parentId: '', isVirtualAllNotes: true },
 		{ id: 'f1', title: 'Folder 1', parentId: '' },
-	], [
-		{ id: 'n1', title: 'Note 1', parentId: 'f1', deletedTime: 0 },
-	], '__all_notes__', 'n1', '', '__all_notes__');
+	], counts, '__all_notes__', 'n1', '', '__all_notes__');
 	assert.ok(html.includes('All Notes'));
-	assert.ok(html.includes('note-item-__all_notes__-n1'));
-	assert.ok(html.includes('hx-get="/fragments/editor/n1?currentFolderId=__all_notes__"'));
 	assert.ok(!html.includes('openFolderContextMenu(event,\'__all_notes__\''));
 	assert.ok(!html.includes('hx-vals=\'{&quot;parentId&quot;:&quot;__all_notes__&quot;}\''));
 });
 
-test('navigationFragment only marks the selected note in the clicked context as active', () => {
-	const html = navigationFragment([
-		{ id: '__all_notes__', title: 'All Notes', parentId: '', isVirtualAllNotes: true },
-		{ id: 'f1', title: 'Folder 1', parentId: '' },
-	], [
-		{ id: 'n1', title: 'Note 1', parentId: 'f1', deletedTime: 0 },
-	], '__all_notes__', 'n1', '', '__all_notes__');
+test('navigationFragment only marks the selected note in the clicked context as active (folderNotesPageFragment)', () => {
+	// Notes are lazy-loaded; test folderNotesPageFragment directly
+	const html = folderNotesPageFragment(
+		[{ id: 'n1', title: 'Note 1', parentId: 'f1', deletedTime: 0 }],
+		'__all_notes__', 'n1', false, 1, 1,
+	);
 	assert.ok(html.includes('id="note-item-__all_notes__-n1" class="notelist-item active"'));
-	assert.ok(html.includes('id="note-item-f1-n1" class="notelist-item"'));
-	assert.ok(!html.includes('id="note-item-f1-n1" class="notelist-item active"'));
+	const html2 = folderNotesPageFragment(
+		[{ id: 'n1', title: 'Note 1', parentId: 'f1', deletedTime: 0 }],
+		'f1', '', false, 1, 1,
+	);
+	assert.ok(html2.includes('id="note-item-f1-n1" class="notelist-item"'));
+	assert.ok(!html2.includes('class="notelist-item active"'));
 });
 
 test('navigationFragment shows Search Results folder when query is active', () => {
@@ -190,10 +191,11 @@ test('stripMarkdownForTitle removes common markdown markers from titles', () => 
 });
 
 test('navigation and editor render plain note titles without markdown formatting', () => {
-	const navHtml = navigationFragment([{ id: 'f1', title: 'Folder 1', parentId: '' }], [{ id: 'n1', title: '# **Hello**', parentId: 'f1', deletedTime: 0 }], 'f1', 'n1');
+	// Nav no longer renders note items inline — test folderNotesPageFragment for note title stripping
+	const navNotesHtml = folderNotesPageFragment([{ id: 'n1', title: '# **Hello**', parentId: 'f1', deletedTime: 0 }], 'f1', 'n1', false, 1, 1);
 	const editorHtml = editorFragment({ id: 'n1', title: '# **Hello**', body: 'Body', parentId: 'f1', createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'Folder 1' }]);
-	assert.ok(navHtml.includes('>Hello<'));
-	assert.ok(!navHtml.includes('<strong>Hello</strong>'));
+	assert.ok(navNotesHtml.includes('>Hello<'));
+	assert.ok(!navNotesHtml.includes('<strong>Hello</strong>'));
 	assert.ok(editorHtml.includes('data-placeholder="Note title">Hello</div>'));
 	assert.ok(editorHtml.includes('value="Hello"'));
 });

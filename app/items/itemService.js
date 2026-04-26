@@ -56,6 +56,17 @@ const deletedFilterSql = mode => {
 	return ' AND COALESCE((convert_from(content, \'UTF8\')::json->>\'deleted_time\')::bigint, 0) = 0';
 };
 
+const NOTE_PAGE_SIZE = 100;
+const VIRTUAL_ALL_NOTES_ID = '__all__';
+const VIRTUAL_TRASH_ID = '__trash__';
+
+const ensureIndexes = async database => {
+	await database.query(`
+		CREATE INDEX IF NOT EXISTS idx_items_owner_type_parent_updated
+		ON items (owner_id, jop_type, jop_parent_id, jop_updated_time DESC)
+	`);
+};
+
 const createItemService = database => {
 	return {
 		async foldersByUserId(userId) {
@@ -117,6 +128,67 @@ const createItemService = database => {
 				ORDER BY jop_updated_time DESC, created_time DESC
 			`, [userId, MODEL_TYPE_NOTE]);
 
+			return result.rows.map(mapNoteHeaderRow);
+		},
+
+		// Returns a Map: folderId -> count (non-deleted notes).
+		// Special keys: '__all__' = total non-deleted, '__trash__' = total deleted.
+		async folderNoteCountsByUserId(userId) {
+			const [activeResult, trashResult] = await Promise.all([
+				database.query(`
+					SELECT jop_parent_id AS folder_id, COUNT(*) AS count
+					FROM items
+					WHERE owner_id = $1 AND jop_type = $2
+					  AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) = 0
+					GROUP BY jop_parent_id
+				`, [userId, MODEL_TYPE_NOTE]),
+				database.query(`
+					SELECT COUNT(*) AS count
+					FROM items
+					WHERE owner_id = $1 AND jop_type = $2
+					  AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) > 0
+				`, [userId, MODEL_TYPE_NOTE]),
+			]);
+			const counts = new Map();
+			let allCount = 0;
+			for (const row of activeResult.rows) {
+				const c = Number(row.count);
+				counts.set(row.folder_id, c);
+				allCount += c;
+			}
+			counts.set(VIRTUAL_ALL_NOTES_ID, allCount);
+			counts.set(VIRTUAL_TRASH_ID, Number(trashResult.rows[0]?.count || 0));
+			return counts;
+		},
+
+		// Paginated note headers for one folder (or virtual __all__ / __trash__).
+		async noteHeadersByFolder(userId, folderId, limit = NOTE_PAGE_SIZE, offset = 0) {
+			let where = `WHERE owner_id = $1 AND jop_type = $2`;
+			const params = [userId, MODEL_TYPE_NOTE];
+
+			if (folderId === VIRTUAL_TRASH_ID) {
+				where += ` AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) > 0`;
+			} else {
+				where += ` AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) = 0`;
+				if (folderId && folderId !== VIRTUAL_ALL_NOTES_ID) {
+					params.push(folderId);
+					where += ` AND jop_parent_id = $${params.length}`;
+				}
+			}
+
+			params.push(limit, offset);
+			const result = await database.query(`
+				SELECT
+					jop_id,
+					jop_parent_id,
+					jop_updated_time,
+					COALESCE(convert_from(content, 'UTF8')::json->>'title', '') AS title,
+					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time
+				FROM items
+				${where}
+				ORDER BY jop_updated_time DESC, created_time DESC
+				LIMIT $${params.length - 1} OFFSET $${params.length}
+			`, params);
 			return result.rows.map(mapNoteHeaderRow);
 		},
 
@@ -204,7 +276,11 @@ module.exports = {
 	MODEL_TYPE_NOTE,
 	MODEL_TYPE_RESOURCE,
 	TRASH_FOLDER_ID,
+	NOTE_PAGE_SIZE,
+	VIRTUAL_ALL_NOTES_ID,
+	VIRTUAL_TRASH_ID,
 	createItemService,
+	ensureIndexes,
 	decodeItemContent,
 	mapFolderRow,
 	mapNoteHeaderRow,

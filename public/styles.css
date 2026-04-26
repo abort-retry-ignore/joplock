@@ -914,6 +914,20 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	font-size: 11px;
 }
 
+.notelist-load-more {
+	display: block;
+	width: 100%;
+	padding: 6px 10px 6px 34px;
+	font-size: 11px;
+	color: var(--text-muted);
+	background: none;
+	border: none;
+	text-align: left;
+	cursor: pointer;
+	font-family: inherit;
+}
+.notelist-load-more:hover { color: var(--text-primary); background: var(--bg-hover); }
+
 /* Column 1: Sidebar (notebooks) */
 .col-sidebar {
 	width: 220px;

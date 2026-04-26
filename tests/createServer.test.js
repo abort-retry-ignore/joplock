@@ -61,6 +61,8 @@ const defaultMocks = (overrides = {}) => ({
 		folderByUserIdAndJopId: async () => null,
 		notesByUserId: async () => [],
 		noteHeadersByUserId: async () => [],
+		noteHeadersByFolder: async () => [],
+		folderNoteCountsByUserId: async () => new Map([['__all__', 0], ['__trash__', 0]]),
 		noteByUserIdAndJopId: async () => null,
 		searchNotes: async () => [],
 		resourceBlobByUserId: async () => null,
@@ -271,7 +273,6 @@ test('PUT /fragments/editor/:id autosaves and returns status', async () => {
 	await withServer({
 		itemService: {
 			noteByUserIdAndJopId: async () => { callCount += 1; return callCount === 1 ? existing : { ...existing, title: 'Updated Title', body: 'Updated body', updatedTime: 2000 }; },
-			noteHeadersByUserId: async (_uid, options = {}) => options.deleted === 'only' ? [] : [{ id: 'n1', title: 'Updated Title', parentId: 'f1', updatedTime: 2000, deletedTime: 0 }],
 			foldersByUserId: async () => [{ id: 'f1', title: 'Folder 1', parentId: '' }],
 		},
 		itemWriteService: {
@@ -289,8 +290,8 @@ test('PUT /fragments/editor/:id autosaves and returns status', async () => {
 		assert.ok(res.body.includes('id="nav-panel" hx-swap-oob="innerHTML"'), 'should refresh nav panel');
 		assert.ok(res.body.includes('id="editor-sync-state" hx-swap-oob="outerHTML"'));
 		assert.ok(res.body.includes('name="baseUpdatedTime" value="2000"'));
-		assert.ok(res.body.includes('id="note-item-__all_notes__-n1" class="notelist-item active"'));
-		assert.ok(!res.body.includes('id="note-item-f1-n1" class="notelist-item active"'));
+		// Nav now lazy-loads notes; folder rows are present but note items are fetched on demand
+		assert.ok(res.body.includes('Folder 1'));
 		assert.equal(savedUpdates.title, 'Updated Title');
 		assert.equal(savedUpdates.body, 'Updated body');
 	});
@@ -321,7 +322,7 @@ test('PUT /fragments/editor/:id can create copy on conflict', async () => {
 	await withServer({
 		itemService: {
 			noteByUserIdAndJopId: async (_uid, id) => id === 'n-copy' ? { id: 'n-copy', title: 'Updated Title-3', body: 'Updated body', parentId: 'f1', createdTime: 3000, updatedTime: 3000 } : { id: 'n1', title: 'Remote', body: 'Remote body', parentId: 'f1', createdTime: 1000, updatedTime: 2000 },
-			noteHeadersByUserId: async () => [
+			noteHeadersByFolder: async () => [
 				{ id: 'n1', title: 'Updated Title', parentId: 'f1', updatedTime: 1000 },
 				{ id: 'n2', title: 'Updated Title-1', parentId: 'f1', updatedTime: 1000 },
 				{ id: 'n3', title: 'Updated Title-2', parentId: 'f1', updatedTime: 1000 },
@@ -343,8 +344,8 @@ test('PUT /fragments/editor/:id can create copy on conflict', async () => {
 		assert.equal(createdArgs.title, 'Updated Title-3');
 		assert.equal(createdArgs.body, 'Updated body');
 		assert.ok(res.body.includes('id="nav-panel" hx-swap-oob="innerHTML"'));
-		assert.ok(res.body.includes('id="note-item-f1-n-copy"'));
-		assert.ok(res.body.includes('class="notelist-item active"'));
+		// Nav lazy-loads notes; folder is present but individual note items are fetched on demand
+		assert.ok(res.body.includes('Folder 1'));
 		assert.ok(res.body.includes('hx-put="/fragments/editor/n-copy"'));
 	});
 });
@@ -400,10 +401,6 @@ test('POST /fragments/notes selects created note and loads editor', async () => 
 			createNote: async () => ({ id: 'n-new' }),
 		},
 		itemService: {
-			noteHeadersByUserId: async () => [
-				{ id: 'n-old', title: 'Old Note', parentId: 'f1', updatedTime: 0 },
-				{ id: 'n-new', title: 'Untitled note', parentId: 'f1', updatedTime: 0 },
-			],
 			noteByUserIdAndJopId: async (_uid, id) => ({ id, title: 'Untitled note', body: '', parentId: 'f1', updatedTime: Date.now() }),
 			foldersByUserId: async () => [{ id: 'f1', title: 'Folder 1', parentId: '' }],
 		},
@@ -415,8 +412,8 @@ test('POST /fragments/notes selects created note and loads editor', async () => 
 			body: 'parentId=f1',
 		});
 		assert.equal(res.statusCode, 200);
-		assert.ok(res.body.includes('id="note-item-f1-n-new"'));
-		assert.ok(res.body.includes('class="notelist-item active"'));
+		// Nav lazy-loads notes; check folder is present and editor loaded for new note
+		assert.ok(res.body.includes('Folder 1'));
 		assert.ok(res.body.includes('id="editor-panel" hx-swap-oob="innerHTML"'));
 		assert.ok(res.body.includes('hx-put="/fragments/editor/n-new"'));
 	});
@@ -545,13 +542,13 @@ test('GET / resumes last edited note from server-side settings when enabled', as
 		},
 		itemService: {
 			foldersByUserId: async () => [{ id: 'f1', title: 'My Folder', parentId: '' }],
-			noteHeadersByUserId: async (_uid, options = {}) => options.deleted === 'only' ? [] : [{ id: 'n1', title: '# **Hello**', parentId: 'f1', updatedTime: 1000, deletedTime: 0 }],
 			noteByUserIdAndJopId: async () => ({ id: 'n1', title: '# **Hello**', body: 'Body', parentId: 'f1', createdTime: 1000, updatedTime: 1000, deletedTime: 0 }),
 		},
 	}, async port => {
 		const res = await request(port, { path: '/' });
 		assert.equal(res.statusCode, 200);
-		assert.ok(res.body.includes('id="note-item-__all_notes__-n1" class="notelist-item active"'));
+		// Nav lazy-loads notes; folder is present but note items are fetched on demand
+		assert.ok(res.body.includes('My Folder'));
 		assert.ok(res.body.includes('hx-put="/fragments/editor/n1"'));
 		assert.ok(res.body.includes('data-placeholder="Note title">Hello</div>'));
 		assert.ok(!res.body.includes('<strong>Hello</strong>'));

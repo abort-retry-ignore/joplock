@@ -1,7 +1,7 @@
 const path = require('path');
 const { createPoolFromEnv, createSessionService } = require('./app/auth/sessionService');
 
-const { createItemService } = require('./app/items/itemService');
+const { createItemService, ensureIndexes } = require('./app/items/itemService');
 const { createItemWriteService } = require('./app/items/itemWriteService');
 const { createSettingsService } = require('./app/settingsService');
 const { createHistoryService } = require('./app/historyService');
@@ -44,6 +44,11 @@ if (adminService) {
 		process.stderr.write(`[joplock] Admin bootstrap error: ${err.message}\n`);
 	});
 }
+
+// Create DB indexes (non-blocking, best-effort)
+ensureIndexes(databasePool).catch(err => {
+	process.stderr.write(`[joplock] Index creation error: ${err.message}\n`);
+});
 
 const server = createServer({
 	publicDir,

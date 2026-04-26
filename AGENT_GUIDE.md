@@ -380,3 +380,25 @@ Recommended inner loop:
 - tests passing in standalone repo
 - Docker build passing in standalone repo
 - full example compose verified with alternate free host ports
+- CI: GitHub Actions builds and pushes image to `ghcr.io` on every push to `master`
+
+## Recently Completed Work
+
+- **Lazy nav loading**: folder note lists load on first expand, not on page load
+- **Search pagination**: `pg_trgm` GIN index, paginated search results with Load More
+- **Mobile pagination**: paginated note lists on mobile
+- **Note flash fix**: eliminated redundant `/fragments/preview` fetch on note load
+- **Search input fix**: value captured at `htmx:beforeSwap` so characters typed during in-flight request are not lost
+- **Mobile spinner**: inline spinner in editor screen body instead of broken fixed overlay
+- **Tablet-on-phone fix**: CSS/JS breakpoint raised from 481px to 600px
+- **Gzip compression**: all HTML responses compressed via Node `zlib` when client sends `Accept-Encoding: gzip`
+- **hx-* sanitization**: `renderMarkdown()` strips `hx-*` attributes from user HTML to prevent htmx injection
+- **All Notes fix**: `/fragments/folder-notes` now normalizes `__all_notes__` → `__all__` so the virtual folder loads correctly
+- **Service worker cache bump**: `v12` forces PWA to fetch fresh CSS/JS after update
+- **Checkbox styling**: checked items show accent-colored bold icon via `.md-cb-icon` span; icon is styled independently from text using flexbox layout; turndown serializer, click-toggle handler, and new-checkbox inserter all updated to match
+
+## Key Conventions
+
+- `plans/` is gitignored — do not commit plan files
+- Do not push to remote unless the user explicitly asks
+- Run `npm test` before every commit

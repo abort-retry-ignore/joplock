@@ -924,12 +924,13 @@ Code block example
 				const folderId = url.searchParams.get('folderId') || '__all__';
 				const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
 				const selectedNoteId = url.searchParams.get('selectedNoteId') || '';
-				const notes = await itemService.noteHeadersByFolder(auth.user.id, folderId, NOTE_PAGE_SIZE, offset);
+				const normalizedFolderId = (folderId === ALL_NOTES_FOLDER_ID) ? VIRTUAL_ALL_NOTES_ID : folderId;
+				const notes = await itemService.noteHeadersByFolder(auth.user.id, normalizedFolderId, NOTE_PAGE_SIZE, offset);
 				const counts = await itemService.folderNoteCountsByUserId(auth.user.id);
-				const virtualId = folderId === '__all__' ? VIRTUAL_ALL_NOTES_ID : (folderId === '__trash__' ? VIRTUAL_TRASH_ID : folderId);
-				const totalCount = counts.get(virtualId) || counts.get(folderId) || 0;
+				const virtualId = normalizedFolderId === VIRTUAL_ALL_NOTES_ID ? VIRTUAL_ALL_NOTES_ID : (normalizedFolderId === VIRTUAL_TRASH_ID ? VIRTUAL_TRASH_ID : normalizedFolderId);
+				const totalCount = counts.get(virtualId) || counts.get(normalizedFolderId) || 0;
 				const hasMore = offset + notes.length < totalCount;
-				const contextFolderId = folderId === '__all__' ? VIRTUAL_ALL_NOTES_ID : folderId;
+				const contextFolderId = normalizedFolderId === VIRTUAL_ALL_NOTES_ID ? VIRTUAL_ALL_NOTES_ID : normalizedFolderId;
 				sendHtml(response, 200, templates.folderNotesPageFragment(notes, contextFolderId, selectedNoteId, hasMore, offset + notes.length, totalCount));
 			} catch (error) {
 				sendHtml(response, 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);

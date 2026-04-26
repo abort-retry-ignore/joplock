@@ -28,9 +28,8 @@ const request = (port, options = {}) => {
 			res.on('end', () => {
 				const buf = Buffer.concat(chunks);
 				resolve({ statusCode: res.statusCode, body: buf.toString('utf8'), rawBody: buf, headers: res.headers });
-			});
-		});
-		req.on('error', reject);
+	});
+});
 		if (rawBody) {
 			req.write(rawBody);
 		} else if (body) {
@@ -1359,5 +1358,21 @@ test('POST /settings/profile updates profile', async () => {
 		assert.equal(res.statusCode, 302);
 		assert.ok(res.headers.location.includes('saved=1'));
 		assert.ok(dbUpdated);
+	});
+});
+
+test('GET /fragments/folder-notes with __all_notes__ returns all notes', async () => {
+	await withServer({
+		itemService: {
+			noteHeadersByFolder: async (_uid, folderId) => folderId === '__all__' ? [
+				{ id: 'n1', title: 'Note 1', parentId: 'f1', updatedTime: 0 },
+				{ id: 'n2', title: 'Note 2', parentId: 'f2', updatedTime: 0 },
+			] : [],
+		},
+	}, async port => {
+		const res = await request(port, { path: '/fragments/folder-notes?folderId=__all_notes__' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('Note 1'));
+		assert.ok(res.body.includes('Note 2'));
 	});
 });

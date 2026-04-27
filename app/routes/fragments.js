@@ -24,7 +24,8 @@ const handle = async (url, request, response, ctx) => {
 			const title = `${body.title || ''}`.trim();
 			if (!title) { sendHtml(response, 400, '<div class="empty-hint">Folder title is required.</div>'); return true; }
 			await itemWriteService.createFolder(auth.user.sessionId, { title, parentId: body.parentId || '' }, upstreamRequestContext(request));
-			sendHtml(response, 200, await rebuildNavOob(navData, auth.user.id, '', ''));
+			const { folders: fFolders, counts: fCounts } = await navData(auth.user.id);
+			sendHtml(response, 200, templates.navigationFragment(fFolders, fCounts, '', ''));
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 		}
@@ -38,7 +39,8 @@ const handle = async (url, request, response, ctx) => {
 			if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return true; }
 			const folderId = decodeURIComponent(url.pathname.slice('/fragments/folders/'.length));
 			await itemWriteService.deleteFolder(auth.user.sessionId, folderId, upstreamRequestContext(request));
-			sendHtml(response, 200, await rebuildNavOob(navData, auth.user.id, '', ''));
+			const { folders: dfFolders, counts: dfCounts } = await navData(auth.user.id);
+			sendHtml(response, 200, templates.navigationFragment(dfFolders, dfCounts, '', ''));
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 		}
@@ -58,7 +60,8 @@ const handle = async (url, request, response, ctx) => {
 			const existingFolder = await itemService.folderByUserIdAndJopId(auth.user.id, folderId);
 			if (!existingFolder) { sendHtml(response, 404, '<div class="empty-hint">Folder not found.</div>'); return true; }
 			await itemWriteService.updateFolder(auth.user.sessionId, existingFolder, { title }, upstreamRequestContext(request));
-			sendHtml(response, 200, await rebuildNavOob(navData, auth.user.id, folderId, ''));
+			const { folders: ufFolders, counts: ufCounts } = await navData(auth.user.id);
+			sendHtml(response, 200, templates.navigationFragment(ufFolders, ufCounts, folderId, ''));
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 		}
@@ -90,7 +93,7 @@ const handle = async (url, request, response, ctx) => {
 			const folderId = url.searchParams.get('folderId') || '__all__';
 			const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
 			const selectedNoteId = url.searchParams.get('selectedNoteId') || '';
-			const normalizedFolderId = (folderId === ALL_NOTES_FOLDER_ID) ? VIRTUAL_ALL_NOTES_ID : folderId;
+			const normalizedFolderId = (folderId === ALL_NOTES_FOLDER_ID) ? VIRTUAL_ALL_NOTES_ID : (folderId === TRASH_FOLDER_ID ? VIRTUAL_TRASH_ID : folderId);
 			const notes = await itemService.noteHeadersByFolder(auth.user.id, normalizedFolderId, NOTE_PAGE_SIZE, offset);
 			const counts = await itemService.folderNoteCountsByUserId(auth.user.id);
 			const virtualId = normalizedFolderId === VIRTUAL_ALL_NOTES_ID ? VIRTUAL_ALL_NOTES_ID : (normalizedFolderId === VIRTUAL_TRASH_ID ? VIRTUAL_TRASH_ID : normalizedFolderId);
@@ -178,8 +181,9 @@ const handle = async (url, request, response, ctx) => {
 			} else {
 				await itemWriteService.trashNote(auth.user.sessionId, existing, upstreamRequestContext(request));
 			}
+			const { folders, counts } = await navData(auth.user.id);
 			sendHtml(response, 200,
-				`${await rebuildNavOob(navData, auth.user.id, TRASH_FOLDER_ID, '')}` +
+				templates.navigationFragment(folders, counts, TRASH_FOLDER_ID, '') +
 				editorEmpty()
 			);
 		} catch (error) {
@@ -232,8 +236,9 @@ const handle = async (url, request, response, ctx) => {
 			for (const note of trashedNotes) {
 				await itemWriteService.deleteNote(auth.user.sessionId, note.id, upstreamRequestContext(request));
 			}
+			const { folders, counts } = await navData(auth.user.id);
 			sendHtml(response, 200,
-				`${await rebuildNavOob(navData, auth.user.id, '', '')}` +
+				templates.navigationFragment(folders, counts, '', '') +
 				editorEmpty()
 			);
 		} catch (error) {

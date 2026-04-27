@@ -299,15 +299,15 @@ Code block example
 				if (settings && settings.resumeLastNote && settings.lastNoteId) {
 					const resumed = await itemService.noteByUserIdAndJopId(auth.user.id, settings.lastNoteId, { deleted: 'all' });
 					if (resumed && !resumed.deletedTime) {
-						const resumeFolderId = normalizeStoredFolderId(settings.lastNoteFolderId || resumed.parentId || '');
-						selectedFolderId = selectedFolderForNav(resumeFolderId || resumed.parentId || '');
+						const noteFolderId = resumed.parentId || '';
+						selectedFolderId = noteFolderId;
 						selectedNoteId = resumed.id;
-						selectedNoteContextFolderId = selectedFolderId || null;
-						editorContent = templates.editorFragment(resumed, folders.filter(f => f.id !== TRASH_FOLDER_ID), selectedFolderId || resumed.parentId);
-						mobileEditorContent = templates.mobileEditorFragment(resumed, folders.filter(f => f.id !== TRASH_FOLDER_ID), selectedFolderId || resumed.parentId);
+						selectedNoteContextFolderId = noteFolderId || null;
+						editorContent = templates.editorFragment(resumed, folders.filter(f => f.id !== TRASH_FOLDER_ID), noteFolderId);
+						mobileEditorContent = templates.mobileEditorFragment(resumed, folders.filter(f => f.id !== TRASH_FOLDER_ID), noteFolderId);
 						mobileStartup = {
-							folderId: selectedFolderId || resumed.parentId || '',
-							folderTitle: selectedFolderId === ALL_NOTES_FOLDER_ID ? 'All Notes' : ((folders.find(f => f.id === (selectedFolderId || resumed.parentId || '')) || {}).title || 'Notes'),
+							folderId: noteFolderId,
+							folderTitle: (folders.find(f => f.id === noteFolderId) || {}).title || 'Notes',
 							noteId: resumed.id,
 							noteTitle: plainNoteTitle(resumed.title),
 						};

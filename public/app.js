@@ -413,26 +413,146 @@ function highlightInPreview(pv,term){if(!pv||!term)return;_searchMarks=[];_searc
 function initNavPanel(){_log('initNavPanel');var state=navFolderState();document.querySelectorAll('.nav-folder').forEach(function(el){var id=el.getAttribute('data-folder-id');var selected=el.getAttribute('data-selected')==='1';var open=state[id]===true||state[id]==='1'||state[id]===1;if(state[id]===undefined)open=el.getAttribute('data-all-notes')==='1';if(selected)open=true;el.classList.toggle('collapsed',!open);// Lazy-load if expanded and not yet loaded
 	if(open){var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');if(notesDiv&&!notesDiv.getAttribute('data-loaded')){notesDiv.setAttribute('data-loaded','1');var folderId=notesDiv.getAttribute('data-folder-id');htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'})}}})}
 document.body.addEventListener('htmx:afterSettle',function(){initNavPanel();initEditorPanel()});
+document.body.addEventListener('htmx:confirm',function(e){var elt=e.detail&&e.detail.elt;if(!elt)return;var msg=elt.getAttribute('data-confirm-trash');if(msg){e.preventDefault();if(window._s&&!window._s.confirmTrash){e.detail.issueRequest(true);return}if(confirm(msg))e.detail.issueRequest(true)}});
 function showNoteOverlay(){var o=document.getElementById('note-loading-overlay');if(o)o.classList.add('active')}
 function hideNoteOverlay(){var o=document.getElementById('note-loading-overlay');if(o)o.classList.remove('active')}
 document.body.addEventListener('click',function(e){var btn=e.target.closest('.notelist-item');if(btn&&!e.defaultPrevented)showNoteOverlay()},true);
 document.body.addEventListener('htmx:beforeRequest',function(e){var elt=e.detail&&e.detail.elt;_log('htmx:beforeRequest',elt&&elt.id,elt&&elt.getAttribute&&elt.getAttribute('hx-get'),elt&&elt.getAttribute&&elt.getAttribute('hx-put'));});
 document.body.addEventListener('htmx:afterRequest',function(e){var xhr=e.detail&&e.detail.xhr;_log('htmx:afterRequest',e.detail&&e.detail.successful,xhr&&xhr.status,xhr&&typeof xhr.responseText==='string'?xhr.responseText.slice(0,120):'');var elt=e.detail&&e.detail.elt;if(elt&&elt.classList&&elt.classList.contains('notelist-item')&&!e.detail.successful)hideNoteOverlay();if(elt&&elt.id==='note-editor-form'&&e.detail.successful){snapshotHash();pushSnapshot();setSaveState('<span class="autosave-ok">Saved</span>','Saved');_log('afterRequest snapshotHash after save')}if(e.detail&&e.detail.successful&&document.body.classList.contains('is-offline')){clearOffline()}});
 document.body.addEventListener('htmx:afterSwap',function(e){var target=e.detail&&e.detail.target;_log('htmx:afterSwap',target&&target.id);if(target&&target.id==='editor-panel'){hideNoteOverlay();if(_cmView){_cmView.destroy();_cmView=null}_searchMarks=[];_searchMarkIdx=0}});
-function showOffline(){setSaveState('<span class="autosave-offline">Offline</span>','Offline');document.body.classList.add('is-offline');_log('offline indicator shown')}
+function showOffline(){setSaveState('<span class="autosave-offline">Offline</span>','Offline');document.body.classList.add('is-offline');_log('offline indicator shown');showDisconnected()}
 function clearOffline(){document.body.classList.remove('is-offline');_log('offline indicator cleared')}
 document.body.addEventListener('htmx:sendError',function(e){var elt=e.detail&&e.detail.elt;_log('htmx:sendError',elt&&elt.id);if(elt&&elt.id==='note-editor-form')showOffline()});
 document.body.addEventListener('htmx:responseError',function(e){var elt=e.detail&&e.detail.elt;var xhr=e.detail&&e.detail.xhr;_log('htmx:responseError',elt&&elt.id,xhr&&xhr.status);if(xhr&&xhr.status===401){_log('htmx 401, session invalid, logging out');window.location.assign('/logout');return;}if(elt&&elt.id==='note-editor-form')showOffline()});
-window.addEventListener('online',function(){_log('browser online event');if(document.body.classList.contains('is-offline')){var s=document.getElementById('autosave-status');var dirty=s&&s.querySelector('.autosave-edited');if(dirty){scheduleSave()}else if(s){setSaveState('<span class="autosave-ok">Reconnected</span>','Saved')}clearOffline()}});
+// --- Disconnected overlay (server unreachable) ---
+var _dcFailCount=0;
+var _dcFailThreshold=1;
+var _dcRetryIntervalSec=15;
+var _dcRetryCountdown=0;
+var _dcRetryTimer=null;
+var _dcOverlay=null;
+var _dcVisible=false;
+
+function _createDcOverlay(){
+	if(_dcOverlay)return _dcOverlay;
+	var o=document.createElement('div');
+	o.className='disconnected-overlay';
+	o.innerHTML='<img src="/icon.svg" class="disconnected-logo" alt="" />'
+		+'<div class="disconnected-card">'
+		+'<div class="disconnected-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+		+'<path d="M6.5 19H5a4 4 0 0 1-.98-7.88A5.5 5.5 0 0 1 15.9 8.7 4 4 0 0 1 19 16h-1"/>'
+		+'<line x1="2" y1="2" x2="22" y2="22"/></svg></div>'
+		+'<div class="disconnected-title">Connection lost</div>'
+		+'<div class="disconnected-sub">Unable to reach the server.</div>'
+		+'<div class="disconnected-countdown" id="dc-countdown"></div>'
+		+'<div class="disconnected-actions">'
+		+'<button class="disconnected-retry" id="dc-retry-btn" type="button">Retry now</button>'
+		+'<button class="disconnected-logout" type="button" onclick="window.location.assign(\'/logout\')">Log out</button>'
+		+'</div></div>';
+	document.body.appendChild(o);
+	o.querySelector('#dc-retry-btn').addEventListener('click',_dcRetryNow);
+	_dcOverlay=o;
+	return o;
+}
+
+function _dcUpdateCountdown(){
+	var el=document.getElementById('dc-countdown');
+	if(el)el.textContent='Retrying in '+_dcRetryCountdown+'s\u2026';
+}
+
+function _dcPing(){
+	_log('connectivity ping');
+	return fetch('/heartbeat',{method:'POST',credentials:'same-origin'}).then(function(r){
+		if(r.status===401){
+			_log('ping 401, session expired');
+			window.location.assign('/logout');
+			return false;
+		}
+		if(!r.ok)throw new Error('HTTP '+r.status);
+		return true;
+	});
+}
+
+function showDisconnected(){
+	if(_dcVisible)return;
+	_dcVisible=true;
+	_log('showDisconnected');
+	var o=_createDcOverlay();
+	o.style.display='';
+	document.body.classList.add('is-disconnected');
+	_dcRetryCountdown=_dcRetryIntervalSec;
+	_dcUpdateCountdown();
+	if(_dcRetryTimer)clearInterval(_dcRetryTimer);
+	_dcRetryTimer=setInterval(function(){
+		_dcRetryCountdown--;
+		if(_dcRetryCountdown<=0){
+			_dcRetryCountdown=_dcRetryIntervalSec;
+			_dcPing().then(function(ok){if(ok)clearDisconnected()}).catch(function(){});
+		}
+		_dcUpdateCountdown();
+	},1000);
+}
+
+function clearDisconnected(){
+	if(!_dcVisible)return;
+	_dcVisible=false;
+	_dcFailCount=0;
+	_log('clearDisconnected, reconnected');
+	if(_dcOverlay)_dcOverlay.style.display='none';
+	document.body.classList.remove('is-disconnected');
+	if(_dcRetryTimer){clearInterval(_dcRetryTimer);_dcRetryTimer=null}
+	clearOffline();
+	// Re-save if dirty
+	var status=queryActiveEditor('#autosave-status');
+	var dirty=status&&status.querySelector('.autosave-edited');
+	if(dirty){_log('clearDisconnected: re-saving dirty note');scheduleSave()}
+}
+
+function _dcRetryNow(){
+	var btn=document.getElementById('dc-retry-btn');
+	if(btn){btn.disabled=true;btn.textContent='Connecting\u2026'}
+	_dcRetryCountdown=_dcRetryIntervalSec;
+	_dcPing().then(function(ok){if(ok)clearDisconnected()}).catch(function(){});
+	setTimeout(function(){if(btn){btn.disabled=false;btn.textContent='Retry now'}},2000);
+}
+
+function _dcOnFetchFail(){
+	_dcFailCount++;
+	if(_dcFailCount>=_dcFailThreshold)showDisconnected();
+}
+
+function _dcOnFetchOk(){
+	_dcFailCount=0;
+	if(_dcVisible)clearDisconnected();
+}
+
+window.addEventListener('online',function(){_log('browser online event');if(_dcVisible){_dcPing().then(function(ok){if(ok)clearDisconnected()}).catch(function(){})}if(document.body.classList.contains('is-offline')){var s=document.getElementById('autosave-status');var dirty=s&&s.querySelector('.autosave-edited');if(dirty){scheduleSave()}else if(s){setSaveState('<span class="autosave-ok">Reconnected</span>','Saved')}clearOffline()}});
+window.addEventListener('offline',function(){_log('browser offline event');showDisconnected()});
 window.addEventListener('load',function(){initNavPanel();initEditorPanel()});
 window.addEventListener('resize',applyMobileTitleMode);
 document.addEventListener('keydown',function(e){var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoSnapshot()}});
 	function flushSave(callback){var form=activeEditorForm();var status=queryActiveEditor('#autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty){_log('flushSave skip (not dirty)');if(callback)callback(true);return}if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}var pv=getPV();if(pv)syncPV();else cmSyncToTA();syncTitle();var fd=new FormData(form);var url=form.getAttribute('hx-put');if(!url){if(callback)callback(true);return}var body=new URLSearchParams(fd).toString();_log('flushSave',url);fetch(url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){_log('flushSave ok',html.slice(0,80));snapshotHash();window._mobileNewNoteId=null;setSaveState('<span class="autosave-ok">Saved</span>','Saved');if(callback)callback(true)}).catch(function(err){_log('flushSave error',err);showOffline();if(callback)callback(false)})}
 document.addEventListener('click',function(e){var btn=e.target.closest('.notelist-item');if(!btn)return;var form=document.getElementById('note-editor-form');var status=document.getElementById('autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty)return;_log('notelist-item click intercepted, flushing save');e.preventDefault();e.stopImmediatePropagation();flushSave(function(saved){if(saved){_log('flushSave done, re-clicking note');btn.click()}})},true);
 (function(){var _al=_cfg.autoLogout||false;var _alMs=(_cfg.autoLogoutMinutes||15)*60000;if(!_al)return;_log('autoLogout enabled, timeout',_alMs/60000,'min');
-// Server-side heartbeat: POST /heartbeat at half the timeout interval. 401 → session expired → logout.
+// Server-side heartbeat: POST /heartbeat every timeout/3. 401 → logout.
+// Fetch failures trigger global disconnected overlay.
 var _hbMs=Math.max(10000,_alMs/3);_log('heartbeat interval',_hbMs/1000,'s');
-function _sendHeartbeat(){_log('heartbeat ping');fetch('/heartbeat',{method:'POST',credentials:'same-origin'}).then(function(r){if(r.status===401){_log('heartbeat 401, session expired');clearInterval(_hbInterval);window.location.assign('/logout')}}).catch(function(){_log('heartbeat fetch error')})}
+function _sendHeartbeat(){
+	_log('heartbeat ping');
+	fetch('/heartbeat',{method:'POST',credentials:'same-origin'}).then(function(r){
+		if(r.status===401){
+			_log('heartbeat 401, session expired');
+			if(_hbInterval){clearInterval(_hbInterval);_hbInterval=null}
+			window.location.assign('/logout');
+			return;
+		}
+		if(!r.ok)throw new Error('HTTP '+r.status);
+		_dcOnFetchOk();
+	}).catch(function(err){
+		_log('heartbeat fetch error',err);
+		_dcOnFetchFail();
+	});
+}
 _sendHeartbeat();
 var _hbInterval=setInterval(_sendHeartbeat,_hbMs);
 // Client-side inactivity fallback: logout if no user interaction for timeout period.
@@ -601,7 +721,7 @@ function confirmLogout(event){
 		if(!_ctxNoteId)return;
 		var id=_ctxNoteId;
 		mobileCtxClose();
-		if(!confirm('Move this note to trash?'))return;
+		if(window._s&&window._s.confirmTrash&&!confirm('Move this note to trash?'))return;
 		fetch('/fragments/notes/'+encodeURIComponent(id),{method:'DELETE',headers:{'hx-request':'true','hx-params':'none'}})
 			.then(function(){mobileRefreshNotes()});
 	}

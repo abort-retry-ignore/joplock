@@ -271,7 +271,7 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 				hx-target="#nav-panel"
 				hx-swap="innerHTML"
 				hx-params="none"
-				hx-confirm="${note.deletedTime ? 'Permanently delete this note?' : 'Move this note to trash?'}">&#128465;</button>
+				${note.deletedTime ? 'hx-confirm="Permanently delete this note?"' : 'data-confirm-trash="Move this note to trash?"'}>&#128465;</button>
 		</div>
 		<div class="editor-toolbar" id="editor-toolbar">
 			<button type="button" class="tb" data-format="bold" title="Bold (Ctrl+B)" onclick="wrapSel('**','**')"><b>B</b></button>

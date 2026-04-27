@@ -36,6 +36,7 @@ const defaultSettings = Object.freeze({
 	autoLogoutMinutes: 15,
 	theme: 'matrix',
 	liveSearch: false,
+	confirmTrash: true,
 });
 
 const nowMs = () => Date.now();
@@ -61,6 +62,7 @@ const normalizeSettings = settings => ({
 	autoLogoutMinutes: normalizeInteger(settings.autoLogoutMinutes, defaultSettings.autoLogoutMinutes, 1, 480),
 	theme: validThemes.includes(settings.theme) ? settings.theme : defaultSettings.theme,
 	liveSearch: !!Number(settings.liveSearch) || settings.liveSearch === true || settings.liveSearch === '1',
+	confirmTrash: settings.confirmTrash !== false && settings.confirmTrash !== '0' && settings.confirmTrash !== 0,
 });
 
 const createSettingsService = database => {

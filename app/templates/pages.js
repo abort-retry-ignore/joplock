@@ -78,7 +78,7 @@ const layoutPage = (options = {}) => {
 	<script src="/turndown.min.js"></script>
 	<script src="/codemirror.min.js"></script>
 	<script src="/hljs.min.js"></script>
-	<script src="/app.js?v=20260426g" defer></script>
+	<script src="/app.js?v=20260427e" defer></script>
 	<title>Joplock</title>
 </head>
 <body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${settings.noteMonospace ? ' note-body-monospace' : ''}" style="--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;">
@@ -206,7 +206,8 @@ const layoutPage = (options = {}) => {
 		datetimeFormat:${JSON.stringify(String(settings.datetimeFormat || 'YYYY-MM-DD HH:mm'))},
 		autoLogout:${settings.autoLogout ? 'true' : 'false'},
 		autoLogoutMinutes:${Number(settings.autoLogoutMinutes) || 15},
-		liveSearch:${settings.liveSearch ? 'true' : 'false'}
+		liveSearch:${settings.liveSearch ? 'true' : 'false'},
+		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'}
 	};
 	</script>
 </body>

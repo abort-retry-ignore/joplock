@@ -175,6 +175,10 @@ const settingsPage = (options = {}) => {
 							<span>Startup</span>
 							<label><input type="checkbox" id="settings-resume-last-note" onchange="saveSetting('resumeLastNote',this.checked?'1':'0')"${settings.resumeLastNote ? ' checked' : ''} /> Reopen the last edited note on startup</label>
 						</label>
+						<label class="settings-field settings-checkbox">
+							<span>Confirmations</span>
+							<label><input type="checkbox" id="settings-confirm-trash" onchange="saveSetting('confirmTrash',this.checked?'1':'0')"${settings.confirmTrash !== false ? ' checked' : ''} /> Confirm before moving notes to trash</label>
+						</label>
 						<label class="settings-field">
 							<span>Date format</span>
 							<select id="settings-date-format" class="login-input" onchange="saveSetting('dateFormat',this.value)">

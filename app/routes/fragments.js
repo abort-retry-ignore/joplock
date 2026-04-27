@@ -25,7 +25,7 @@ const handle = async (url, request, response, ctx) => {
 			if (!title) { sendHtml(response, 400, '<div class="empty-hint">Folder title is required.</div>'); return true; }
 			await itemWriteService.createFolder(auth.user.sessionId, { title, parentId: body.parentId || '' }, upstreamRequestContext(request));
 			const { folders: fFolders, counts: fCounts } = await navData(auth.user.id);
-			sendHtml(response, 200, templates.navigationFragment(fFolders, fCounts, '', ''));
+			sendHtml(response, 200, templates.navigationFragment(fFolders, fCounts, '', '') + templates.folderSelectOob(fFolders));
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 		}
@@ -40,7 +40,7 @@ const handle = async (url, request, response, ctx) => {
 			const folderId = decodeURIComponent(url.pathname.slice('/fragments/folders/'.length));
 			await itemWriteService.deleteFolder(auth.user.sessionId, folderId, upstreamRequestContext(request));
 			const { folders: dfFolders, counts: dfCounts } = await navData(auth.user.id);
-			sendHtml(response, 200, templates.navigationFragment(dfFolders, dfCounts, '', ''));
+			sendHtml(response, 200, templates.navigationFragment(dfFolders, dfCounts, '', '') + templates.folderSelectOob(dfFolders));
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 		}
@@ -61,7 +61,7 @@ const handle = async (url, request, response, ctx) => {
 			if (!existingFolder) { sendHtml(response, 404, '<div class="empty-hint">Folder not found.</div>'); return true; }
 			await itemWriteService.updateFolder(auth.user.sessionId, existingFolder, { title }, upstreamRequestContext(request));
 			const { folders: ufFolders, counts: ufCounts } = await navData(auth.user.id);
-			sendHtml(response, 200, templates.navigationFragment(ufFolders, ufCounts, folderId, ''));
+			sendHtml(response, 200, templates.navigationFragment(ufFolders, ufCounts, folderId, '') + templates.folderSelectOob(ufFolders));
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 		}

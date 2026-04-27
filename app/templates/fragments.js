@@ -249,7 +249,7 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 		hx-swap="innerHTML"
 		hx-indicator="#autosave-indicator">
 		<div class="editor-titlebar">
-			<select name="parentId" class="editor-folder-select" title="Move to folder">${folderOptions}</select>
+			<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="Move to folder">${folderOptions}</select>
 			<span class="editor-folder-arrow">&#9656;</span>
 			${noteSyncStateFragment(note)}
 			<input type="hidden" name="currentFolderId" value="${escapeHtml(currentFolderId || '')}" />
@@ -338,6 +338,12 @@ const searchResultsFragment = (notes, hasMore = false, nextOffset = 0, query = '
 	return items + loadMore;
 };
 
+const folderSelectOob = (folders) => {
+	const options = (folders || []).filter(f => f.id !== trashFolderId && !f.isVirtualAllNotes)
+		.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.title || 'Untitled')}</option>`).join('');
+	return `<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="Move to folder" hx-swap-oob="true">${options}</select>`;
+};
+
 module.exports = {
 	noteDomId,
 	folderListItem,
@@ -356,4 +362,5 @@ module.exports = {
 	mobileEditorFragment,
 	autosaveStatusFragment,
 	searchResultsFragment,
+	folderSelectOob,
 };

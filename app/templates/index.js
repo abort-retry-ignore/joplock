@@ -33,6 +33,7 @@ module.exports = {
 	mobileEditorFragment: fragments.mobileEditorFragment,
 	autosaveStatusFragment: fragments.autosaveStatusFragment,
 	searchResultsFragment: fragments.searchResultsFragment,
+	folderSelectOob: fragments.folderSelectOob,
 
 	// settings page
 	adminUserRow: settings.adminUserRow,

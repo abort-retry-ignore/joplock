@@ -574,7 +574,7 @@ test('GET / includes mobile startup resume payload for resumed note', async () =
 	}, async port => {
 		const res = await request(port, { path: '/' });
 		assert.equal(res.statusCode, 200);
-		assert.ok(res.body.includes('mobileStartup:{"folderId":"__all_notes__","folderTitle":"All Notes","noteId":"n1","noteTitle":"Hello"}'));
+		assert.ok(res.body.includes('mobileStartup:{"folderId":"f1","folderTitle":"My Folder","noteId":"n1","noteTitle":"Hello"}'));
 		assert.ok(res.body.includes('<div class="mobile-screen-body mobile-editor-body" id="mobile-editor-body">'));
 		assert.ok(res.body.includes('hx-put="/fragments/editor/n1"'));
 		assert.ok(!res.body.includes('<div class="mobile-screen-body mobile-editor-body" id="mobile-editor-body">\n\t\t\t\t<div class="editor-empty">Select a note</div>'));

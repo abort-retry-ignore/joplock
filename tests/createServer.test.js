@@ -961,14 +961,14 @@ test('POST /logout returns logged-out page and clears client state', async () =>
 
 // --- Heartbeat ---
 
-test('POST /heartbeat returns 204 for valid session', async () => {
-	let touched = null;
+test('POST /heartbeat returns 204 for valid session and does not touch session', async () => {
+	let touched = false;
 	await withServer({
-		sessionService: { touchSession: async id => { touched = id; } },
+		sessionService: { touchSession: async () => { touched = true; } },
 	}, async port => {
 		const res = await request(port, { path: '/heartbeat', method: 'POST', headers: { Cookie: 'sessionId=test-session' } });
 		assert.equal(res.statusCode, 204);
-		assert.equal(touched, 'test-session');
+		assert.equal(touched, false, 'heartbeat should not touch session (liveness check only)');
 	});
 });
 

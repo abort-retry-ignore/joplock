@@ -48,26 +48,30 @@ const createServer = options => {
 	const configuredPublicUrl = new URL(joplinPublicBaseUrl);
 	const configuredServerPublicUrl = new URL(joplinServerPublicUrl);
 
-	const authenticatedUser = async request => {
+	const authenticatedUser = async (request, options = {}) => {
 		const sessionId = sessionIdFromHeaders(request.headers);
 		if (!sessionId) return { error: 'Missing session', user: null };
 		const user = await sessionService.userBySessionId(sessionId);
 		if (!user) return { error: 'Invalid or expired session', user: null };
-		// Enforce heartbeat-based session timeout if enabled
+		// Enforce activity-based session timeout if enabled
 		if (settingsService) {
 			const settings = await settingsService.settingsByUserId(user.id);
 			if (settings.autoLogout && settings.autoLogoutMinutes > 0) {
 				const lastSeen = await sessionService.getLastSeen(sessionId);
 				const timeoutMs = settings.autoLogoutMinutes * 60 * 1000;
-				const graceMs = 10000; // 10s grace for heartbeat jitter/latency
+				const graceMs = 10000; // 10s grace for latency
 				const age = lastSeen !== null ? Date.now() - lastSeen : null;
-				log(`heartbeat check: lastSeen=${lastSeen} age=${age}ms timeout=${timeoutMs}ms session=${sessionId.slice(0,8)}`);
+				log(`session check: lastSeen=${lastSeen} age=${age}ms timeout=${timeoutMs}ms session=${sessionId.slice(0,8)}`);
 				if (lastSeen !== null && age > timeoutMs + graceMs) {
-					log(`heartbeat timeout: expiring session ${sessionId.slice(0,8)}`);
+					log(`session timeout: expiring session ${sessionId.slice(0,8)}`);
 					await sessionService.deleteSession(sessionId);
 					return { error: 'Session expired due to inactivity', user: null };
 				}
 			}
+		}
+		// Touch session on real user activity (not heartbeat/connectivity pings)
+		if (!options.isHeartbeat) {
+			await sessionService.touchSession(sessionId);
 		}
 		return { error: null, user };
 	};

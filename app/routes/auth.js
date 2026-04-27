@@ -213,11 +213,10 @@ const handle = async (url, request, response, ctx) => {
 		return true;
 	}
 
-	// POST /heartbeat — updates last-seen for session timeout tracking
+	// POST /heartbeat — liveness check only (does NOT extend session timeout)
 	if (url.pathname === '/heartbeat' && request.method === 'POST') {
-		const auth = await ctx.authenticatedUser(request);
+		const auth = await ctx.authenticatedUser(request, { isHeartbeat: true });
 		if (auth.error) { send(response, 401, ''); return true; }
-		await sessionService.touchSession(auth.user.sessionId);
 		send(response, 204, '');
 		return true;
 	}

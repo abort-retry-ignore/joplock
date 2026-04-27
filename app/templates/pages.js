@@ -204,8 +204,6 @@ const layoutPage = (options = {}) => {
 		theme:${JSON.stringify(settings.theme || 'matrix')},
 		dateFormat:${JSON.stringify(String(settings.dateFormat || 'MMM-DD-YY'))},
 		datetimeFormat:${JSON.stringify(String(settings.datetimeFormat || 'YYYY-MM-DD HH:mm'))},
-		autoLogout:${settings.autoLogout ? 'true' : 'false'},
-		autoLogoutMinutes:${Number(settings.autoLogoutMinutes) || 15},
 		liveSearch:${settings.liveSearch ? 'true' : 'false'},
 		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'}
 	};

@@ -535,30 +535,6 @@ window.addEventListener('resize',applyMobileTitleMode);
 document.addEventListener('keydown',function(e){var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoSnapshot()}});
 	function flushSave(callback){var form=activeEditorForm();var status=queryActiveEditor('#autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty){_log('flushSave skip (not dirty)');if(callback)callback(true);return}if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}var pv=getPV();if(pv)syncPV();else cmSyncToTA();syncTitle();var fd=new FormData(form);var url=form.getAttribute('hx-put');if(!url){if(callback)callback(true);return}var body=new URLSearchParams(fd).toString();_log('flushSave',url);fetch(url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){_log('flushSave ok',html.slice(0,80));snapshotHash();window._mobileNewNoteId=null;setSaveState('<span class="autosave-ok">Saved</span>','Saved');if(callback)callback(true)}).catch(function(err){_log('flushSave error',err);showOffline();if(callback)callback(false)})}
 document.addEventListener('click',function(e){var btn=e.target.closest('.notelist-item');if(!btn)return;var form=document.getElementById('note-editor-form');var status=document.getElementById('autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty)return;_log('notelist-item click intercepted, flushing save');e.preventDefault();e.stopImmediatePropagation();flushSave(function(saved){if(saved){_log('flushSave done, re-clicking note');btn.click()}})},true);
-(function(){var _al=_cfg.autoLogout||false;var _alMs=(_cfg.autoLogoutMinutes||15)*60000;if(!_al)return;_log('autoLogout enabled, timeout',_alMs/60000,'min');
-// Server-side heartbeat: POST /heartbeat every timeout/3. 401 → logout.
-// Fetch failures trigger global disconnected overlay.
-var _hbMs=Math.max(10000,_alMs/3);_log('heartbeat interval',_hbMs/1000,'s');
-function _sendHeartbeat(){
-	_log('heartbeat ping');
-	fetch('/heartbeat',{method:'POST',credentials:'same-origin'}).then(function(r){
-		if(r.status===401){
-			_log('heartbeat 401, session expired');
-			if(_hbInterval){clearInterval(_hbInterval);_hbInterval=null}
-			window.location.assign('/logout');
-			return;
-		}
-		if(!r.ok)throw new Error('HTTP '+r.status);
-		_dcOnFetchOk();
-	}).catch(function(err){
-		_log('heartbeat fetch error',err);
-		_dcOnFetchFail();
-	});
-}
-_sendHeartbeat();
-var _hbInterval=setInterval(_sendHeartbeat,_hbMs);
-// Client-side inactivity fallback: logout if no user interaction for timeout period.
-var _last=Date.now();['keydown','click','input','scroll','touchstart'].forEach(function(evt){document.addEventListener(evt,function(){_last=Date.now()},true)});setInterval(function(){if(Date.now()-_last>_alMs){_log('autoLogout: inactive for',_alMs/60000,'min, logging out');window.location.assign('/logout')}},30000)})();
 window.joplockLiveSearch=_cfg.liveSearch||false;
 (function(){var _navSearchSavedValue=null;function enableLiveSearch(){var el=document.getElementById('nav-search');if(!el||!window.joplockLiveSearch||el.dataset.liveSearch)return;el.dataset.liveSearch='1';el.setAttribute('hx-trigger','search-submit, input changed delay:300ms');el.addEventListener('htmx:beforeRequest',function(e){var v=el.value;if(v.length>0&&v.length<3){e.preventDefault();return}});htmx.process(el)}function restoreNavSearch(){if(_navSearchSavedValue===null)return;var el=document.getElementById('nav-search');if(!el){_navSearchSavedValue=null;return;}el.value=_navSearchSavedValue;el.selectionStart=el.selectionEnd=el.value.length;_navSearchSavedValue=null}enableLiveSearch();document.body.addEventListener('htmx:beforeSwap',function(e){var target=e.detail&&e.detail.target;if(target&&target.id==='nav-panel'){var el=document.getElementById('nav-search');if(el)_navSearchSavedValue=el.value}});document.body.addEventListener('htmx:afterSettle',function(){enableLiveSearch();restoreNavSearch()})})();
 function confirmLogout(event){

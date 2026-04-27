@@ -221,7 +221,7 @@ const settingsPage = (options = {}) => {
 				<form class="settings-form" method="POST" action="/settings/security">
 				<section class="settings-section">
 					<h2 class="settings-section-title">Session Timeout</h2>
-					<p class="settings-section-sub">When enabled, the server expires your session if no heartbeat is received within the timeout period.</p>
+					<p class="settings-section-sub">When enabled, you are automatically logged out after a period of inactivity.</p>
 					<div class="settings-grid">
 						<label class="settings-field settings-checkbox">
 							<span>Session timeout</span>

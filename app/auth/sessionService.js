@@ -109,6 +109,13 @@ const createSessionService = database => {
 		},
 
 		async deleteSession(sessionId) {
+			// Delete from Joplin's sessions table (fully invalidates the session)
+			try {
+				await database.query('DELETE FROM sessions WHERE id = $1', [sessionId]);
+			} catch {
+				// non-fatal — Joplin session may already be gone
+			}
+			// Delete from our tracking table
 			await ensureTable();
 			if (!_tableReady) return;
 			try {

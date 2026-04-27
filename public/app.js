@@ -528,6 +528,8 @@ function _dcOnFetchOk(){
 
 window.addEventListener('online',function(){_log('browser online event');if(_dcVisible){_dcPing().then(function(ok){if(ok)clearDisconnected()}).catch(function(){})}if(document.body.classList.contains('is-offline')){var s=document.getElementById('autosave-status');var dirty=s&&s.querySelector('.autosave-edited');if(dirty){scheduleSave()}else if(s){setSaveState('<span class="autosave-ok">Reconnected</span>','Saved')}clearOffline()}});
 window.addEventListener('offline',function(){_log('browser offline event');showDisconnected()});
+// Always-on connectivity ping (every 30s) — triggers disconnected overlay on failure
+(function(){var _cpMs=30000;function _connectivityPing(){_dcPing().then(function(ok){if(ok)_dcOnFetchOk();else _dcOnFetchFail()}).catch(function(){_dcOnFetchFail()})}var _cpInterval=setInterval(_connectivityPing,_cpMs);_connectivityPing()})();
 window.addEventListener('load',function(){initNavPanel();initEditorPanel()});
 window.addEventListener('resize',applyMobileTitleMode);
 document.addEventListener('keydown',function(e){var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoSnapshot()}});

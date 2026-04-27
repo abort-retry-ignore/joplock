@@ -1279,10 +1279,10 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 }
 .disconnected-logo {
 	position: absolute;
-	width: 200px;
-	height: 200px;
-	opacity: 0.08;
-	filter: blur(6px);
+	width: 320px;
+	height: 320px;
+	opacity: 0.15;
+	filter: blur(4px);
 	pointer-events: none;
 }
 .disconnected-card {

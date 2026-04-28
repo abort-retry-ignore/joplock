@@ -104,6 +104,7 @@ const defaultMocks = (overrides = {}) => ({
 		getSnapshot: async () => null,
 		...overrides.historyService,
 	},
+	vaultService: overrides.vaultService || null,
 	database: overrides.database || { query: async () => ({ rows: [] }) },
 });
 
@@ -168,6 +169,39 @@ test('POST /api/web/folders creates folder', async () => {
 		});
 		assert.equal(res.statusCode, 201);
 		assert.equal(createdFolder.title, 'New');
+	});
+});
+
+test('DELETE /api/web/folders/:id moves notes to General before deleting notebook', async () => {
+	const moved = [];
+	let createdFolder = null;
+	let deletedId = null;
+	await withServer({
+		itemService: {
+			folderByUserIdAndJopId: async (_uid, id) => id === 'f1' ? { id: 'f1', title: 'Work', parentId: '' } : null,
+			foldersByUserId: async () => [{ id: 'f1', title: 'Work', parentId: '' }],
+			notesByUserId: async (_uid, options = {}) => options.folderId === 'f1' ? [
+				{ id: 'n1', title: 'Note 1', body: 'A', parentId: 'f1', createdTime: 1 },
+				{ id: 'n2', title: 'Note 2', body: 'B', parentId: 'f1', createdTime: 2 },
+			] : [],
+		},
+		itemWriteService: {
+			createFolder: async (_sid, folder) => { createdFolder = folder; return { id: 'general-id' }; },
+			updateNote: async (_sid, existing, updates) => { moved.push({ id: existing.id, parentId: updates.parentId }); return { id: existing.id }; },
+			deleteFolder: async (_sid, id) => { deletedId = id; },
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/api/web/folders/f1',
+			method: 'DELETE',
+		});
+		assert.equal(res.statusCode, 204);
+		assert.deepEqual(createdFolder, { title: 'General', parentId: '' });
+		assert.deepEqual(moved, [
+			{ id: 'n1', parentId: 'general-id' },
+			{ id: 'n2', parentId: 'general-id' },
+		]);
+		assert.equal(deletedId, 'f1');
 	});
 });
 
@@ -421,6 +455,34 @@ test('POST /fragments/notes selects created note and loads editor', async () => 
 	});
 });
 
+test('POST /fragments/notes in vault renders locked editor with vault id', async () => {
+	await withServer({
+		itemWriteService: {
+			createNote: async () => ({ id: 'n-new' }),
+		},
+		itemService: {
+			noteByUserIdAndJopId: async (_uid, id) => ({ id, title: 'Untitled note', body: '', parentId: 'vault-1', updatedTime: Date.now() }),
+			foldersByUserId: async () => [{ id: 'vault-1', title: 'Vault 1', parentId: '' }],
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/notes',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'parentId=vault-1',
+		});
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('data-vault-id="vault-1"'));
+		assert.ok(res.body.includes('id="editor-locked"'));
+		assert.ok(res.body.includes('id="editor-toolbar" style="display:none"'));
+		assert.ok(res.body.includes('id="cm-host" style="display:none"'));
+	});
+});
+
 test('DELETE /fragments/notes/:id trashes note and shows trash folder', async () => {
 	let trashed = false;
 	await withServer({
@@ -578,6 +640,54 @@ test('GET / includes mobile startup resume payload for resumed note', async () =
 		assert.ok(res.body.includes('<div class="mobile-screen-body mobile-editor-body" id="mobile-editor-body">'));
 		assert.ok(res.body.includes('hx-put="/fragments/editor/n1"'));
 		assert.ok(!res.body.includes('<div class="mobile-screen-body mobile-editor-body" id="mobile-editor-body">\n\t\t\t\t<div class="editor-empty">Select a note</div>'));
+	});
+});
+
+test('GET / does not resume encrypted last note on startup', async () => {
+	let savedSettings = null;
+	await withServer({
+		settingsService: {
+			settingsByUserId: async () => ({ noteFontSize: 15, codeFontSize: 12, noteMonospace: false, noteOpenMode: 'preview', resumeLastNote: true, lastNoteId: 'n1', lastNoteFolderId: 'f1', dateFormat: 'YYYY-MM-DD', datetimeFormat: 'YYYY-MM-DD HH:mm' }),
+			saveSettings: async (_userId, settings) => { savedSettings = settings; return settings; },
+			getTotpSeed: async () => null,
+			setTotpSeed: async () => true,
+			clearTotpSeed: async () => true,
+		},
+		itemService: {
+			foldersByUserId: async () => [{ id: 'f1', title: 'My Folder', parentId: '' }],
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: 'cipher', parentId: 'f1', createdTime: 1000, updatedTime: 1000, deletedTime: 0, isEncrypted: true }),
+		},
+	}, async port => {
+		const res = await request(port, { path: '/' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(!res.body.includes('hx-put="/fragments/editor/n1"'));
+		assert.ok(res.body.includes('<div class="editor-empty">Select a note</div>'));
+		assert.equal(savedSettings.lastNoteId, '');
+		assert.equal(savedSettings.lastNoteFolderId, '');
+	});
+});
+
+test('GET / does not resume last note inside vault notebook on startup', async () => {
+	let savedSettings = null;
+	await withServer({
+		settingsService: {
+			settingsByUserId: async () => ({ noteFontSize: 15, codeFontSize: 12, noteMonospace: false, noteOpenMode: 'preview', resumeLastNote: true, lastNoteId: 'n1', lastNoteFolderId: 'vault-1', dateFormat: 'YYYY-MM-DD', datetimeFormat: 'YYYY-MM-DD HH:mm' }),
+			saveSettings: async (_userId, settings) => { savedSettings = settings; return settings; },
+			getTotpSeed: async () => null,
+			setTotpSeed: async () => true,
+			clearTotpSeed: async () => true,
+		},
+		itemService: {
+			foldersByUserId: async () => [{ id: 'vault-1', title: 'Vault 1', parentId: '', isVault: true }],
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: '', parentId: 'vault-1', createdTime: 1000, updatedTime: 1000, deletedTime: 0, isEncrypted: false }),
+		},
+	}, async port => {
+		const res = await request(port, { path: '/' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(!res.body.includes('hx-put="/fragments/editor/n1"'));
+		assert.ok(!res.body.includes('mobileStartup:{"folderId":"vault-1"'));
+		assert.equal(savedSettings.lastNoteId, '');
+		assert.equal(savedSettings.lastNoteFolderId, '');
 	});
 });
 
@@ -847,6 +957,23 @@ test('GET /fragments/search returns matching notes', async () => {
 		const empty = await request(port, { path: '/fragments/search?q=' });
 		assert.equal(empty.statusCode, 200);
 		assert.equal(empty.body, '');
+	});
+});
+
+test('GET /fragments/search shows lock icon for notes inside vault notebooks', async () => {
+	await withServer({
+		itemService: {
+			searchNotes: async () => [{ id: 'n1', title: 'Vault Note', body: 'content', bodyPreview: 'content', parentId: 'vault-1' }],
+		},
+		vaultService: {
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+			getVaultByFolderId: async () => null,
+		},
+	}, async port => {
+		const res = await request(port, { path: '/fragments/search?q=vault' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('note-lock-icon'));
+		assert.ok(res.body.includes('data-vault-id="vault-1"'));
 	});
 });
 
@@ -1139,6 +1266,7 @@ test('GET /fragments/editor/:id includes folder dropdown', async () => {
 		itemService: {
 			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'My Note', body: 'text', parentId: 'f2', updatedTime: Date.now() }),
 			foldersByUserId: async () => [
+				{ id: '__all_notes__', title: 'All Notes', parentId: '', isVirtualAllNotes: true },
 				{ id: 'f1', title: 'Work', parentId: '' },
 				{ id: 'f2', title: 'Personal', parentId: '' },
 			],
@@ -1147,6 +1275,7 @@ test('GET /fragments/editor/:id includes folder dropdown', async () => {
 		const res = await request(port, { path: '/fragments/editor/n1' });
 		assert.equal(res.statusCode, 200);
 		assert.ok(res.body.includes('<select name="parentId"'));
+		assert.ok(!res.body.includes('<option value="__all_notes__"'));
 		assert.ok(res.body.includes('Work'));
 		assert.ok(res.body.includes('Personal'));
 		// f2 should be selected
@@ -1468,6 +1597,24 @@ test('GET /fragments/folder-notes with __all_notes__ returns all notes', async (
 		assert.equal(res.statusCode, 200);
 		assert.ok(res.body.includes('Note 1'));
 		assert.ok(res.body.includes('Note 2'));
+	});
+});
+
+test('GET /fragments/folder-notes shows lock icon for notes inside vault notebooks', async () => {
+	await withServer({
+		itemService: {
+			noteHeadersByFolder: async () => [{ id: 'n1', title: 'Vault Note', parentId: 'vault-1', updatedTime: 0, isEncrypted: false }],
+			folderNoteCountsByUserId: async () => new Map([['vault-1', 1], ['__all__', 1], ['__trash__', 0]]),
+		},
+		vaultService: {
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+			getVaultByFolderId: async () => null,
+		},
+	}, async port => {
+		const res = await request(port, { path: '/fragments/folder-notes?folderId=vault-1' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('note-lock-icon'));
+		assert.ok(res.body.includes('data-vault-id="vault-1"'));
 	});
 });
 
@@ -1847,17 +1994,26 @@ test('GET /fragments/history-snapshot/:id returns 404 for missing snapshot', asy
 // --- Folder delete ---
 
 test('DELETE /fragments/folders/:id deletes folder and returns nav', async () => {
+	const moved = [];
+	let createdFolder = null;
 	let deletedId = null;
 	await withServer({
+		itemService: {
+			folderByUserIdAndJopId: async (_uid, id) => id === 'f1' ? { id: 'f1', title: 'Work', parentId: '' } : null,
+			foldersByUserId: async () => [{ id: 'f1', title: 'Work', parentId: '' }],
+			notesByUserId: async (_uid, options = {}) => options.folderId === 'f1' ? [
+				{ id: 'n1', title: 'Note 1', body: 'A', parentId: 'f1', createdTime: 1 },
+			] : [],
+		},
 		itemWriteService: {
+			createFolder: async (_sid, folder) => { createdFolder = folder; return { id: 'general-id' }; },
+			updateNote: async (_sid, existing, updates) => { moved.push({ id: existing.id, parentId: updates.parentId }); return { id: existing.id }; },
 			deleteFolder: async (_sess, id) => { deletedId = id; },
-			createFolder: async () => ({}),
 			updateFolder: async () => ({}),
 			createNote: async () => ({}),
 			deleteNote: async () => {},
 			trashNote: async () => {},
 			restoreNote: async () => {},
-			updateNote: async () => ({}),
 			createResource: async () => ({}),
 		},
 	}, async port => {
@@ -1866,6 +2022,8 @@ test('DELETE /fragments/folders/:id deletes folder and returns nav', async () =>
 			method: 'DELETE',
 		});
 		assert.equal(res.statusCode, 200);
+		assert.deepEqual(createdFolder, { title: 'General', parentId: '' });
+		assert.deepEqual(moved, [{ id: 'n1', parentId: 'general-id' }]);
 		assert.equal(deletedId, 'f1');
 	});
 });
@@ -1886,6 +2044,23 @@ test('GET /fragments/mobile/folders returns mobile folder list', async () => {
 	});
 });
 
+test('GET /fragments/mobile/folders shows vault lock button for vault notebooks', async () => {
+	await withServer({
+		itemService: {
+			foldersByUserId: async () => [{ id: 'vault-1', title: 'Vault 1' }],
+			folderNoteCountsByUserId: async () => new Map([['__all__', 3], ['vault-1', 2], ['__trash__', 0]]),
+		},
+		vaultService: {
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, { path: '/fragments/mobile/folders' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('mobile-vault-folder-lock'));
+		assert.ok(res.body.includes('data-folder-id="vault-1"'));
+	});
+});
+
 test('GET /fragments/mobile/notes returns mobile note list', async () => {
 	await withServer({
 		itemService: {
@@ -1896,6 +2071,24 @@ test('GET /fragments/mobile/notes returns mobile note list', async () => {
 		const res = await request(port, { path: '/fragments/mobile/notes?folderId=f1' });
 		assert.equal(res.statusCode, 200);
 		assert.ok(res.body.includes('Note 1'));
+	});
+});
+
+test('GET /fragments/mobile/notes shows lock icon for notes inside vault notebooks', async () => {
+	await withServer({
+		itemService: {
+			noteHeadersByFolder: async () => [{ id: 'n1', title: 'Vault Note', parentId: 'vault-1', isEncrypted: false }],
+			folderNoteCountsByUserId: async () => new Map([['__all__', 1], ['vault-1', 1], ['__trash__', 0]]),
+		},
+		vaultService: {
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+			getVaultByFolderId: async () => null,
+		},
+	}, async port => {
+		const res = await request(port, { path: '/fragments/mobile/notes?folderId=vault-1' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('note-lock-icon'));
+		assert.ok(res.body.includes('data-vault-id="vault-1"'));
 	});
 });
 
@@ -1938,6 +2131,23 @@ test('GET /fragments/mobile/search returns search results', async () => {
 		const res = await request(port, { path: '/fragments/mobile/search?q=test' });
 		assert.equal(res.statusCode, 200);
 		assert.ok(res.body.includes('Found'));
+	});
+});
+
+test('GET /fragments/mobile/search shows lock icon for notes inside vault notebooks', async () => {
+	await withServer({
+		itemService: {
+			searchNotes: async () => [{ id: 'n1', title: 'Vault Found', parentId: 'vault-1', isEncrypted: false }],
+		},
+		vaultService: {
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+			getVaultByFolderId: async () => null,
+		},
+	}, async port => {
+		const res = await request(port, { path: '/fragments/mobile/search?q=vault' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('note-lock-icon'));
+		assert.ok(res.body.includes('data-vault-id="vault-1"'));
 	});
 });
 

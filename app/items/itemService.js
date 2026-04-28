@@ -23,15 +23,21 @@ const mapFolderRow = row => {
 	};
 };
 
+const ENCRYPTED_MARKER = '<!--joplock-encrypted-start-->';
+
+const isEncryptedBody = body => typeof body === 'string' && body.indexOf(ENCRYPTED_MARKER) >= 0;
+
 const mapNoteRow = row => {
 	const content = decodeItemContent(row.content);
 	const body = content.body || '';
+	const encrypted = isEncryptedBody(body);
 	return {
 		id: row.jop_id,
 		parentId: row.jop_parent_id || '',
 		title: content.title || '',
 		body,
-		bodyPreview: body.slice(0, 240),
+		bodyPreview: encrypted ? 'Encrypted' : body.slice(0, 240),
+		isEncrypted: encrypted,
 		isTodo: !!Number(content.is_todo || 0),
 		todoCompleted: Number(content.todo_completed || 0),
 		deletedTime: Number(content.deleted_time || 0),
@@ -41,10 +47,12 @@ const mapNoteRow = row => {
 };
 
 const mapNoteHeaderRow = row => {
+	const encrypted = !!(row.is_encrypted || false);
 	return {
 		id: row.jop_id,
 		parentId: row.jop_parent_id || '',
 		title: row.title || '',
+		isEncrypted: encrypted,
 		deletedTime: Number(row.deleted_time || 0),
 		updatedTime: Number(row.jop_updated_time || 0),
 	};
@@ -135,7 +143,8 @@ const createItemService = database => {
 					jop_parent_id,
 					jop_updated_time,
 					COALESCE(convert_from(content, 'UTF8')::json->>'title', '') AS title,
-					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time
+					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time,
+					(COALESCE(convert_from(content, 'UTF8')::json->>'body', '') LIKE '%<!--joplock-encrypted-start-->%') AS is_encrypted
 				FROM items
 				WHERE owner_id = $1 AND jop_type = $2${deletedFilterSql(deleted)}
 				ORDER BY jop_updated_time DESC, created_time DESC
@@ -196,7 +205,8 @@ const createItemService = database => {
 					jop_parent_id,
 					jop_updated_time,
 					COALESCE(convert_from(content, 'UTF8')::json->>'title', '') AS title,
-					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time
+					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time,
+					(COALESCE(convert_from(content, 'UTF8')::json->>'body', '') LIKE '%<!--joplock-encrypted-start-->%') AS is_encrypted
 				FROM items
 				${where}
 				ORDER BY jop_updated_time DESC, created_time DESC
@@ -295,6 +305,7 @@ module.exports = {
 	createItemService,
 	ensureIndexes,
 	decodeItemContent,
+	isEncryptedBody,
 	mapFolderRow,
 	mapNoteHeaderRow,
 	mapNoteRow,

@@ -5,3 +5,5 @@ npm-debug.log*
 data/
 docker-compose.dev.yml
 plans/
+playwright-report/
+test-results/

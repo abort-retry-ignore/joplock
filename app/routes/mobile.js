@@ -5,17 +5,32 @@ const { parseBody, TRASH_FOLDER_ID } = require('./_helpers');
 const templates = require('../templates');
 
 const handle = async (url, request, response, ctx) => {
-	const { sendHtml, authenticatedUser, itemService, itemWriteService, upstreamRequestContext } = ctx;
+	const { sendHtml, authenticatedUser, itemService, itemWriteService, upstreamRequestContext, vaultService } = ctx;
+
+	const markNotesInVaults = async (userId, notes) => {
+		if (!vaultService || !notes || !notes.length) return notes;
+		const vaultFolderIds = await vaultService.getVaultFolderIdSet(userId).catch(() => new Set());
+		if (!vaultFolderIds.size) return notes;
+		return notes.map(note => vaultFolderIds.has(note.parentId) ? { ...note, inVault: true } : note);
+	};
+
+	const markFoldersAsVaults = async (userId, folders) => {
+		if (!vaultService || !folders || !folders.length) return folders;
+		const vaultFolderIds = await vaultService.getVaultFolderIdSet(userId).catch(() => new Set());
+		if (!vaultFolderIds.size) return folders;
+		return folders.map(folder => vaultFolderIds.has(folder.id) ? { ...folder, isVault: true } : folder);
+	};
 
 	// GET /fragments/mobile/folders
 	if (url.pathname === '/fragments/mobile/folders' && request.method === 'GET') {
 		try {
 			const auth = await authenticatedUser(request);
 			if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return true; }
-			const [folders, counts] = await Promise.all([
+			const [rawFolders, counts] = await Promise.all([
 				itemService.foldersByUserId(auth.user.id),
 				itemService.folderNoteCountsByUserId(auth.user.id),
 			]);
+			const folders = await markFoldersAsVaults(auth.user.id, rawFolders);
 			sendHtml(response, 200, templates.mobileFoldersFragment(folders, counts));
 		} catch {
 			sendHtml(response, 500, '<div class="empty-hint">Error</div>');
@@ -31,10 +46,11 @@ const handle = async (url, request, response, ctx) => {
 			const folderId = url.searchParams.get('folderId') || '__all__';
 			const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
 			const notes = await itemService.noteHeadersByFolder(auth.user.id, folderId, NOTE_PAGE_SIZE, offset);
+			const enrichedNotes = await markNotesInVaults(auth.user.id, notes);
 			const counts = await itemService.folderNoteCountsByUserId(auth.user.id);
 			const totalCount = counts.get(folderId) || counts.get('__all__') || 0;
 			const hasMore = offset + notes.length < totalCount;
-			sendHtml(response, 200, templates.mobileNotesFragment(notes, folderId, '', hasMore, offset + notes.length));
+			sendHtml(response, 200, templates.mobileNotesFragment(enrichedNotes, folderId, '', hasMore, offset + notes.length));
 		} catch {
 			sendHtml(response, 500, '<div class="empty-hint">Error</div>');
 		}
@@ -61,6 +77,7 @@ const handle = async (url, request, response, ctx) => {
 				parentId: folderId,
 			}, upstreamRequestContext(request));
 			const notes = await itemService.noteHeadersByFolder(auth.user.id, folderId || '__all__', NOTE_PAGE_SIZE, 0);
+			const enrichedNotes = await markNotesInVaults(auth.user.id, notes);
 			const counts = await itemService.folderNoteCountsByUserId(auth.user.id);
 			const totalCount = folderId && folderId !== '__all__' ? (counts.get(folderId) || 0) : (counts.get('__all__') || 0);
 			const hasMore = notes.length < totalCount;
@@ -68,7 +85,7 @@ const handle = async (url, request, response, ctx) => {
 				'Content-Type': 'text/html; charset=utf-8',
 				'X-Mobile-Note-Id': note.id || '',
 			});
-			response.end(templates.mobileNotesFragment(notes, folderId, '', hasMore, notes.length));
+			response.end(templates.mobileNotesFragment(enrichedNotes, folderId, '', hasMore, notes.length));
 		} catch (error) {
 			console.error('[mobile] notes/new error:', error);
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error && (error.message || `${error}`) || 'creating note')}</div>`);
@@ -84,8 +101,9 @@ const handle = async (url, request, response, ctx) => {
 			const query = url.searchParams.get('q') || '';
 			const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
 			const notes = query ? await itemService.searchNotes(auth.user.id, query, 50, offset) : [];
+			const enrichedNotes = await markNotesInVaults(auth.user.id, notes);
 			const hasMore = notes.length === 50;
-			sendHtml(response, 200, templates.mobileSearchFragment(notes, hasMore, offset + notes.length, query));
+			sendHtml(response, 200, templates.mobileSearchFragment(enrichedNotes, hasMore, offset + notes.length, query));
 		} catch {
 			sendHtml(response, 500, '<div class="empty-hint">Search error</div>');
 		}

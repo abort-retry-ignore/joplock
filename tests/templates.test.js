@@ -40,6 +40,51 @@ test('editorFragment includes date and datetime toolbar buttons', () => {
 	assert.ok(html.includes('title="Rendered Markdown"'));
 });
 
+test('editorFragment hides lock toggle for plaintext notes', () => {
+	const html = editorFragment({ id: 'n1', title: 'Active', body: 'Body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000, isEncrypted: false }, [{ id: 'f1', title: 'Folder 1' }]);
+	assert.ok(!html.includes('id="lock-toggle-btn"'));
+});
+
+test('editorFragment shows lock toggle for encrypted notes', () => {
+	const html = editorFragment({ id: 'n1', title: 'Active', body: 'Body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000, isEncrypted: true }, [{ id: 'f1', title: 'Folder 1' }]);
+	assert.ok(html.includes('id="lock-toggle-btn"'));
+	assert.ok(html.includes('title="Unlock note"'));
+});
+
+test('editorFragment hides plaintext body for vault-protected notes', () => {
+	const html = editorFragment({ id: 'n1', title: 'Active', body: 'Top secret', parentId: 'vault-1', deletedTime: 0, createdTime: 1000, updatedTime: 2000, isEncrypted: false, inVault: true, vaultId: 'vault-1', vaultTitle: 'Vault 1' }, [{ id: 'vault-1', title: 'Vault 1' }]);
+	assert.ok(html.includes('id="lock-toggle-btn"'));
+	assert.ok(html.includes('data-encrypted="1"'));
+	assert.ok(html.includes('data-vault-id="vault-1"'));
+	assert.ok(html.includes('id="note-body" style="display:none">Top secret</textarea>'));
+	assert.ok(html.includes('id="editor-toolbar" style="display:none"'));
+	assert.ok(html.includes('id="note-preview"'));
+	assert.ok(html.includes('contenteditable="true"'));
+	assert.ok(html.includes('style="display:none"'));
+	assert.ok(html.includes('id="cm-host" style="display:none"'));
+	assert.ok(!html.includes('>Top secret</div>'));
+	assert.ok(html.includes('Vault: Vault 1'));
+	assert.ok(!html.includes('editor-locked-back'));
+});
+
+test('mobileEditorFragment hides plaintext preview for vault-protected notes', () => {
+	const html = mobileEditorFragment({ id: 'n1', title: 'Active', body: 'Top secret', parentId: 'vault-1', deletedTime: 0, createdTime: 1000, updatedTime: 2000, isEncrypted: false, inVault: true, vaultId: 'vault-1', vaultTitle: 'Vault 1' }, [{ id: 'vault-1', title: 'Vault 1' }]);
+	assert.ok(html.includes('id="editor-locked"'));
+	assert.ok(html.includes('id="note-body" style="display:none">Top secret</textarea>'));
+	assert.ok(html.includes('id="editor-toolbar" style="display:none"'));
+	assert.ok(html.includes('id="note-preview"'));
+	assert.ok(html.includes('contenteditable="true"'));
+	assert.ok(html.includes('style="display:none"'));
+	assert.ok(html.includes('id="cm-host" style="display:none"'));
+	assert.ok(!html.includes('>Top secret</div>'));
+});
+
+test('app script includes mobile FAB visibility sync helper', () => {
+	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+	assert.ok(appJs.includes('function syncMobileFabVisibility(name){'));
+	assert.ok(appJs.includes('syncMobileFabVisibility(name);'));
+});
+
 test('navigationFragment shows trash folder empty action', () => {
 	const html = navigationFragment([{ id: 'de1e7ede1e7ede1e7ede1e7ede1e7ede', title: 'Trash', parentId: '' }], [], '', '');
 	assert.ok(html.includes('hx-post="/fragments/trash/empty"'));
@@ -187,6 +232,8 @@ test('stripMarkdownForTitle removes common markdown markers from titles', () => 
 	assert.equal(stripMarkdownForTitle('# **Hello** [world](https://example.com)'), 'Hello world');
 	assert.equal(stripMarkdownForTitle('![alt text](img.png) `code`'), 'alt text code');
 	assert.equal(stripMarkdownForTitle('a note in ++generals++'), 'a note in generals');
+	assert.equal(stripMarkdownForTitle('title<br>'), 'title');
+	assert.equal(stripMarkdownForTitle('<div>title</div>'), 'title');
 });
 
 test('navigation and editor render plain note titles without markdown formatting', () => {
@@ -223,7 +270,13 @@ test('logged in layout exposes mobile startup resume data', () => {
 	assert.ok(html.includes('id="mobile-search-next-btn"'));
 	assert.ok(html.includes('/app.js'));
 	assert.ok(html.includes('<div class="mobile-screen-body mobile-editor-body" id="mobile-editor-body">'));
+	assert.ok(html.includes('id="mobile-editor-menu-btn"'));
+	assert.ok(html.includes('id="mobile-ctx-move"'));
+	assert.ok(html.includes('id="mobile-ctx-delete"'));
+	assert.ok(html.includes('id="mobile-folder-picker-sheet"'));
+	assert.ok(html.includes('id="mobile-folder-picker-list"'));
 	assert.ok(html.includes('hx-put="/fragments/editor/n1"'));
+	assert.ok(html.includes('mobile-hidden-folder-select'));
 	assert.ok(!html.includes('<div class="editor-titlebar">'));
 	assert.ok(html.includes('<div class="editor-toolbar" id="editor-toolbar">'));
 	// JS functions are in public/app.js
@@ -305,6 +358,11 @@ test('styles define ordered list spacing and matrix note text token', () => {
 	assert.ok(css.includes('--font-size-code: 12px;'));
 	assert.ok(css.includes('font-size: var(--font-size-note);'));
 	assert.ok(css.includes('font-size: var(--font-size-code);'));
+	assert.ok(css.includes('.mobile-editor-body .editor-folder-select,'));
+	assert.ok(css.includes('.mobile-editor-body #mobile-delete-btn {'));
+	assert.ok(css.includes('.mobile-hidden-folder-select {'));
+	assert.ok(css.includes('.mobile-folder-picker-sheet {'));
+	assert.ok(css.includes('.mobile-folder-picker-list {'));
 });
 
 test('styles color folders differently from notes', () => {
@@ -342,6 +400,15 @@ test('mobileSearchFragment renders note items', () => {
 	const html = mobileSearchFragment(notes);
 	assert.ok(html.includes('My Note'));
 	assert.ok(!html.includes('notelist-load-more'), 'no Load more when hasMore=false');
+});
+
+test('mobileSearchFragment shows lock for notes inside vault notebooks', () => {
+	const notes = [{ id: 'n1', title: 'Vault Note', body: '', bodyPreview: '', parentId: 'vault-1', deletedTime: 0, inVault: true, isEncrypted: false }];
+	const html = mobileSearchFragment(notes);
+	assert.ok(html.includes('note-lock-icon'));
+	assert.ok(html.includes('data-note-id="n1"'));
+	assert.ok(html.includes('data-vault-id="vault-1"'));
+	assert.ok(!html.includes('data-encrypted="1"'));
 });
 
 test('mobileSearchFragment shows Load more when hasMore=true', () => {
@@ -428,6 +495,13 @@ test('noteListItem strips markdown from title', () => {
 	const html = noteListItem({ id: 'n1', title: '# **Bold Title**' }, '', '');
 	assert.ok(html.includes('Bold Title'));
 	assert.ok(!html.includes('**'));
+});
+
+test('noteListItem shows lock for notes inside vault notebooks', () => {
+	const html = noteListItem({ id: 'n1', title: 'Vault Note', parentId: 'vault-1', inVault: true, isEncrypted: false }, '', 'vault-1');
+	assert.ok(html.includes('note-lock-icon'));
+	assert.ok(html.includes('data-vault-id="vault-1"'));
+	assert.ok(!html.includes('data-encrypted="1"'));
 });
 
 // --- noteListFragment ---
@@ -608,6 +682,13 @@ test('mobileFoldersFragment renders All Notes and folder rows with Map counts', 
 	assert.ok(html.includes('mobileNewNoteInFolder'));
 });
 
+test('mobileFoldersFragment shows vault lock button for vault notebooks', () => {
+	const html = mobileFoldersFragment([{ id: 'vault-1', title: 'Vault 1', isVault: true }], new Map([['__all__', 0], ['vault-1', 2]]));
+	assert.ok(html.includes('data-folder-id="vault-1"'));
+	assert.ok(html.includes('mobile-vault-folder-lock'));
+	assert.ok(html.includes('toggleVaultLock(\'vault-1\')'));
+});
+
 test('mobileFoldersFragment shows empty state when no folders', () => {
 	const html = mobileFoldersFragment([], new Map([['__all__', 0]]));
 	assert.ok(html.includes('No notebooks yet'));
@@ -631,6 +712,15 @@ test('mobileNotesFragment renders notes with editor links', () => {
 	assert.ok(html.includes('Note 1'));
 	assert.ok(html.includes('Note 2'));
 	assert.ok(html.includes('mobilePushEditor'));
+});
+
+test('mobileNotesFragment shows lock for notes inside vault notebooks', () => {
+	const notes = [{ id: 'n1', title: 'Vault Note', parentId: 'vault-1', inVault: true, isEncrypted: false }];
+	const html = mobileNotesFragment(notes, 'vault-1', 'Vault');
+	assert.ok(html.includes('note-lock-icon'));
+	assert.ok(html.includes('data-note-id="n1"'));
+	assert.ok(html.includes('data-vault-id="vault-1"'));
+	assert.ok(!html.includes('data-encrypted="1"'));
 });
 
 test('mobileNotesFragment shows empty state', () => {

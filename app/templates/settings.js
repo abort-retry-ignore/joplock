@@ -175,13 +175,9 @@ const settingsPage = (options = {}) => {
 							<span>Startup</span>
 							<label><input type="checkbox" id="settings-resume-last-note" onchange="saveSetting('resumeLastNote',this.checked?'1':'0')"${settings.resumeLastNote ? ' checked' : ''} /> Reopen the last edited note on startup</label>
 						</label>
-						<label class="settings-field settings-checkbox">
-							<span>Confirmations</span>
-							<label><input type="checkbox" id="settings-confirm-trash" onchange="saveSetting('confirmTrash',this.checked?'1':'0')"${settings.confirmTrash !== false ? ' checked' : ''} /> Confirm before moving notes to trash</label>
-						</label>
-						<label class="settings-field">
-							<span>Date format</span>
-							<select id="settings-date-format" class="login-input" onchange="saveSetting('dateFormat',this.value)">
+					<label class="settings-field">
+						<span>Date format</span>
+						<select id="settings-date-format" class="login-input" onchange="saveSetting('dateFormat',this.value)">
 								${validDateFormats.map(f => `<option value="${escapeHtml(f)}"${(settings.dateFormat || 'YYYY-MM-DD') === f ? ' selected' : ''}>${escapeHtml(f)}</option>`).join('')}
 							</select>
 						</label>
@@ -218,6 +214,17 @@ const settingsPage = (options = {}) => {
 
 			<!-- Tab: Security -->
 			<div class="settings-tab-panel${tab === 'security' ? ' active' : ''}" id="tab-security">
+				<section class="settings-section">
+					<h2 class="settings-section-title">Note Encryption</h2>
+					<p class="settings-section-sub">Control auto-lock behavior for encrypted notes.</p>
+					<div class="settings-grid">
+						<label class="settings-field">
+							<span>Auto-lock timeout (minutes)</span>
+							<input type="number" class="login-input" min="0" max="480" value="${escapeHtml(settings.encryptionAutoLockMinutes != null ? settings.encryptionAutoLockMinutes : 5)}" id="settings-autolock-minutes" onchange="saveSetting('encryptionAutoLockMinutes',this.value)" />
+							<span class="settings-field-hint">0 = never auto-lock (stay unlocked for session)</span>
+						</label>
+					</div>
+				</section>
 				<form class="settings-form" method="POST" action="/settings/security">
 				<section class="settings-section">
 					<h2 class="settings-section-title">Session Timeout</h2>
@@ -227,12 +234,16 @@ const settingsPage = (options = {}) => {
 							<span>Session timeout</span>
 							<label><input type="checkbox" name="autoLogout" value="1"${settings.autoLogout ? ' checked' : ''} /> Expire session after inactivity</label>
 						</label>
-						<label class="settings-field">
-							<span>Timeout (minutes)</span>
-							<input type="number" class="login-input" name="autoLogoutMinutes" min="1" max="480" value="${escapeHtml(settings.autoLogoutMinutes || 15)}" />
-						</label>
-					</div>
-				</section>
+					<label class="settings-field">
+						<span>Timeout (minutes)</span>
+						<input type="number" class="login-input" name="autoLogoutMinutes" min="1" max="480" value="${escapeHtml(settings.autoLogoutMinutes || 15)}" />
+					</label>
+					<label class="settings-field settings-checkbox">
+						<span>Confirmations</span>
+						<label><input type="checkbox" id="settings-confirm-trash" onchange="saveSetting('confirmTrash',this.checked?'1':'0')"${settings.confirmTrash !== false ? ' checked' : ''} /> Confirm before moving notes to trash</label>
+					</label>
+				</div>
+			</section>
 				<div class="settings-actions"><button type="submit" class="btn btn-primary">Save session settings</button></div>
 				</form>
 				${isDockerAdmin ? `

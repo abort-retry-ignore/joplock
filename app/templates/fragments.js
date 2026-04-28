@@ -8,12 +8,17 @@ const {
 	trashFolderId,
 	stripMarkdownForTitle,
 	renderMarkdown,
+	svgLockClosed,
+	svgLockOpen,
 } = require('./shared');
 
 const noteDomId = (noteId, contextFolderId = '') => {
 	const safeContext = `${contextFolderId || 'root'}`.replace(/[^a-zA-Z0-9_-]/g, '-');
 	return `note-item-${safeContext}-${noteId}`;
 };
+
+const realNotebookOptions = folders => (folders || [])
+	.filter(f => f.id !== trashFolderId && !f.isVirtualAllNotes);
 
 // Column 1: folder list item
 const folderListItem = (folder, selectedFolderId) => {
@@ -41,13 +46,15 @@ const folderListFragment = (folders, selectedFolderId) => {
 const noteListItem = (note, selectedNoteId, contextFolderId = '', selectedContextFolderId = null) => {
 	const active = note.id === selectedNoteId && (selectedContextFolderId === null || contextFolderId === selectedContextFolderId) ? ' active' : '';
 	const editorPath = `/fragments/editor/${encodeURIComponent(note.id)}${contextFolderId ? `?currentFolderId=${encodeURIComponent(contextFolderId)}` : ''}`;
-	return `<button id="${escapeHtml(noteDomId(note.id, contextFolderId))}" class="notelist-item${active}" data-note-id="${escapeHtml(note.id)}"
+	const protectedByVault = !!(note.isEncrypted || note.inVault);
+	const lockIcon = protectedByVault ? '<span class="note-lock-icon" data-note-id="' + escapeHtml(note.id) + '">' + svgLockClosed + '</span>' : '';
+	return `<button id="${escapeHtml(noteDomId(note.id, contextFolderId))}" class="notelist-item${active}" data-note-id="${escapeHtml(note.id)}"${note.isEncrypted ? ' data-encrypted="1"' : ''}${protectedByVault && note.parentId ? ` data-vault-id="${escapeHtml(note.parentId)}"` : ''}
 		hx-get="${editorPath}"
 		hx-target="#editor-panel"
 		hx-swap="innerHTML"
 		hx-on::before-request="window._pendingNoteSearchTerm=this.closest('[data-folder-id=__search_results__]')?((document.getElementById('nav-search')||{}).value||''):''"
 		hx-on::after-request="document.querySelectorAll('.notelist-item').forEach(b=>b.classList.remove('active'));this.classList.add('active');if(isMobileShellMode())closeNav()">
-		<span class="notelist-item-title">${escapeHtml(stripMarkdownForTitle(note.title || 'Untitled') || 'Untitled')}</span>
+		${lockIcon}<span class="notelist-item-title">${escapeHtml(stripMarkdownForTitle(note.title || 'Untitled') || 'Untitled')}</span>
 	</button>`;
 };
 
@@ -154,11 +161,15 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 		const isExpandable = count > 0;
 		const isTrash = folderId === trashFolderId;
 		const isAllNotes = !!folder.isVirtualAllNotes;
-		return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folder.title || 'Untitled')}" data-selected="${isOpen ? '1' : ''}" data-note-count="${count}"${isAllNotes ? ' data-all-notes="1"' : ''}>
+		const isVault = !!folder.isVault;
+		// Show vault lock icon if this folder is a vault (unlocked state is client-determined via JS)
+		const vaultIcon = isVault ? `<button type="button" class="vault-folder-lock btn-icon-sm" data-folder-id="${escapeHtml(folderId)}" title="Lock vault" onclick="event.stopPropagation();toggleVaultLock('${escapeHtml(folderId)}')">${svgLockClosed}</button>` : '';
+		return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}${isVault ? ' nav-folder-vault' : ''}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folder.title || 'Untitled')}" data-selected="${isOpen ? '1' : ''}" data-note-count="${count}"${isAllNotes ? ' data-all-notes="1"' : ''}${isVault ? ' data-is-vault="1"' : ''}>
 			<div class="nav-folder-row"${isExpandable ? ` onclick="toggleNavFolder('${escapeHtml(folderId)}')"` : ''}${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folder.title || 'Untitled')}')"`}>
 				${isExpandable ? '<button type="button" class="nav-folder-toggle" tabindex="-1">&#9656;</button>' : '<span class="nav-folder-toggle nav-folder-toggle-placeholder"></span>'}
 				<span class="sidebar-item-icon">${isTrash ? '&#128465;' : (isAllNotes ? allNotesIcon : folderOutlineIcon)}</span>
 				<span class="nav-folder-title">${escapeHtml(folder.title || 'Untitled')}</span>
+				${vaultIcon}
 				<span class="sidebar-item-count">${count || ''}</span>
 				${isTrash ? `<button type="button" class="btn-icon-sm nav-folder-add" title="Empty trash"
 					hx-post="/fragments/trash/empty"
@@ -193,7 +204,7 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 			<button type="submit" class="btn-icon-sm nav-search-btn" title="Search">&#128269;</button>${hasQuery ? `<button type="button" class="btn-icon-sm nav-search-clear" title="Clear search" onclick="var inp=document.getElementById('nav-search');inp.value='';htmx.trigger(inp,'search-submit')">&#10005;</button>` : ''}
 		</form>
 		<button class="btn btn-sm" title="New notebook"
-			onclick="event.preventDefault();var t=prompt('Notebook name');if(t&&t.trim()){htmx.ajax('POST','/fragments/folders',{target:'#nav-panel',swap:'innerHTML',values:{title:t.trim()}})}">+ Folder</button>
+			onclick="event.preventDefault();openNewFolderModal()">+ Notebook</button>
 	</div><div class="nav-items">${folderSections || '<div class="empty-hint">No notebooks yet</div>'}</div>
 	<div class="folder-context-menu" id="folder-context-menu" hidden>
 		<button type="button" class="folder-context-item" onclick="editFolderFromMenu()">Edit notebook</button>
@@ -239,15 +250,35 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 	if (!note) {
 		return '<div class="editor-empty">Select a note</div>';
 	}
-	const folderOptions = (folders || []).map(f =>
+	const folderOptions = realNotebookOptions(folders).map(f =>
 		`<option value="${escapeHtml(f.id)}"${f.id === note.parentId ? ' selected' : ''}>${escapeHtml(f.title || 'Untitled')}</option>`,
 	).join('');
+	const encrypted = !!note.isEncrypted;
+	const vaultId = note.vaultId || '';
+	const vaultProtected = !!(encrypted || note.inVault || vaultId);
+	const vaultName = note.vaultTitle || '';
+	const lockedView = vaultProtected ? `
+		<div class="editor-locked" id="editor-locked">
+			<div class="editor-locked-icon">${svgLockClosed}</div>
+			<div class="editor-locked-text">${vaultName ? `Vault: ${escapeHtml(vaultName)}` : 'This note is encrypted'}</div>
+			<input type="password" class="editor-locked-password" id="editor-locked-password" placeholder="Vault password" autocomplete="off" />
+			<div class="editor-locked-error" id="editor-locked-error"></div>
+			<div class="editor-locked-actions">
+				<button type="button" class="btn btn-primary editor-locked-btn" id="editor-locked-btn" onclick="unlockNote('${escapeHtml(note.id)}')">Unlock</button>
+			</div>
+		</div>` : '';
+	const bodyDisplay = vaultProtected ? ' style="display:none"' : '';
+	const cmDisplay = vaultProtected ? ' style="display:none"' : '';
+	const toolbarDisplay = vaultProtected ? ' style="display:none"' : '';
 	return `<form class="editor-form" id="note-editor-form"
 		hx-put="/fragments/editor/${encodeURIComponent(note.id)}"
 		hx-trigger="joplock:save"
 		hx-target="#autosave-status"
 		hx-swap="innerHTML"
-		hx-indicator="#autosave-indicator">
+		hx-indicator="#autosave-indicator"
+		${vaultProtected ? 'data-encrypted="1"' : ''}
+		${vaultId ? `data-vault-id="${escapeHtml(vaultId)}"` : ''}
+		data-note-id="${escapeHtml(note.id)}">
 		<div class="editor-titlebar">
 			<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="Move to folder">${folderOptions}</select>
 			<span class="editor-folder-arrow">&#9656;</span>
@@ -264,8 +295,9 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 				hx-post="/fragments/notes/${encodeURIComponent(note.id)}/restore"
 				hx-target="#nav-panel"
 				hx-swap="innerHTML">Restore</button>` : ''}
-			<button type="button" class="btn btn-icon mode-toggle-btn" title="Markdown" id="markdown-toggle" onclick="setEditorMode('markdown')">MD</button>
-			<button type="button" class="btn btn-icon mode-toggle-btn" title="Rendered Markdown" id="preview-toggle" onclick="setEditorMode('preview')">&#128065;</button>
+			<button type="button" class="btn btn-icon mode-toggle-btn" title="Markdown" id="markdown-toggle" onclick="setEditorMode('markdown')"${vaultProtected ? ' style="display:none"' : ''}>MD</button>
+			<button type="button" class="btn btn-icon mode-toggle-btn" title="Rendered Markdown" id="preview-toggle" onclick="setEditorMode('preview')"${vaultProtected ? ' style="display:none"' : ''}>&#128065;</button>
+			${vaultProtected ? `<button type="button" class="btn btn-icon" title="Unlock note" id="lock-toggle-btn" onclick="toggleNoteLock('${escapeHtml(note.id)}')">${svgLockClosed}</button>` : ''}
 			<button type="button" class="btn btn-icon btn-danger" title="Delete"
 				hx-delete="/fragments/notes/${encodeURIComponent(note.id)}"
 				hx-target="#nav-panel"
@@ -273,7 +305,7 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 				hx-params="none"
 				${note.deletedTime ? 'hx-confirm="Permanently delete this note?"' : 'data-confirm-trash="Move this note to trash?"'}>&#128465;</button>
 		</div>
-		<div class="editor-toolbar" id="editor-toolbar">
+		<div class="editor-toolbar" id="editor-toolbar"${toolbarDisplay}>
 			<button type="button" class="tb" data-format="bold" title="Bold (Ctrl+B)" onclick="wrapSel('**','**')"><b>B</b></button>
 			<button type="button" class="tb" data-format="italic" title="Italic (Ctrl+I)" onclick="wrapSel('*','*')"><i>I</i></button>
 			<button type="button" class="tb" data-format="underline" title="Underline" onclick="wrapSel('++','++')"><u>U</u></button>
@@ -310,17 +342,21 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 			<button type="button" class="search-nav-btn" title="Next match" onclick="searchNavStep(1)">&#8595;</button>
 			<button type="button" class="search-nav-btn search-nav-close" title="Dismiss" onclick="searchNavDismiss()">&#10005;</button>
 		</div>
-		<textarea name="body" class="editor-body" id="note-body"
-			style="display:none">${escapeHtml(note.body || '')}</textarea>
-		<div class="cm-host" id="cm-host" style="display:none"
+		${lockedView}
+		<textarea name="body" class="editor-body" id="note-body"${bodyDisplay}>${escapeHtml(note.body || '')}</textarea>
+		<div class="cm-host" id="cm-host"${cmDisplay}
 			ondrop="handleDrop(event)" ondragover="event.preventDefault()"></div>
 		<div class="editor-preview" id="note-preview" contenteditable="true"
-			ondrop="handleDrop(event)" ondragover="event.preventDefault()">${renderMarkdown(note.body || '')}</div>
+			ondrop="handleDrop(event)" ondragover="event.preventDefault()">${vaultProtected ? '' : renderMarkdown(note.body || '')}</div>
 	</form>${noteMetaFragment(note).replace('<span id="note-meta"', '<span id="note-meta" hx-swap-oob="outerHTML"')}`;
 };
 
 const mobileEditorFragment = (note, folders, currentFolderId = '') => editorFragment(note, folders, currentFolderId)
-	.replace(/<div class="editor-titlebar">[\s\S]*?<\/div>\s*<div class="editor-toolbar"/,'<div class="editor-toolbar"')
+	.replace(/<div class="editor-titlebar">([\s\S]*?)<\/div>\s*<div class="editor-toolbar"/, (_m, titlebarInner) => {
+		const folderSelectMatch = titlebarInner.match(/<select name="parentId"[\s\S]*?<\/select>/);
+		const hiddenSelect = folderSelectMatch ? folderSelectMatch[0].replace('class="editor-folder-select"', 'class="editor-folder-select mobile-hidden-folder-select"') : '';
+		return `${hiddenSelect}<div class="editor-toolbar"`;
+	})
 	.replace(/\s*<div class="search-nav-bar" id="search-nav-bar" hidden>[\s\S]*?<\/div>\s*/,'')
 	.replace(' hx-swap-oob="outerHTML"', '');
 
@@ -339,7 +375,7 @@ const searchResultsFragment = (notes, hasMore = false, nextOffset = 0, query = '
 };
 
 const folderSelectOob = (folders) => {
-	const options = (folders || []).filter(f => f.id !== trashFolderId && !f.isVirtualAllNotes)
+	const options = realNotebookOptions(folders)
 		.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.title || 'Untitled')}</option>`).join('');
 	return `<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="Move to folder" hx-swap-oob="true">${options}</select>`;
 };
@@ -358,6 +394,7 @@ module.exports = {
 	historySnapshotPreviewFragment,
 	folderNotesPageFragment,
 	navigationFragment,
+	realNotebookOptions,
 	editorFragment,
 	mobileEditorFragment,
 	autosaveStatusFragment,

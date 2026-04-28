@@ -39,6 +39,8 @@ const layoutPage = (options = {}) => {
 	(function(){
 		var keys=['joplock-theme','joplock-nav-collapsed','joplock-nav-folders'];
 		try{keys.forEach(function(k){localStorage.removeItem(k)})}catch(e){}
+		// Clear any stale vault keys: a fresh login session must never inherit cached vault keys.
+		try{var toRemove=[];for(var i=0;i<sessionStorage.length;i++){var k=sessionStorage.key(i);if(k&&k.startsWith('joplock-vault-key-'))toRemove.push(k)}toRemove.forEach(function(k){sessionStorage.removeItem(k)})}catch(e){}
 	})();
 	</script>
 	<div class="login-page">
@@ -130,7 +132,7 @@ const layoutPage = (options = {}) => {
 				<button class="mobile-header-btn mobile-editor-search-btn" id="mobile-editor-search-open" onclick="mobileEditorSearchOpen()" title="Find in note">&#128269;</button>
 				<button class="mobile-header-btn mobile-mode-toggle" id="mobile-md-toggle" onclick="setEditorMode('markdown')" title="Markdown">MD</button>
 				<button class="mobile-header-btn mobile-mode-toggle" id="mobile-preview-toggle" onclick="setEditorMode('preview')" title="Rendered">&#128065;</button>
-				<button class="mobile-header-btn" id="mobile-delete-btn" title="Delete" style="color:var(--danger)">&#128465;</button>
+				<button class="mobile-header-btn" id="mobile-editor-menu-btn" onclick="mobileEditorMenuOpen()" title="Note actions">&#9776;</button>
 			</div>
 			<div class="mobile-header mobile-editor-search-header" id="mobile-editor-search-header" style="display:none">
 				<button class="mobile-header-btn mobile-back-btn" onclick="mobileEditorSearchClose()" title="Close find">&#10005;</button>
@@ -148,15 +150,60 @@ const layoutPage = (options = {}) => {
 	<div class="mobile-fab-menu-backdrop" id="mobile-fab-menu-backdrop" style="display:none" onclick="mobileFabClose()"></div>
 	<div class="mobile-fab-menu" id="mobile-fab-menu" style="display:none">
 		<button class="mobile-fab-menu-btn" onclick="mobileFabNewNote()">&#128221; New note</button>
-		<button class="mobile-fab-menu-btn" onclick="mobileFabNewFolder()">&#128193; New folder</button>
+		<button class="mobile-fab-menu-btn" onclick="mobileFabNewFolder()">&#128193; New notebook</button>
 		<button class="mobile-fab-menu-btn mobile-fab-menu-cancel" onclick="mobileFabClose()">Cancel</button>
 	</div>
 	<!-- Mobile context menu (long-press on note row) -->
 	<div class="mobile-ctx-backdrop" id="mobile-ctx-backdrop" style="display:none" onclick="mobileCtxClose()"></div>
 	<div class="mobile-ctx-sheet" id="mobile-ctx-sheet" style="display:none">
 		<div class="mobile-ctx-title" id="mobile-ctx-title"></div>
+		<button class="mobile-ctx-btn" id="mobile-ctx-move">&#128193; Move note</button>
 		<button class="mobile-ctx-btn" id="mobile-ctx-delete">&#128465; Delete note</button>
 		<button class="mobile-ctx-btn mobile-ctx-btn-cancel" onclick="mobileCtxClose()">Cancel</button>
+	</div>
+	<div class="mobile-ctx-backdrop" id="mobile-folder-picker-backdrop" style="display:none" onclick="mobileFolderPickerClose()"></div>
+	<div class="mobile-ctx-sheet mobile-folder-picker-sheet" id="mobile-folder-picker-sheet" style="display:none">
+		<div class="mobile-ctx-title" id="mobile-folder-picker-title">Move note</div>
+		<div class="mobile-folder-picker-list" id="mobile-folder-picker-list"></div>
+		<button class="mobile-ctx-btn mobile-ctx-btn-cancel" onclick="mobileFolderPickerClose()">Cancel</button>
+	</div>
+	<!-- Vault modal (unlock or create vault) -->
+	<div class="folder-modal-backdrop" id="vault-modal-backdrop" hidden onclick="closeVaultModal()"></div>
+	<div class="folder-modal lock-modal" id="vault-modal" hidden>
+		<form class="folder-modal-card" id="vault-modal-form" onsubmit="submitVaultModal(event)">
+			<h3 class="folder-modal-title" id="vault-modal-title">Unlock Vault</h3>
+			<p class="lock-modal-warning" id="vault-modal-warning">\u26A0\uFE0F This password cannot be changed. If forgotten, encrypted notes cannot be recovered.</p>
+			<input type="password" id="vault-modal-password" class="login-input" placeholder="Vault password" required autocomplete="off" />
+			<div id="vault-modal-confirm-wrap" style="display:none">
+				<input type="password" id="vault-modal-confirm" class="login-input" placeholder="Confirm password" autocomplete="off" />
+			</div>
+			<div class="lock-modal-error" id="vault-modal-error"></div>
+			<div class="folder-modal-actions">
+				<button type="button" class="btn btn-sm btn-secondary" onclick="closeVaultModal()">Cancel</button>
+				<button type="submit" class="btn btn-sm btn-primary">OK</button>
+			</div>
+		</form>
+	</div>
+	<!-- New notebook modal (with optional vault checkbox) -->
+	<div class="folder-modal-backdrop" id="new-folder-modal-backdrop" hidden onclick="closeNewFolderModal()"></div>
+	<div class="folder-modal lock-modal" id="new-folder-modal" hidden>
+		<form class="folder-modal-card" id="new-folder-modal-form" onsubmit="submitNewFolderModal(event)">
+			<h3 class="folder-modal-title">New Notebook</h3>
+			<label class="lock-modal-checkbox" style="margin-top:0.75rem">
+				<input type="checkbox" id="new-folder-is-vault" onchange="toggleNewFolderVault(this.checked)" /> Make this a vault (encrypted notebook)
+			</label>
+			<input type="text" id="new-folder-title" class="login-input" placeholder="Notebook name" required autocomplete="off" />
+			<div id="new-vault-fields" style="display:none">
+				<p class="lock-modal-warning" style="margin-top:0.5rem">\u26A0\uFE0F This password cannot be changed. If forgotten, encrypted notes cannot be recovered.</p>
+				<input type="password" id="new-vault-password" class="login-input" placeholder="Vault password" autocomplete="off" />
+				<input type="password" id="new-vault-confirm" class="login-input" placeholder="Confirm password" autocomplete="off" />
+			</div>
+			<div class="lock-modal-error" id="new-vault-error"></div>
+			<div class="folder-modal-actions">
+				<button type="button" class="btn btn-sm btn-secondary" onclick="closeNewFolderModal()">Cancel</button>
+				<button type="submit" class="btn btn-sm btn-primary">Create</button>
+			</div>
+		</form>
 	</div>
 	<div class="app-statusbar">
 		<a href="/settings" class="btn btn-icon status-settings-link" title="Settings">&#9881;</a>
@@ -205,7 +252,8 @@ const layoutPage = (options = {}) => {
 		dateFormat:${JSON.stringify(String(settings.dateFormat || 'MMM-DD-YY'))},
 		datetimeFormat:${JSON.stringify(String(settings.datetimeFormat || 'YYYY-MM-DD HH:mm'))},
 		liveSearch:${settings.liveSearch ? 'true' : 'false'},
-		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'}
+		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'},
+		encryptionAutoLockMinutes:${JSON.stringify(settings.encryptionAutoLockMinutes || 5)}
 	};
 	</script>
 </body>
@@ -255,6 +303,8 @@ const loggedOutPage = () => `<!DOCTYPE html>
 			mark('session','done');
 			var keys=['joplock-theme','joplock-nav-collapsed','joplock-nav-folders','joplock-clean-md','joplock-settings-tab'];
 			try{keys.forEach(function(k){localStorage.removeItem(k)})}catch(e){}
+			// Clear vault keys from sessionStorage so re-login requires re-entering vault passwords
+			try{var toRemove=[];for(var i=0;i<sessionStorage.length;i++){var k=sessionStorage.key(i);if(k&&k.startsWith('joplock-vault-key-'))toRemove.push(k)}toRemove.forEach(function(k){sessionStorage.removeItem(k)})}catch(e){}
 			mark('storage','done');
 			mark('done','done');
 			if(loginLink)loginLink.style.display='inline-flex';

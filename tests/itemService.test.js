@@ -60,6 +60,7 @@ test('mapNoteHeaderRow should use projected note fields', () => {
 		id: 'note1',
 		parentId: 'folder1',
 		title: 'Projected Note',
+		isEncrypted: false,
 		deletedTime: 0,
 		updatedTime: 400,
 	});

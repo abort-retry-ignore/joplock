@@ -24,7 +24,7 @@ Use this guide when working in this repository.
 ### Stack
 
 - **Server**: Node.js HTTP server, no framework
-- **Client**: SSR HTML + htmx fragment swaps
+- **Client**: SSR HTML + htmx fragment swaps + shared browser logic in `public/app.js`
 - **Editor**: CodeMirror 6 for markdown editing, contenteditable rendered markdown preview mode
 - **Code blocks**: Full-screen code modal with CM6 editor and language picker; highlight.js for preview mode syntax highlighting
 - **Autosave**: htmx delayed PUT after typing pause (deferred while modals are open)
@@ -34,9 +34,9 @@ Use this guide when working in this repository.
 
 ### Runtime Shape
 
-- Initial page load is full SSR HTML from `layoutPage()` in `app/templates.js`
+- Initial page load is full SSR HTML from `layoutPage()` in `app/templates/pages.js`
 - After load, most interactions are fragment-driven via htmx
-- The browser is intentionally thin: most state is DOM state, form state, or small client-only UI state in inline JS
+- The browser is intentionally thin: most state is DOM state, form state, or small client-only UI state in `public/app.js`
 - There is no frontend router and no SPA store
 - Desktop and mobile share the same server routes and most of the same editor code; mobile is a different screen shell around the same editor fragment
 
@@ -58,7 +58,7 @@ Use this guide when working in this repository.
 
 ### Fragment Conventions
 
-- `templates.js` returns raw HTML strings, not JSX/templates/components
+- `app/templates/**/*.js` returns raw HTML strings, not JSX/templates/components
 - htmx targets are mostly `#nav-panel`, `#notelist-panel`, `#editor-panel`, and mobile-specific targets like `#mobile-editor-body`
 - Out-of-band swaps are used sparingly; note metadata is one example
 - Client logic often relies on stable IDs, so be careful renaming DOM IDs used by inline JS
@@ -71,6 +71,18 @@ Use this guide when working in this repository.
 4. Do not build browser-local authoritative storage.
 5. Keep sidecar API app-oriented. Do not expose raw sync/storage model to frontend.
 6. Treat logout as client cleanup event on shared machines.
+
+## Vault / Encryption Model
+
+- Vaults are notebooks/folders with metadata stored in `joplock_vaults`
+- Titles stay plaintext
+- Notebook names stay plaintext
+- Note body ciphertext is stored in normal Joplin note bodies using Joplock markers for compatibility
+- Browser crypto stays client-side only; server never receives vault passwords
+- A note inside a vault notebook must be treated as protected even if its stored body is still plaintext during transition states
+- Locked vault notes render the lock overlay plus hidden editor shells; do not remove the hidden editor DOM because unlock logic depends on it
+- Clicking a vault lock while unlocked should lock immediately and close the open note if it belongs to that vault
+- Startup/refresh must never auto-resume an encrypted note or a note inside a vault notebook
 
 ## Service Responsibilities
 
@@ -103,17 +115,31 @@ Does not own:
 
 ### Entry / Server
 - `server.js` — entry point, env wiring, server startup
-- `app/createServer.js` — all HTTP routes, SSR, preview, upload, resources, auth pages
+- `app/createServer.js` — server assembly, shared context, full-page `/` render, static serving
+
+### Route Handlers
+- `app/routes/fragments.js` — desktop/shared fragment routes
+- `app/routes/mobile.js` — mobile folder/note/search routes
+- `app/routes/api.js` — JSON API endpoints
+- `app/routes/auth.js`, `app/routes/settings.js`, `app/routes/admin.js`, `app/routes/history.js`, `app/routes/resources.js`
 
 ### Templates / UI
-- `app/templates.js` — SSR HTML, inline client JS, markdown rendering, editor mode logic
+- `app/templates/index.js` — central template re-export
+- `app/templates/pages.js` — full-page layout/login/MFA shells
+- `app/templates/fragments.js` — nav, editor, search, history, OOB fragments
+- `app/templates/mobile.js` — mobile folder/note/search fragments
+- `app/templates/shared.js` — escaping, markdown rendering, title normalization
+- `app/templates/settings.js` — settings/admin page sections
 
-Important subareas inside `templates.js`:
+### Client Runtime
+- `public/app.js` — shared client logic for editor, autosave, vault flows, mobile screen stack, search, and modals
+
+Important subareas:
 - `settingsPage()` — Settings UI and simple client save helpers
 - `editorFragment()` — shared editor DOM used by desktop and mobile
-- `layoutPage()` — logged-in app shell, inline client JS, mobile shell, autosave/editor wiring
+- `layoutPage()` — logged-in app shell and mobile shell container
 - `renderMarkdown()` — server-side markdown-to-HTML for preview/render mode
-- mobile fragments and shell logic — folder-first mobile UI, note list, search, editor screen stack
+- `public/app.js` mobile helpers — folder-first mobile UI, note list, search, editor screen stack
 
 ### Auth
 - `app/auth/cookies.js` — cookie parsing
@@ -124,6 +150,7 @@ Important subareas inside `templates.js`:
 - `app/items/itemService.js` — DB reads for folders, notes, search, resources
 - `app/items/itemWriteService.js` — note/folder/resource serialization and upstream writes
 - `app/settingsService.js` — Joplock-owned settings table access
+- `app/vaultService.js` — vault metadata CRUD in `joplock_vaults`
 
 ### How Reads vs Writes Work
 
@@ -204,6 +231,7 @@ Tablet still uses the mobile shell in the current responsive design. Mobile/tabl
 - `markEdited()` updates UI state to `Edited`
 - `scheduleSave()` triggers delayed autosave for body/form changes
 - `scheduleSaveTitle()` is a shorter timer for title changes
+- `flushSave()` is the forced-save path used before leaving a dirty note; it must also handle vault-note encryption before navigation proceeds
 - `htmx:afterRequest` on the editor save path transitions UI state back to `Saved`
 - Offline/request failure paths set status to `Offline`
 
@@ -230,6 +258,8 @@ These screens are shown/hidden by inline JS in `layoutPage()` using class change
 - Search has its own mobile header state
 - Mobile note creation uses dedicated fragment endpoints and server headers to drive the next UI step
 - The floating action button is only a mobile affordance; desktop should stay unaffected
+- FAB visibility should follow screen state directly (`folders` / `notes` visible, `editor` hidden), not only htmx swap side effects
+- Mobile folder rows can include a vault lock button and it must stay inline with the row actions
 
 ### Mobile editor behavior
 
@@ -238,6 +268,7 @@ These screens are shown/hidden by inline JS in `layoutPage()` using class change
 - Mode buttons should remain visible and clearly indicate the active mode
 - Toolbar visibility should be keyed to being inside the mobile editor container, not only screen width
 - Newly-created empty mobile notes may be discarded on back if still blank/untitled
+- Locked mobile notes should not reveal plaintext/editor surfaces until unlock
 
 ### Tablet expectations
 
@@ -261,18 +292,21 @@ These screens are shown/hidden by inline JS in `layoutPage()` using class change
 - `codeFontSize`
 - `noteMonospace`
 - `noteOpenMode`
+- `resumeLastNote`
 - `dateFormat`
 - `datetimeFormat`
 - `liveSearch`
+- `confirmTrash`
 - `autoLogout`
 - `autoLogoutMinutes`
+- `encryptionAutoLockMinutes`
 
 ### Adding a new setting
 
 1. Add default + normalization in `app/settingsService.js`
 2. Allow the key in `/api/web/settings` in `app/createServer.js`
-3. Add the UI in `settingsPage()` in `app/templates.js`
-4. If needed, inject the normalized setting into `layoutPage()` client JS
+3. Add the UI in `settingsPage()` in `app/templates/settings.js`
+4. If needed, inject the normalized setting into `layoutPage()` / `public/app.js`
 5. Rebuild with `./scripts/rebuild-dev.sh`
 
 ## Route Notes
@@ -297,7 +331,7 @@ If a UI action appears broken, check:
 
 - Keep changes minimal
 - Preserve sidecar/frontend boundary
-- Inline JS in `templates.js` is fragile; validate escaping-heavy changes carefully
+- `public/app.js` is DOM-contract fragile; validate escaping-heavy changes and stable IDs carefully
 - The code modal lives in `loggedInLayout`, not inside `navigationFragment` or `editorFragment`, so it survives htmx OOB swaps
 - Be careful with checkbox text handling, `\n`, regex escaping, and DOM-to-markdown round trips
 - Keep standalone repo paths/docs/scripts correct; avoid reintroducing monorepo assumptions
@@ -305,6 +339,7 @@ If a UI action appears broken, check:
 - When fixing mobile behavior, verify desktop is unchanged
 - When fixing desktop editor behavior, verify mobile still works because both use the same editor fragment
 - Be cautious with `htmx:afterRequest` assumptions; in htmx 2.x, response headers are often more reliable than old event-property assumptions
+- If changing vault behavior, verify desktop + mobile, locked + unlocked, existing note + newly-created note, and refresh/restart behavior
 
 ## Debugging Guidance
 
@@ -319,6 +354,20 @@ If a UI action appears broken, check:
 - Check whether the server response includes the expected mobile header such as `X-Mobile-Note-Id`
 - Check the `htmx:afterRequest` handler that consumes that header
 - Compare new-note path vs existing-note path
+- Check whether the note is in a vault and whether the editor was initialized in locked vs unlocked state
+
+### If vault behavior misbehaves
+
+- Check whether the folder is marked with `isVault`
+- Check whether the note is marked with `inVault` / `isEncrypted` / `vaultId`
+- Check `toggleVaultLock()`, `unlockNote()`, `_completeUnlock()`, and `flushSave()` in `public/app.js`
+- Check whether the hidden editor shells still exist in locked editor HTML
+
+### If startup/resume behavior is wrong
+
+- Check the `/` render path in `app/createServer.js`
+- Check `resumeLastNote`, `lastNoteId`, and `lastNoteFolderId`
+- Refresh/restart must not reopen encrypted notes or notes inside vault notebooks
 
 ### If toolbar/mode behavior is inconsistent
 

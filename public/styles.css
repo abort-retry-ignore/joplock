@@ -1006,18 +1006,10 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 }
 
 .notelist-items {
-	flex: 1;
 	overflow-y: auto;
+	flex: 1;
 }
 
-.notelist-item {
-	display: block;
-	width: 100%;
-	padding: 8px 12px;
-	text-align: left;
-	border-bottom: 1px solid var(--border);
-	transition: background 0.1s;
-}
 .notelist-item:hover { background: var(--bg-hover); }
 .notelist-item.active { background: var(--bg-active); }
 
@@ -1027,6 +1019,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	color: var(--text);
+	min-width: 0;
+	flex: 1;
 }
 
 /* Column 3: Editor */
@@ -1487,6 +1481,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	transition: background 0.1s;
 }
 .btn-icon:hover { background: var(--bg-hover); }
+#lock-toggle-btn { color: #FFC107; }
+#lock-toggle-btn:hover { color: #FFC107; }
 .btn-icon.active { color: var(--accent); background: var(--bg-active); }
 .btn-danger:hover { color: var(--danger); }
 .mode-toggle-btn {
@@ -1955,9 +1951,11 @@ select.login-input option {
 		transform: translateX(100%);
 		transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
 		will-change: transform;
+		pointer-events: none;
 	}
 	.mobile-screen-active {
 		transform: translateX(0);
+		pointer-events: auto;
 	}
 	.mobile-screen-left {
 		transform: translateX(-30%);
@@ -2103,6 +2101,7 @@ select.login-input option {
 	.mobile-folder-row {
 		display: flex;
 		align-items: center;
+		flex-wrap: nowrap;
 		width: 100%;
 		background: none;
 		border: none;
@@ -2117,8 +2116,17 @@ select.login-input option {
 	}
 	.mobile-folder-row:active { background: var(--bg-hover); }
 	.mobile-folder-icon { font-size: 16px; flex-shrink: 0; color: var(--accent); }
-	.mobile-folder-title { flex: 1; }
-	.mobile-folder-count { color: var(--text-muted); font-size: 13px; }
+	.mobile-folder-title { flex: 1 1 auto; min-width: 0; }
+	.mobile-folder-count { color: var(--text-muted); font-size: 13px; flex-shrink: 0; }
+	.mobile-vault-folder-lock {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		line-height: 1;
+		font-size: 16px;
+	}
 	.mobile-folder-add {
 		color: var(--accent);
 		font-size: 24px;
@@ -2126,7 +2134,7 @@ select.login-input option {
 		padding: 0 6px;
 		flex-shrink: 0;
 	}
-	.mobile-folder-arrow { color: var(--text-muted); font-size: 20px; }
+	.mobile-folder-arrow { color: var(--text-muted); font-size: 20px; flex-shrink: 0; }
 
 	/* Note rows */
 	.mobile-note-row {
@@ -2152,6 +2160,14 @@ select.login-input option {
 	.mobile-editor-body .editor-titlebar {
 		padding: 8px 12px;
 		flex-wrap: nowrap;
+	}
+	.mobile-editor-body .editor-folder-select,
+	.mobile-editor-body .editor-folder-arrow,
+	.mobile-editor-body #mobile-delete-btn {
+		display: none;
+	}
+	.mobile-hidden-folder-select {
+		display: none !important;
 	}
 	.mobile-editor-body .editor-title {
 		font-size: 15px;
@@ -2268,10 +2284,26 @@ select.login-input option {
 		min-height: 56px;
 	}
 	.mobile-ctx-btn:active { background: var(--bg-hover); }
+	.mobile-ctx-btn:disabled {
+		opacity: 0.55;
+	}
 	.mobile-ctx-btn-cancel {
 		color: var(--text-muted);
 		border-top: 1px solid var(--border);
 		margin-top: 4px;
+	}
+	.mobile-folder-picker-sheet {
+		max-height: min(70vh, 520px);
+		display: flex;
+		flex-direction: column;
+	}
+	.mobile-folder-picker-list {
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+		padding-bottom: 4px;
+	}
+	.mobile-folder-picker-btn.is-current {
+		color: var(--text-muted);
 	}
 }
 
@@ -2542,4 +2574,159 @@ mark.search-highlight-active {
 	color: #111;
 	border-radius: 2px;
 	padding: 0 1px;
+}
+
+/* --- Encryption UI --- */
+.note-lock-icon {
+	font-size: 13px;
+	margin-right: 4px;
+	opacity: 0.7;
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	color: #FFC107;
+}
+.note-lock-icon.note-lock-unlocked {
+	color: var(--accent);
+	opacity: 0.9;
+}
+.notelist-item {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	padding: 8px 12px;
+	text-align: left;
+	border-bottom: 1px solid var(--border);
+	transition: background 0.1s;
+}
+
+.editor-locked {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	flex: 1;
+	gap: 12px;
+	padding: 40px 20px;
+	min-height: 200px;
+}
+.editor-locked-icon {
+	font-size: 48px;
+	opacity: 0.5;
+	color: #FFC107;
+}
+.editor-locked-icon .vault-svg-icon {
+	width: 48px;
+	height: 48px;
+}
+.editor-locked-text {
+	font-size: 16px;
+	color: var(--text-dim);
+}
+.editor-locked-password {
+	width: 100%;
+	max-width: 280px;
+	padding: 10px 14px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg-input, var(--bg-hover));
+	color: var(--text);
+	font-size: 15px;
+	text-align: center;
+}
+.editor-locked-password:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.editor-locked-btn {
+	min-width: 120px;
+}
+.editor-locked-actions {
+	display: flex;
+	gap: 8px;
+	justify-content: center;
+	flex-wrap: wrap;
+}
+.editor-locked-error {
+	color: var(--danger, #e06c75);
+	font-size: 13px;
+	min-height: 18px;
+}
+
+.autosave-encrypted {
+	color: var(--accent);
+	font-size: 11px;
+	opacity: 0.8;
+}
+
+.lock-modal-warning {
+	font-size: 13px;
+	color: var(--danger, #e06c75);
+	margin: 0 0 8px;
+	line-height: 1.4;
+}
+.lock-modal-checkbox {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	color: var(--text-dim);
+	margin: 4px 0;
+	cursor: pointer;
+}
+.lock-modal-error {
+	color: var(--danger, #e06c75);
+	font-size: 13px;
+	min-height: 18px;
+}
+
+#tb-remove-lock, #tb-change-password {
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+/* Vault folder styles */
+.nav-folder-vault > .nav-folder-row {
+	/* subtle accent to distinguish vault folders */
+}
+.vault-folder-lock {
+	font-size: 14px;
+	opacity: 0.85;
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 0 2px;
+	color: #FFC107;
+	line-height: 1;
+	flex-shrink: 0;
+}
+.vault-folder-lock:hover {
+	opacity: 1;
+	color: #FFC107;
+}
+
+/* SVG lock icons */
+.vault-svg-icon {
+	width: 1em;
+	height: 1em;
+	display: inline-block;
+	vertical-align: -0.125em;
+}
+
+/* Mobile lock icon in note row */
+.mobile-note-row .note-lock-icon {
+	font-size: 13px;
+	margin-right: 6px;
+}
+
+/* Mobile locked editor */
+@media (max-width: 768px) {
+	.editor-locked {
+		padding: 60px 20px;
+	}
+	.editor-locked-password {
+		max-width: 100%;
+		font-size: 16px;
+	}
 }

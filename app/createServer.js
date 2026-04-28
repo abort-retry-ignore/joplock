@@ -36,6 +36,7 @@ const createServer = options => {
 		adminEmail = '',
 		ignoreAdminMfa = false,
 		database = null,
+		vaultService = null,
 		debug = false,
 	} = options;
 
@@ -76,13 +77,16 @@ const createServer = options => {
 		return { error: null, user };
 	};
 
-	const navData = async userId => {
-		const [folders, counts] = await Promise.all([
+		const navData = async userId => {
+		const [folders, counts, vaultIds] = await Promise.all([
 			itemService.foldersByUserId(userId),
 			itemService.folderNoteCountsByUserId(userId),
+			vaultService ? vaultService.getVaultFolderIdSet(userId) : Promise.resolve(new Set()),
 		]);
-		const allFolders = [allNotesFolder(counts.get('__all__') || 0)].concat(folders, [trashFolder(counts.get('__trash__') || 0)]);
-		return { folders: allFolders, counts };
+		// Mark vault folders
+		const markedFolders = folders.map(f => ({ ...f, isVault: !!(f.isVault || vaultIds.has(f.id)) }));
+		const allFolders = [allNotesFolder(counts.get('__all__') || 0)].concat(markedFolders, [trashFolder(counts.get('__trash__') || 0)]);
+		return { folders: allFolders, counts, vaultIds };
 	};
 
 	const upstreamRequestContext = _request => ({
@@ -142,7 +146,7 @@ This notebook is here so a fresh install has something to open and edit right aw
 
 ## Creating notes and notebooks
 
-- Use **+ Folder** to create a new notebook.
+- Use **+ Notebook** to create a new notebook.
 - Use the **+** button on a notebook row to create a note inside it.
 - Search from the left panel to find notes quickly.
 
@@ -243,6 +247,7 @@ Code block example
 			historyService,
 			itemWriteService,
 			adminService,
+			vaultService,
 			database,
 			// config
 			joplinPublicBasePath,
@@ -302,18 +307,20 @@ Code block example
 				let mobileEditorContent = '';
 				if (settings && settings.resumeLastNote && settings.lastNoteId) {
 					const resumed = await itemService.noteByUserIdAndJopId(auth.user.id, settings.lastNoteId, { deleted: 'all' });
-					if (resumed && !resumed.deletedTime) {
+					const resumedFolder = resumed ? folders.find(f => f.id === resumed.parentId) : null;
+					const blockedResume = !!(resumed && (resumed.deletedTime || resumed.isEncrypted || (resumedFolder && resumedFolder.isVault)));
+					if (resumed && !blockedResume) {
 						const noteFolderId = resumed.parentId || '';
 						selectedFolderId = noteFolderId;
 						selectedNoteId = resumed.id;
 						selectedNoteContextFolderId = noteFolderId || null;
-						editorContent = templates.editorFragment(resumed, folders.filter(f => f.id !== TRASH_FOLDER_ID), noteFolderId);
-						mobileEditorContent = templates.mobileEditorFragment(resumed, folders.filter(f => f.id !== TRASH_FOLDER_ID), noteFolderId);
+						editorContent = templates.editorFragment(resumed, folders, noteFolderId);
+						mobileEditorContent = templates.mobileEditorFragment(resumed, folders, noteFolderId);
 						mobileStartup = {
 							folderId: noteFolderId,
 							folderTitle: (folders.find(f => f.id === noteFolderId) || {}).title || 'Notes',
 							noteId: resumed.id,
-							noteTitle: plainNoteTitle(resumed.title),
+							 noteTitle: plainNoteTitle(resumed.title),
 						};
 					} else if (settings.lastNoteId || settings.lastNoteFolderId) {
 						await settingsService.saveSettings(auth.user.id, { ...settings, lastNoteId: '', lastNoteFolderId: '' });

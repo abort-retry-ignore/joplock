@@ -6,6 +6,7 @@ const { createItemWriteService } = require('./app/items/itemWriteService');
 const { createSettingsService } = require('./app/settingsService');
 const { createHistoryService } = require('./app/historyService');
 const { createAdminService } = require('./app/adminService');
+const { createVaultService } = require('./app/vaultService');
 const { createServer } = require('./app/createServer');
 
 const host = process.env.HOST || '0.0.0.0';
@@ -25,6 +26,7 @@ const sessionService = createSessionService(databasePool);
 const itemService = createItemService(databasePool);
 const settingsService = createSettingsService(databasePool);
 const historyService = createHistoryService(databasePool);
+const vaultService = createVaultService(databasePool);
 const itemWriteService = createItemWriteService({
 	joplinServerOrigin,
 	joplinServerPublicUrl,
@@ -65,6 +67,7 @@ const server = createServer({
 	adminEmail,
 	ignoreAdminMfa,
 	database: databasePool,
+	vaultService,
 	debug: process.env.DEBUG === 'true' || process.env.DEBUG === '1',
 });
 

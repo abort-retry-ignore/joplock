@@ -61,7 +61,7 @@ const handle = async (url, request, response, ctx) => {
 			sendHtml(response, 200,
 				`${templates.autosaveStatusFragment()}` +
 				navPanelOob(templates.navigationFragment(folders, counts, selFolder, noteId, '', selFolder)) +
-				`<div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(refreshed || existing, folders.filter(f => f.id !== TRASH_FOLDER_ID), selFolder)}</div>`
+				`<div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(refreshed || existing, folders, selFolder)}</div>`
 			);
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<span class="autosave-error">Restore failed: ${templates.escapeHtml(error.message || `${error}`)}</span>`);

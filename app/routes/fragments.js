@@ -10,10 +10,54 @@ const templates = require('../templates');
 const editorPanelOob = html => `<div id="editor-panel" hx-swap-oob="innerHTML">${html}</div>`;
 const editorEmpty = () => editorPanelOob('<div class="editor-empty">Select a note</div>');
 
+const moveFolderNotesToGeneral = async (userId, sessionId, folderId, itemService, itemWriteService, requestContext) => {
+	const sourceFolder = await itemService.folderByUserIdAndJopId(userId, folderId);
+	if (!sourceFolder) {
+		const error = new Error('Notebook not found.');
+		error.statusCode = 404;
+		throw error;
+	}
+	let generalFolder = (await itemService.foldersByUserId(userId)).find(f => !f.deletedTime && f.id !== folderId && f.title === 'General');
+	if (!generalFolder) {
+		const created = await itemWriteService.createFolder(sessionId, { title: 'General', parentId: '' }, requestContext);
+		generalFolder = { id: created.id, title: 'General' };
+	}
+	const notes = await itemService.notesByUserId(userId, { folderId });
+	for (const note of notes) {
+		await itemWriteService.updateNote(sessionId, note, { parentId: generalFolder.id }, requestContext);
+	}
+	return { sourceFolder, generalFolder, movedCount: notes.length };
+};
+
 const handle = async (url, request, response, ctx) => {
 	const { sendHtml, authenticatedUser, itemService, itemWriteService,
 		historyService, upstreamRequestContext, navData, userSettings, saveLastNoteState,
-		plainNoteTitle } = ctx;
+		plainNoteTitle, vaultService } = ctx;
+
+	// Helper: enrich a note with vault info from its parent folder
+	const enrichNoteWithVault = async (userId, note, folders) => {
+		if (!note || !vaultService) return note;
+		const vault = await vaultService.getVaultByFolderId(userId, note.parentId).catch(() => null);
+		if (!vault) return note;
+		const folder = (folders || []).find(f => f.id === note.parentId);
+		return {
+			...note,
+			inVault: true,
+			// Notes inside a vault folder must be treated as vault-protected even if an
+			// older plaintext body still exists. Client code will either prompt for unlock
+			// or, if the vault is already unlocked, immediately encrypt and save it.
+			isEncrypted: true,
+			vaultId: vault.folderId,
+			vaultTitle: folder ? folder.title : '',
+		};
+	};
+
+	const markNotesInVaults = async (userId, notes) => {
+		if (!vaultService || !notes || !notes.length) return notes;
+		const vaultFolderIds = await vaultService.getVaultFolderIdSet(userId).catch(() => new Set());
+		if (!vaultFolderIds.size) return notes;
+		return notes.map(note => vaultFolderIds.has(note.parentId) ? { ...note, inVault: true } : note);
+	};
 
 	// POST /fragments/folders
 	if (url.pathname === '/fragments/folders' && request.method === 'POST') {
@@ -38,6 +82,7 @@ const handle = async (url, request, response, ctx) => {
 			const auth = await authenticatedUser(request);
 			if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return true; }
 			const folderId = decodeURIComponent(url.pathname.slice('/fragments/folders/'.length));
+			await moveFolderNotesToGeneral(auth.user.id, auth.user.sessionId, folderId, itemService, itemWriteService, upstreamRequestContext(request));
 			await itemWriteService.deleteFolder(auth.user.sessionId, folderId, upstreamRequestContext(request));
 			const { folders: dfFolders, counts: dfCounts } = await navData(auth.user.id);
 			sendHtml(response, 200, templates.navigationFragment(dfFolders, dfCounts, '', '') + templates.folderSelectOob(dfFolders));
@@ -95,12 +140,13 @@ const handle = async (url, request, response, ctx) => {
 			const selectedNoteId = url.searchParams.get('selectedNoteId') || '';
 			const normalizedFolderId = (folderId === ALL_NOTES_FOLDER_ID) ? VIRTUAL_ALL_NOTES_ID : (folderId === TRASH_FOLDER_ID ? VIRTUAL_TRASH_ID : folderId);
 			const notes = await itemService.noteHeadersByFolder(auth.user.id, normalizedFolderId, NOTE_PAGE_SIZE, offset);
+			const enrichedNotes = await markNotesInVaults(auth.user.id, notes);
 			const counts = await itemService.folderNoteCountsByUserId(auth.user.id);
 			const virtualId = normalizedFolderId === VIRTUAL_ALL_NOTES_ID ? VIRTUAL_ALL_NOTES_ID : (normalizedFolderId === VIRTUAL_TRASH_ID ? VIRTUAL_TRASH_ID : normalizedFolderId);
 			const totalCount = counts.get(virtualId) || counts.get(normalizedFolderId) || 0;
 			const hasMore = offset + notes.length < totalCount;
 			const contextFolderId = normalizedFolderId === VIRTUAL_ALL_NOTES_ID ? VIRTUAL_ALL_NOTES_ID : normalizedFolderId;
-			sendHtml(response, 200, templates.folderNotesPageFragment(notes, contextFolderId, selectedNoteId, hasMore, offset + notes.length, totalCount));
+			sendHtml(response, 200, templates.folderNotesPageFragment(enrichedNotes, contextFolderId, selectedNoteId, hasMore, offset + notes.length, totalCount));
 		} catch (error) {
 			sendHtml(response, 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 		}
@@ -121,14 +167,17 @@ const handle = async (url, request, response, ctx) => {
 				body: '',
 				parentId,
 			}, upstreamRequestContext(request));
-			const [{ folders, counts }, note] = await Promise.all([
+			const [{ folders, counts }, rawNote] = await Promise.all([
 				navData(auth.user.id),
 				itemService.noteByUserIdAndJopId(auth.user.id, created.id),
 			]);
+			const note = rawNote ? await enrichNoteWithVault(auth.user.id, rawNote, folders) : rawNote;
+			// Override parentId: DB may not reflect it yet due to Joplin Server async processing
+			if (note && parentId) note.parentId = parentId;
 			const selFolder = selectedFolderForNav(currentFolderId);
 			sendHtml(response, 200,
 				`${templates.navigationFragment(folders, counts, selFolder, created.id, '', selFolder)}` +
-				editorPanelOob(templates.editorFragment(note, folders.filter(f => f.id !== TRASH_FOLDER_ID), selFolder))
+				editorPanelOob(templates.editorFragment(note, folders, selFolder))
 			);
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
@@ -152,14 +201,17 @@ const handle = async (url, request, response, ctx) => {
 				body: '',
 				parentId: general.id,
 			}, upstreamRequestContext(request));
-			const [{ folders: navFolders, counts }, note] = await Promise.all([
+			const [{ folders: navFolders, counts }, rawNote] = await Promise.all([
 				navData(auth.user.id),
 				itemService.noteByUserIdAndJopId(auth.user.id, created.id),
 			]);
+			const note = rawNote ? await enrichNoteWithVault(auth.user.id, rawNote, navFolders) : rawNote;
+			// Override parentId: DB may not reflect it yet due to Joplin Server async processing
+			if (note) note.parentId = general.id;
 			const selFolder = selectedFolderForNav(general.id);
 			sendHtml(response, 200,
 				`${templates.navigationFragment(navFolders, counts, selFolder, created.id, '', selFolder)}` +
-				editorPanelOob(templates.editorFragment(note, navFolders.filter(f => f.id !== TRASH_FOLDER_ID), selFolder))
+				editorPanelOob(templates.editorFragment(note, navFolders, selFolder))
 			);
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
@@ -219,7 +271,7 @@ const handle = async (url, request, response, ctx) => {
 			]);
 			sendHtml(response, 200,
 				`${templates.navigationFragment(navFolders, counts, restoreParentId, noteId, '', restoreParentId)}` +
-				editorPanelOob(templates.editorFragment(restoredNote, navFolders.filter(f => f.id !== TRASH_FOLDER_ID)))
+				editorPanelOob(templates.editorFragment(restoredNote, navFolders))
 			);
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
@@ -269,8 +321,9 @@ const handle = async (url, request, response, ctx) => {
 			if (!query.trim()) { sendHtml(response, 200, ''); return true; }
 			const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
 			const notes = await itemService.searchNotes(auth.user.id, query, 50, offset);
+			const enrichedNotes = await markNotesInVaults(auth.user.id, notes);
 			const hasMore = notes.length === 50;
-			sendHtml(response, 200, templates.searchResultsFragment(notes, hasMore, offset + notes.length, query));
+			sendHtml(response, 200, templates.searchResultsFragment(enrichedNotes, hasMore, offset + notes.length, query));
 		} catch {
 			sendHtml(response, 500, '<div class="empty-hint">Search error</div>');
 		}
@@ -290,8 +343,9 @@ const handle = async (url, request, response, ctx) => {
 				itemService.foldersByUserId(auth.user.id),
 			]);
 			if (!note) { sendHtml(response, 404, '<div class="editor-empty">Note not found.</div>'); return true; }
+			const enrichedNote = await enrichNoteWithVault(auth.user.id, note, folders);
 			await saveLastNoteState(auth.user.id, currentSettings, note.id, currentFolderId || note.parentId);
-			sendHtml(response, 200, templates.editorFragment(note, folders, currentFolderId || note.parentId));
+			sendHtml(response, 200, templates.editorFragment(enrichedNote, folders, currentFolderId || note.parentId));
 		} catch {
 			sendHtml(response, 500, '<div class="editor-empty">Error</div>');
 		}
@@ -325,13 +379,16 @@ const handle = async (url, request, response, ctx) => {
 					body: body.body,
 					parentId: parentFolderId,
 				}, upstreamRequestContext(request));
-				const createdNote = await itemService.noteByUserIdAndJopId(auth.user.id, created.id);
+				const rawCreatedNote = await itemService.noteByUserIdAndJopId(auth.user.id, created.id);
+				const createdNote = rawCreatedNote ? await enrichNoteWithVault(auth.user.id, rawCreatedNote, folders) : rawCreatedNote;
+				// Override parentId: DB may not reflect it yet due to Joplin Server async processing
+				if (createdNote && parentFolderId) createdNote.parentId = parentFolderId;
 				await saveLastNoteState(auth.user.id, currentSettings, created.id, currentFolderId || (createdNote && createdNote.parentId) || parentFolderId);
 				const selFolder = selectedFolderForNav(currentFolderId);
 				sendHtml(response, 200,
 					`${templates.autosaveStatusFragment()}` +
 					navPanelOob(templates.navigationFragment(folders, counts, selFolder, created.id, '', selFolder)) +
-					editorPanelOob(templates.editorFragment(createdNote, folders.filter(f => f.id !== TRASH_FOLDER_ID), selFolder))
+					editorPanelOob(templates.editorFragment(createdNote, folders, selFolder))
 				);
 				return true;
 			}

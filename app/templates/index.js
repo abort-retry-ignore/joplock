@@ -29,6 +29,7 @@ module.exports = {
 	historySnapshotPreviewFragment: fragments.historySnapshotPreviewFragment,
 	folderNotesPageFragment: fragments.folderNotesPageFragment,
 	navigationFragment: fragments.navigationFragment,
+	realNotebookOptions: fragments.realNotebookOptions,
 	editorFragment: fragments.editorFragment,
 	mobileEditorFragment: fragments.mobileEditorFragment,
 	autosaveStatusFragment: fragments.autosaveStatusFragment,

@@ -10,6 +10,242 @@ window.addEventListener('pageshow',function(e){if(e.persisted){_log('bfcache res
 function syncThemeColor(){var meta=document.querySelector('meta[name="theme-color"]');if(!meta)return;var color=getComputedStyle(document.body).getPropertyValue('--theme-color').trim();if(color)meta.setAttribute('content',color)}
 function setTheme(t){document.body.classList.forEach(function(c){if(c.startsWith('theme-'))document.body.classList.remove(c)});document.body.classList.add('theme-'+t);syncThemeColor();localStorage.setItem('joplock-theme',t);fetch('/api/web/theme',{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'theme='+encodeURIComponent(t)}).catch(function(){})}
 
+// --- Encryption (vault-based client-side E2EE) ---
+var PBKDF2_ITERATIONS=210000;
+var ENCRYPTION_VERSION=2;
+var ENCRYPTED_START='<!--joplock-encrypted-start-->';
+var ENCRYPTED_END='<!--joplock-encrypted-end-->';
+var ENCRYPTED_WRAPPER_HEAD='> **\uD83D\uDD12 This note is encrypted by Joplock**\n>\n> This note\'s content is encrypted and can only be viewed in Joplock.\n> Do not edit the data below \u2014 editing will permanently corrupt the encrypted content.\n\n';
+
+var SVG_LOCK_CLOSED='<svg class="vault-svg-icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke-width="2.5"/></svg>';
+var SVG_LOCK_OPEN='<svg class="vault-svg-icon" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="15" width="18" height="11" rx="2"/><path d="M7 15V8a5 5 0 0 1 10 0"/></svg>';
+
+function isEncryptedBody(body){return typeof body==='string'&&body.indexOf(ENCRYPTED_START)>=0}
+
+function extractCiphertext(body){
+	var start=body.indexOf(ENCRYPTED_START);
+	var end=body.indexOf(ENCRYPTED_END);
+	if(start<0||end<0)return null;
+	var json=body.slice(start+ENCRYPTED_START.length,end).trim();
+	try{var obj=JSON.parse(json);return obj.joplock_encrypted?json:null}catch(e){return null}
+}
+
+function wrapCiphertext(jsonString){
+	return ENCRYPTED_WRAPPER_HEAD+ENCRYPTED_START+'\n'+jsonString+'\n'+ENCRYPTED_END+'\n';
+}
+
+function _b64Encode(buf){return btoa(String.fromCharCode.apply(null,new Uint8Array(buf)))}
+function _b64Decode(str){var bin=atob(str);var buf=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);return buf}
+
+async function deriveKey(password,salt){
+	var enc=new TextEncoder();
+	var keyMaterial=await crypto.subtle.importKey('raw',enc.encode(password),{name:'PBKDF2'},false,['deriveKey']);
+	return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:PBKDF2_ITERATIONS,hash:'SHA-256'},keyMaterial,{name:'AES-GCM',length:256},true,['encrypt','decrypt']);
+}
+
+async function exportKey(cryptoKey){var jwk=await crypto.subtle.exportKey('jwk',cryptoKey);return btoa(JSON.stringify(jwk))}
+async function importKey(jwkBase64){var jwk=JSON.parse(atob(jwkBase64));return crypto.subtle.importKey('jwk',jwk,{name:'AES-GCM',length:256},true,['encrypt','decrypt'])}
+
+// Encrypt plaintext for a vault. Returns wrapped ciphertext string.
+// vaultId: folder jop_id (stored in ciphertext for reference)
+// key: CryptoKey (pre-derived vault key)
+// salt: Uint8Array (vault salt, stored redundantly in ciphertext for resilience)
+async function encryptForVault(plaintext,vaultId,key,salt){
+	var iv=crypto.getRandomValues(new Uint8Array(12));
+	var enc=new TextEncoder();
+	var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,enc.encode(plaintext));
+	var obj={joplock_encrypted:1,v:ENCRYPTION_VERSION,vault:vaultId,salt:_b64Encode(salt),iv:_b64Encode(iv),ct:_b64Encode(ct)};
+	return wrapCiphertext(JSON.stringify(obj));
+}
+
+// Decrypt with a pre-derived CryptoKey (vault key or any AES-GCM key)
+async function _decryptWithKey(wrappedBody,key){
+	var json=extractCiphertext(wrappedBody);
+	if(!json)throw new Error('No encrypted data');
+	var obj=JSON.parse(json);
+	var iv=_b64Decode(obj.iv);
+	var ct=_b64Decode(obj.ct);
+	var dec=await crypto.subtle.decrypt({name:'AES-GCM',iv:iv},key,ct);
+	return new TextDecoder().decode(dec);
+}
+
+// v1 compat: decrypt with password (derives key from embedded salt)
+async function decryptBody(password,wrappedBody){
+	var json=extractCiphertext(wrappedBody);
+	if(!json)throw new Error('No encrypted data found');
+	var obj=JSON.parse(json);
+	if(!obj.joplock_encrypted)throw new Error('Not an encrypted blob');
+	var salt=_b64Decode(obj.salt);
+	var iv=_b64Decode(obj.iv);
+	var ct=_b64Decode(obj.ct);
+	var key=await deriveKey(password,salt);
+	var dec=await crypto.subtle.decrypt({name:'AES-GCM',iv:iv},key,ct);
+	return new TextDecoder().decode(dec);
+}
+
+// Get the vault folderId embedded in an encrypted body (v2 only), or null
+function getBodyVaultId(body){
+	var json=extractCiphertext(body);
+	if(!json)return null;
+	try{var obj=JSON.parse(json);return obj.vault||null}catch(e){return null}
+}
+
+// --- Per-vault key management (sessionStorage keyed by folderId) ---
+var _VAULT_KEY_PFX='joplock-vault-key-';
+var _VAULT_CHECK_PLAINTEXT='joplock_vault_check';
+
+function _vaultKeyStorageKey(folderId){return _VAULT_KEY_PFX+folderId}
+
+// Cache a derived vault key in sessionStorage
+async function cacheVaultKey(folderId,key,salt){
+	var jwk=await exportKey(key);
+	sessionStorage.setItem(_vaultKeyStorageKey(folderId),JSON.stringify({jwk:jwk,salt:_b64Encode(salt)}));
+}
+
+// Get a cached vault key from sessionStorage. Returns CryptoKey or null.
+async function getVaultKey(folderId){
+	try{
+		var stored=sessionStorage.getItem(_vaultKeyStorageKey(folderId));
+		if(!stored)return null;
+		var obj=JSON.parse(stored);
+		return await importKey(obj.jwk);
+	}catch(e){return null}
+}
+
+// Get cached salt for a vault
+function getVaultSalt(folderId){
+	try{
+		var stored=sessionStorage.getItem(_vaultKeyStorageKey(folderId));
+		if(!stored)return null;
+		var obj=JSON.parse(stored);
+		return _b64Decode(obj.salt);
+	}catch(e){return null}
+}
+
+// Check if a vault is currently unlocked (key in sessionStorage)
+function isVaultUnlocked(folderId){
+	try{
+		var unlocked=!!sessionStorage.getItem(_vaultKeyStorageKey(folderId));
+		_log('isVaultUnlocked',folderId,{unlocked:unlocked});
+		return unlocked;
+	}catch(e){
+		_log('isVaultUnlocked error',folderId,e);
+		return false;
+	}
+}
+
+// Clear a vault's key from sessionStorage (lock the vault)
+function clearVaultKey(folderId){
+	try{
+		_log('clearVaultKey',folderId);
+		sessionStorage.removeItem(_vaultKeyStorageKey(folderId));
+	}catch(e){_log('clearVaultKey error',folderId,e)}
+}
+
+// Clear ALL vault keys from sessionStorage
+function clearAllVaultKeys(){
+	try{
+		var toRemove=[];
+		for(var i=0;i<sessionStorage.length;i++){var k=sessionStorage.key(i);if(k&&k.startsWith(_VAULT_KEY_PFX))toRemove.push(k)}
+		toRemove.forEach(function(k){sessionStorage.removeItem(k)});
+	}catch(e){}
+}
+
+// Derive vault key from password + salt, verify against check blob, cache if correct.
+// Returns true if successful.
+async function unlockVault(folderId,password){
+	try{
+		_log('unlockVault start',folderId,{passwordLength:(password||'').length});
+		// Fetch vault data (salt + verify) from server
+		var resp=await fetch('/api/web/vaults/'+encodeURIComponent(folderId),{method:'GET'});
+		if(!resp.ok){_log('unlockVault fetch failed',folderId,{status:resp.status});return false}
+		var data=await resp.json();
+		var vault=data.item;
+		if(!vault){_log('unlockVault missing vault payload',folderId);return false}
+		var salt=_b64Decode(vault.salt);
+		var key=await deriveKey(password,salt);
+		// Verify: decrypt the check blob
+		var verifyObj=JSON.parse(atob(vault.verify));
+		var iv=_b64Decode(verifyObj.iv);
+		var ct=_b64Decode(verifyObj.ct);
+		var dec=await crypto.subtle.decrypt({name:'AES-GCM',iv:iv},key,ct);
+		var plain=new TextDecoder().decode(dec);
+		if(plain!==_VAULT_CHECK_PLAINTEXT){_log('unlockVault verify mismatch',folderId);return false}
+		// Success — cache key
+		await cacheVaultKey(folderId,key,salt);
+		_log('unlockVault success',folderId);
+		return true;
+	}catch(e){
+		_log('unlockVault error',e);
+		return false;
+	}
+}
+
+// Build a verify blob from a password and salt for vault creation
+async function buildVaultVerify(key){
+	var iv=crypto.getRandomValues(new Uint8Array(12));
+	var enc=new TextEncoder();
+	var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,enc.encode(_VAULT_CHECK_PLAINTEXT));
+	return btoa(JSON.stringify({iv:_b64Encode(iv),ct:_b64Encode(ct)}));
+}
+
+// Create a vault: derive key, build verify, POST to server, cache key
+async function createVault(folderId,password){
+	var salt=crypto.getRandomValues(new Uint8Array(16));
+	var key=await deriveKey(password,salt);
+	var verify=await buildVaultVerify(key);
+	var saltB64=_b64Encode(salt);
+	var resp=await fetch('/api/web/vaults',{
+		method:'POST',
+		headers:{'Content-Type':'application/json'},
+		body:JSON.stringify({folderId:folderId,salt:saltB64,verify:verify})
+	});
+	if(!resp.ok){var err=await resp.json().catch(function(){return{}});throw new Error(err.error||'Failed to create vault')}
+	await cacheVaultKey(folderId,key,salt);
+	return true;
+}
+
+// Auto-lock timer (per-vault)
+var _autoLockMinutes=Number(_cfg.encryptionAutoLockMinutes)||5;
+var _autoLockActivity={};// folderId -> timestamp
+var _autoLockTimer=null;
+
+function touchVaultActivity(folderId){if(folderId)_autoLockActivity[folderId]=Date.now()}
+function startAutoLockTimer(){
+	if(_autoLockTimer||_autoLockMinutes<=0)return;
+	_autoLockTimer=setInterval(function(){
+		if(_autoLockMinutes<=0)return;
+		var now=Date.now();
+		var timeoutMs=_autoLockMinutes*60*1000;
+		try{
+			var toRemove=[];
+			for(var i=0;i<sessionStorage.length;i++){var k=sessionStorage.key(i);if(k&&k.startsWith(_VAULT_KEY_PFX))toRemove.push(k)}
+			toRemove.forEach(function(sk){
+				var folderId=sk.slice(_VAULT_KEY_PFX.length);
+				var last=_autoLockActivity[folderId]||0;
+				if(now-last>timeoutMs){
+					clearVaultKey(folderId);
+					delete _autoLockActivity[folderId];
+					_log('auto-lock: locked vault',folderId);
+					// If currently open note belongs to this vault, close it
+					var form=activeEditorForm();
+					if(form){
+						var noteBodyVault=form.dataset.vaultId||getBodyVaultId((getTA()||{}).value||'');
+						if(noteBodyVault===folderId){
+							var panel=form.closest('#editor-panel')||document.getElementById('editor-panel');
+							if(panel)panel.innerHTML='<div class="editor-empty">Select a note</div>';
+						}
+					}
+				}
+			});
+		}catch(e){}
+	},30000);
+}
+
+// Do not clear vault keys on ordinary same-tab navigation between notes/pages.
+// They are session-scoped and are explicitly cleared on logout/login cleanup.
+;
+
 var _defaultNoteOpenMode=_cfg.noteOpenMode||'preview';
 var _mobileStartup=_cfg.mobileStartup||null;
 var _phoneMaxWidth=599;
@@ -148,7 +384,7 @@ function initCM(host,content){
 	});
 }
 var _editorMode='markdown';
-function syncEditorModeButtons(){var previewVisible=!!getPV();var markdownVisible=isMarkdownVisible();var mode=previewVisible?'preview':'markdown';_editorMode=mode;var mdBtn=document.getElementById('markdown-toggle');var pvBtn=document.getElementById('preview-toggle');if(mdBtn)mdBtn.classList.toggle('active',mode==='markdown');if(pvBtn)pvBtn.classList.toggle('active',mode==='preview');var mMd=document.getElementById('mobile-md-toggle');var mPv=document.getElementById('mobile-preview-toggle');if(mMd)mMd.classList.toggle('active',mode==='markdown');if(mPv)mPv.classList.toggle('active',mode==='preview');var tb=document.getElementById('editor-toolbar');if(tb&&inMobileEditor())tb.style.display='flex';document.body.classList.toggle('mobile-markdown-mode',inMobileEditor()&&mode==='markdown')}
+function syncEditorModeButtons(){var previewVisible=!!getPV();var markdownVisible=isMarkdownVisible();var mode=previewVisible?'preview':'markdown';_editorMode=mode;var mdBtn=document.getElementById('markdown-toggle');var pvBtn=document.getElementById('preview-toggle');if(mdBtn)mdBtn.classList.toggle('active',mode==='markdown');if(pvBtn)pvBtn.classList.toggle('active',mode==='preview');var mMd=document.getElementById('mobile-md-toggle');var mPv=document.getElementById('mobile-preview-toggle');if(mMd)mMd.classList.toggle('active',mode==='markdown');if(mPv)mPv.classList.toggle('active',mode==='preview');var tb=document.getElementById('editor-toolbar');var form=activeEditorForm();if(tb&&inMobileEditor()&&!(form&&form.dataset.encrypted==='1'))tb.style.display='flex';document.body.classList.toggle('mobile-markdown-mode',inMobileEditor()&&mode==='markdown')}
 function activeSearchInput(){if(isMobileShellMode()){var mobileInput=document.getElementById('mobile-editor-search-input');if(mobileInput)return mobileInput}return document.getElementById('nav-search')}
 function currentListSearchInput(){return document.getElementById('nav-search')||document.getElementById('mobile-search-input')}
 function currentListSearchTerm(){var input=currentListSearchInput();return input&&typeof input.value==='string'?input.value:''}
@@ -165,7 +401,7 @@ function syncPV(){var pv=getPV(),ta=getTA();if(pv&&ta){var md=htmlToMarkdown(pv)
 function scheduleSyncPV(){if(_pvSyncTimer)clearTimeout(_pvSyncTimer);_pvSyncTimer=setTimeout(function(){_pvSyncTimer=null;_syncPVInFlight=true;var changed=syncPV();_syncPVInFlight=false;autoTitle();if(!changed){_log('scheduleSyncPV: no markdown change')}},150)}
 // Auto-title: first line of body becomes title unless user manually edited it
 var _titleManual=false;
-function stripMdForTitle(s){var t=String(s||'').trim();while(t.charAt(0)==='#')t=t.slice(1).trimStart();t=t.split('**').join('').split('__').join('').split('++').join('').split('*').join('').split('_').join('').split('~~').join('').split(String.fromCharCode(96)).join('');var out='';for(var i=0;i<t.length;i++){var ch=t.charAt(i);if(ch==='!'&&t.charAt(i+1)==='['){var altEnd=t.indexOf(']',i+2);var imgOpen=altEnd>=0?t.indexOf('(',altEnd+1):-1;var imgClose=imgOpen>=0?t.indexOf(')',imgOpen+1):-1;if(altEnd>=0&&imgOpen===altEnd+1&&imgClose>=0){out+=t.slice(i+2,altEnd);i=imgClose;continue}}if(ch==='['){var labelEnd=t.indexOf(']',i+1);var linkOpen=labelEnd>=0?t.indexOf('(',labelEnd+1):-1;var linkClose=linkOpen>=0?t.indexOf(')',linkOpen+1):-1;if(labelEnd>=0&&linkOpen===labelEnd+1&&linkClose>=0){out+=t.slice(i+1,labelEnd);i=linkClose;continue}}out+=ch}return out.trim()}
+function stripMdForTitle(s){var t=String(s||'').trim().replace(/<[^>]+>/g,' ');while(t.charAt(0)==='#')t=t.slice(1).trimStart();t=t.split('**').join('').split('__').join('').split('++').join('').split('*').join('').split('_').join('').split('~~').join('').split(String.fromCharCode(96)).join('');var out='';for(var i=0;i<t.length;i++){var ch=t.charAt(i);if(ch==='!'&&t.charAt(i+1)==='['){var altEnd=t.indexOf(']',i+2);var imgOpen=altEnd>=0?t.indexOf('(',altEnd+1):-1;var imgClose=imgOpen>=0?t.indexOf(')',imgOpen+1):-1;if(altEnd>=0&&imgOpen===altEnd+1&&imgClose>=0){out+=t.slice(i+2,altEnd);i=imgClose;continue}}if(ch==='['){var labelEnd=t.indexOf(']',i+1);var linkOpen=labelEnd>=0?t.indexOf('(',labelEnd+1):-1;var linkClose=linkOpen>=0?t.indexOf(')',linkOpen+1):-1;if(labelEnd>=0&&linkOpen===labelEnd+1&&linkClose>=0){out+=t.slice(i+1,labelEnd);i=linkClose;continue}}out+=ch}return out.trim()}
 function syncTitle(){var ti=queryActiveEditor('.editor-title');var hi=queryActiveEditor('.editor-title-hidden');var mobileTitle=document.getElementById('mobile-editor-title');if(ti&&hi){var plain=stripMdForTitle(ti.textContent);hi.value=plain;hi.dispatchEvent(new Event('input',{bubbles:true}));ti.textContent=plain;if(mobileTitle)mobileTitle.textContent=plain||'Note';markEdited();scheduleSaveTitle()}}
 function initAutoTitle(){_titleManual=false;var ti=queryActiveEditor('.editor-title');if(ti){ti.addEventListener('input',function(){_titleManual=true;syncTitle()})}}
 function autoTitle(){if(_titleManual)return;var ta=getTA();var ti=queryActiveEditor('.editor-title');var mobileTitle=document.getElementById('mobile-editor-title');if(!ta||!ti)return;var val=ta.value;var lines=val.split('\n');var first='';for(var i=0;i<lines.length;i++){var l=lines[i].replace(/^#+\s*/,'').trim();if(l){first=l;break}}var firstPlain=stripMdForTitle(first);if(firstPlain&&firstPlain!==ti.textContent){ti.textContent=firstPlain;if(mobileTitle)mobileTitle.textContent=firstPlain||'Note';var hi=queryActiveEditor('.editor-title-hidden');if(hi){hi.value=firstPlain;hi.dispatchEvent(new Event('input',{bubbles:true}))}}}
@@ -398,10 +634,11 @@ var _savedHash=0;
 var _saveTimer=null;
 var _saveTitleTimer=null;
 function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
-function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
-function scheduleSaveTitle(){if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},1000)}
+function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
+function scheduleSaveTitle(){if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},1000)}
 function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_log('snapshotHash',_savedHash)}
-function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_log('initEditorPanel',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(){markEdited();scheduleSave()});form.addEventListener('change',function(){markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';var pv=queryActiveEditor('#note-preview');var host=queryActiveEditor('#cm-host');var defaultMode=form.dataset.editorMode||_defaultNoteOpenMode||'preview';if(defaultMode!=='markdown')defaultMode='preview';form.dataset.editorMode=defaultMode;if(defaultMode==='preview'&&pv&&pv.style.display!=='none'){_editorMode='preview';activatePV(pv);_previewDirty=false;if(host)host.style.display='none';syncEditorModeButtons();applySearchHighlight()}else{_editorMode='markdown';form.dataset.editorMode='markdown';if(pv)pv.style.display='none';if(host){host.style.display='';initCM(host,ta?ta.value:'')}syncEditorModeButtons();applySearchHighlight()}}
+function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
+function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_log('initEditorPanel',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';var pv=queryActiveEditor('#note-preview');var host=queryActiveEditor('#cm-host');if(form.dataset.encrypted==='1'){if(pv)pv.style.display='none';if(host)host.style.display='none';_editorMode='markdown';syncEditorModeButtons();return}var defaultMode=form.dataset.editorMode||_defaultNoteOpenMode||'preview';if(defaultMode!=='markdown')defaultMode='preview';form.dataset.editorMode=defaultMode;if(defaultMode==='preview'&&pv&&pv.style.display!=='none'){_editorMode='preview';activatePV(pv);_previewDirty=false;if(host)host.style.display='none';syncEditorModeButtons();applySearchHighlight()}else{_editorMode='markdown';form.dataset.editorMode='markdown';if(pv)pv.style.display='none';if(host){host.style.display='';initCM(host,ta?ta.value:'')}syncEditorModeButtons();applySearchHighlight()}}
 function applySearchHighlight(){var term=activeSearchTerm();var bar=document.getElementById('search-nav-bar');if(bar)bar.hidden=true;_searchMarks=[];_searchMarkIdx=0;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);if(!term||!term.trim()){clearCodeMirrorSearch();return}term=term.trim();if(_editorMode==='preview'&&pv){clearCodeMirrorSearch();var savedHandler=pv.oninput;pv.oninput=null;highlightInPreview(pv,term);pv.oninput=savedHandler}else if(_editorMode==='markdown'&&_cmView&&window.CM&&window.CM.SearchQuery&&window.CM.setSearchQuery){			window.CM.openSearchPanel(_cmView);var q=new window.CM.SearchQuery({search:term,caseSensitive:false});_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)});_cmSearchMatches=collectCodeMirrorSearchMatches(q);if(_cmSearchMatches.length)setCodeMirrorSearchActive(0);else searchNavShow(0,0)}}
 function escapeRegex(s){var specials=['.','+','*','?','^','$','(',')','{','}','[',']','|','\\'];return s.split('').map(function(c){return specials.indexOf(c)>=0?'\\'+c:c}).join('')}
 var _searchMarks=[];var _searchMarkIdx=0;
@@ -410,12 +647,15 @@ function searchNavSetActive(idx){_searchMarks.forEach(function(m,i){m.classList.
 function searchNavStep(dir){if(_editorMode==='markdown'&&_cmSearchMatches.length){setCodeMirrorSearchActive(_searchMarkIdx+dir);return}if(!_searchMarks.length)return;_searchMarkIdx=(_searchMarkIdx+dir+_searchMarks.length)%_searchMarks.length;searchNavSetActive(_searchMarkIdx);searchNavShow(_searchMarks.length,_searchMarkIdx)}
 function searchNavDismiss(){var bar=document.getElementById('search-nav-bar');var mobileCounter=document.getElementById('mobile-search-nav-counter');var mobilePrev=document.getElementById('mobile-search-prev-btn');var mobileNext=document.getElementById('mobile-search-next-btn');if(bar)bar.hidden=true;if(mobileCounter)mobileCounter.hidden=true;if(mobilePrev)mobilePrev.hidden=true;if(mobileNext)mobileNext.hidden=true;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);_searchMarks=[];_searchMarkIdx=0;clearCodeMirrorSearch()}
 function highlightInPreview(pv,term){if(!pv||!term)return;_searchMarks=[];_searchMarkIdx=0;var walker=document.createTreeWalker(pv,NodeFilter.SHOW_TEXT,{acceptNode:function(n){return n.parentElement&&n.parentElement.closest('script,style,mark')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}},false);var nodes=[];var node;while((node=walker.nextNode()))nodes.push(node);var re=new RegExp(escapeRegex(term),'gi');nodes.forEach(function(n){var matches=[];var m;re.lastIndex=0;while((m=re.exec(n.textContent))!==null)matches.push({start:m.index,end:m.index+m[0].length});if(!matches.length)return;var frag=document.createDocumentFragment();var last=0;matches.forEach(function(r){if(r.start>last)frag.appendChild(document.createTextNode(n.textContent.slice(last,r.start)));var mark=document.createElement('mark');mark.className='search-highlight';mark.textContent=n.textContent.slice(r.start,r.end);_searchMarks.push(mark);frag.appendChild(mark);last=r.end});if(last<n.textContent.length)frag.appendChild(document.createTextNode(n.textContent.slice(last)));n.parentNode.replaceChild(frag,n)});if(_searchMarks.length){searchNavSetActive(0);searchNavShow(_searchMarks.length,0)}else{searchNavShow(0,0)}}
-function initNavPanel(){_log('initNavPanel');var state=navFolderState();var hasSelected=!!document.querySelector('.nav-folder[data-selected="1"]');document.querySelectorAll('.nav-folder').forEach(function(el){var id=el.getAttribute('data-folder-id');var selected=el.getAttribute('data-selected')==='1';var open=state[id]===true||state[id]==='1'||state[id]===1;if(state[id]===undefined)open=!hasSelected&&el.getAttribute('data-all-notes')==='1';if(selected)open=true;el.classList.toggle('collapsed',!open);// Lazy-load if expanded and not yet loaded
+function initNavPanel(){_log('initNavPanel');var state=navFolderState();var selectedEl=document.querySelector('.nav-folder[data-selected="1"]');var hasSelected=!!selectedEl;var selectedId=selectedEl?selectedEl.getAttribute('data-folder-id'):'';document.querySelectorAll('.nav-folder').forEach(function(el){var id=el.getAttribute('data-folder-id');var selected=el.getAttribute('data-selected')==='1';var isAllNotes=el.getAttribute('data-all-notes')==='1';var open=state[id]===true||state[id]==='1'||state[id]===1;if(state[id]===undefined)open=!hasSelected&&isAllNotes;if(isAllNotes&&selectedId&&selectedId!==id)open=false;if(selected)open=true;el.classList.toggle('collapsed',!open);// Lazy-load if expanded and not yet loaded
 	if(open){var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');if(notesDiv&&!notesDiv.getAttribute('data-loaded')){notesDiv.setAttribute('data-loaded','1');var folderId=notesDiv.getAttribute('data-folder-id');htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'})}}})}
-var _folderSelectValue=null;
-document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');if(sel)_folderSelectValue=sel.value});
-document.body.addEventListener('htmx:afterSettle',function(){initNavPanel();initEditorPanel();if(_folderSelectValue){var sel=document.getElementById('editor-folder-select');if(sel){sel.value=_folderSelectValue;_folderSelectValue=null}}});
-document.body.addEventListener('htmx:confirm',function(e){var elt=e.detail&&e.detail.elt;if(!elt)return;var msg=elt.getAttribute('data-confirm-trash');if(msg){e.preventDefault();if(window._s&&!window._s.confirmTrash){e.detail.issueRequest(true);return}if(confirm(msg))e.detail.issueRequest(true)}});
+var _folderSelectValue=null;var _folderSelectNoteId=null;
+document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');if(sel){_folderSelectValue=sel.value;_folderSelectNoteId=form?form.getAttribute('hx-put'):''}});
+document.body.addEventListener('htmx:afterSettle',function(){initNavPanel();initEditorPanel();refreshAllVaultIcons();
+	if(_folderSelectValue){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');var currentNoteId=form?form.getAttribute('hx-put'):'';if(sel&&currentNoteId&&currentNoteId===_folderSelectNoteId){sel.value=_folderSelectValue}_folderSelectValue=null;_folderSelectNoteId=null}});
+// Also refresh on initial SSR page load (htmx:afterSettle only fires after htmx swaps)
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',refreshAllVaultIcons)}else{refreshAllVaultIcons()}
+document.body.addEventListener('htmx:confirm',function(e){var elt=e.detail&&e.detail.elt;if(!elt)return;var msg=elt.getAttribute('data-confirm-trash');if(msg){e.preventDefault();if(_cfg.confirmTrash===false){e.detail.issueRequest(true);return}if(confirm(msg))e.detail.issueRequest(true)}});
 function showNoteOverlay(){var o=document.getElementById('note-loading-overlay');if(o)o.classList.add('active')}
 function hideNoteOverlay(){var o=document.getElementById('note-loading-overlay');if(o)o.classList.remove('active')}
 document.body.addEventListener('click',function(e){var btn=e.target.closest('.notelist-item');if(btn&&!e.defaultPrevented)showNoteOverlay()},true);
@@ -535,8 +775,9 @@ window.addEventListener('offline',function(){_log('browser offline event');showD
 window.addEventListener('load',function(){initNavPanel();initEditorPanel()});
 window.addEventListener('resize',applyMobileTitleMode);
 document.addEventListener('keydown',function(e){var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoSnapshot()}});
-	function flushSave(callback){var form=activeEditorForm();var status=queryActiveEditor('#autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty){_log('flushSave skip (not dirty)');if(callback)callback(true);return}if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}var pv=getPV();if(pv)syncPV();else cmSyncToTA();syncTitle();var fd=new FormData(form);var url=form.getAttribute('hx-put');if(!url){if(callback)callback(true);return}var body=new URLSearchParams(fd).toString();_log('flushSave',url);fetch(url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){_log('flushSave ok',html.slice(0,80));snapshotHash();window._mobileNewNoteId=null;setSaveState('<span class="autosave-ok">Saved</span>','Saved');if(callback)callback(true)}).catch(function(err){_log('flushSave error',err);showOffline();if(callback)callback(false)})}
-document.addEventListener('click',function(e){var btn=e.target.closest('.notelist-item');if(!btn)return;var form=document.getElementById('note-editor-form');var status=document.getElementById('autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty)return;_log('notelist-item click intercepted, flushing save');e.preventDefault();e.stopImmediatePropagation();flushSave(function(saved){if(saved){_log('flushSave done, re-clicking note');btn.click()}})},true);
+	function flushSave(callback){var form=activeEditorForm();var status=queryActiveEditor('#autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty){_log('flushSave skip (not dirty)');if(callback)callback(true);return}if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}var restoreReq=function(){};buildFlushRequest(form).then(function(req){if(!req){if(callback)callback(true);return}restoreReq=req.restore||restoreReq;_log('flushSave',req.url);return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){restoreReq();_log('flushSave ok',html.slice(0,80));snapshotHash();window._mobileNewNoteId=null;setSaveState('<span class="autosave-ok">Saved</span>','Saved');if(callback)callback(true)})}).catch(function(err){restoreReq();_log('flushSave error',err);showOffline();if(callback)callback(false)})}
+	function shouldInterceptNavigationClick(target){var navTarget=target&&target.closest?target.closest('.notelist-item,.sidebar-item,.nav-folder-row,[hx-get],[hx-post],[hx-delete]'):null;if(!navTarget)return null;if(navTarget.closest&&navTarget.closest('#note-editor-form'))return null;if(navTarget.closest&&navTarget.closest('#folder-context-menu,#folder-modal,#link-modal,#history-modal,#code-modal,#new-folder-modal,#vault-modal'))return null;return navTarget}
+document.addEventListener('click',function(e){var navTarget=shouldInterceptNavigationClick(e.target);if(!navTarget)return;var form=activeEditorForm();var status=queryActiveEditor('#autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty)return;_log('navigation click intercepted, flushing save',navTarget.className||navTarget.id||navTarget.tagName);e.preventDefault();e.stopImmediatePropagation();flushSave(function(saved){if(saved){_log('flushSave done, re-clicking navigation target');navTarget.click()}})},true);
 window.joplockLiveSearch=_cfg.liveSearch||false;
 (function(){var _navSearchSavedValue=null;function enableLiveSearch(){var el=document.getElementById('nav-search');if(!el||!window.joplockLiveSearch||el.dataset.liveSearch)return;el.dataset.liveSearch='1';el.setAttribute('hx-trigger','search-submit, input changed delay:300ms');el.addEventListener('htmx:beforeRequest',function(e){var v=el.value;if(v.length>0&&v.length<3){e.preventDefault();return}});htmx.process(el)}function restoreNavSearch(){if(_navSearchSavedValue===null)return;var el=document.getElementById('nav-search');if(!el){_navSearchSavedValue=null;return;}el.value=_navSearchSavedValue;el.selectionStart=el.selectionEnd=el.value.length;_navSearchSavedValue=null}enableLiveSearch();document.body.addEventListener('htmx:beforeSwap',function(e){var target=e.detail&&e.detail.target;if(target&&target.id==='nav-panel'){var el=document.getElementById('nav-search');if(el)_navSearchSavedValue=el.value}});document.body.addEventListener('htmx:afterSettle',function(){enableLiveSearch();restoreNavSearch()})})();
 function confirmLogout(event){
@@ -562,6 +803,13 @@ function confirmLogout(event){
 		};
 	}
 	function mobileScreenId(name){return'mobile-'+name+'-screen'}
+	function syncMobileFabVisibility(name){
+		var fab=document.getElementById('mobile-fab');
+		if(!fab)return;
+		var visible=name==='folders'||name==='notes';
+		fab.style.display=visible?'flex':'none';
+		if(!visible)mobileFabClose();
+	}
 	function showMobileScreen(name,dir){
 		var screens=['folders','notes','editor'];
 		screens.forEach(function(s){
@@ -569,7 +817,8 @@ function confirmLogout(event){
 			if(!el)return;
 			if(s===name){el.classList.remove('mobile-screen-right','mobile-screen-left');el.classList.add('mobile-screen-active')}
 			else{el.classList.remove('mobile-screen-active');el.classList.add(dir==='forward'?'mobile-screen-left':'mobile-screen-right')}
-		})
+		});
+		syncMobileFabVisibility(name);
 	}
 	window.mobilePushNotes=function(folderId,folderTitle){
 		if(!isMobile())return;
@@ -601,6 +850,11 @@ function confirmLogout(event){
 	};
 	window.mobileEditorBack=function(){
 		var form=document.getElementById('note-editor-form');
+		if(form&&form.dataset.encrypted==='1'){
+			_mobileStack=['folders'];
+			showMobileScreen('folders','back');
+			return;
+		}
 		var titleEl=form&&form.querySelector('.editor-title');
 		var bodyEl=form&&form.querySelector('#note-body');
 		var noteId=_mobileNoteId;
@@ -662,11 +916,7 @@ function confirmLogout(event){
 	};
 	window.mobileFabNewFolder=function(){
 		mobileFabClose();
-		var title=prompt('New folder name:');
-		if(!title||!title.trim())return;
-		htmx.ajax('POST','/fragments/folders',{target:'#mobile-folders-body',swap:'none',values:{title:title.trim(),parentId:''}}).then(function(){
-			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
-		});
+		openNewFolderModal('mobile');
 	};
 	window.mobileNewNoteInFolder=function(folderId,folderTitle,event){
 		if(event){event.preventDefault();event.stopPropagation();}
@@ -684,8 +934,10 @@ function confirmLogout(event){
 		var backdrop=document.getElementById('mobile-ctx-backdrop');
 		var sheet=document.getElementById('mobile-ctx-sheet');
 		var titleEl=document.getElementById('mobile-ctx-title');
+		var moveBtn=document.getElementById('mobile-ctx-move');
 		var delBtn=document.getElementById('mobile-ctx-delete');
 		if(titleEl)titleEl.textContent=noteTitle||'Untitled';
+		if(moveBtn)moveBtn.onclick=function(){mobileCtxMove()};
 		if(delBtn)delBtn.onclick=function(){mobileCtxDelete()};
 		if(backdrop)backdrop.style.display='';
 		if(sheet)sheet.style.display='';
@@ -697,14 +949,57 @@ function confirmLogout(event){
 		if(sheet)sheet.style.display='none';
 		_ctxNoteId=null;_ctxNoteTitle=null;
 	};
+	window.mobileFolderPickerClose=function(){
+		var backdrop=document.getElementById('mobile-folder-picker-backdrop');
+		var sheet=document.getElementById('mobile-folder-picker-sheet');
+		var list=document.getElementById('mobile-folder-picker-list');
+		if(backdrop)backdrop.style.display='none';
+		if(sheet)sheet.style.display='none';
+		if(list)list.innerHTML='';
+	};
 	function mobileCtxDelete(){
 		if(!_ctxNoteId)return;
 		var id=_ctxNoteId;
 		mobileCtxClose();
-		if(window._s&&window._s.confirmTrash&&!confirm('Move this note to trash?'))return;
+		if(_cfg.confirmTrash!==false&&!confirm('Move this note to trash?'))return;
 		fetch('/fragments/notes/'+encodeURIComponent(id),{method:'DELETE',headers:{'hx-request':'true','hx-params':'none'}})
 			.then(function(){mobileRefreshNotes()});
 	}
+	function mobileCtxMove(){
+		var form=activeEditorForm();
+		var select=form&&form.querySelector?form.querySelector('#editor-folder-select'):null;
+		if(!form||!select)return;
+		mobileCtxClose();
+		var options=Array.prototype.slice.call(select.options||[]);
+		if(!options.length)return;
+		var current=select.value||'';
+		var backdrop=document.getElementById('mobile-folder-picker-backdrop');
+		var sheet=document.getElementById('mobile-folder-picker-sheet');
+		var list=document.getElementById('mobile-folder-picker-list');
+		if(!backdrop||!sheet||!list)return;
+		list.innerHTML='';
+		options.forEach(function(opt){
+			var btn=document.createElement('button');
+			btn.type='button';
+			btn.className='mobile-ctx-btn mobile-folder-picker-btn'+(opt.value===current?' is-current':'');
+			btn.textContent=opt.text+(opt.value===current?' (current)':'');
+			btn.disabled=opt.value===current;
+			btn.onclick=function(){
+				window.mobileFolderPickerClose();
+				select.value=opt.value;
+				select.dispatchEvent(new Event('change',{bubbles:true}));
+			};
+			list.appendChild(btn);
+		});
+		backdrop.style.display='';
+		sheet.style.display='';
+	}
+	window.mobileEditorMenuOpen=function(){
+		var form=activeEditorForm();
+		if(!form)return;
+		var titleInput=form.querySelector('.editor-title');
+		mobileCtxOpen(form.dataset.noteId||_mobileNoteId,(titleInput&&titleInput.textContent)||document.getElementById('mobile-editor-title')&&document.getElementById('mobile-editor-title').textContent||'Untitled');
+	};
 	function wireNoteRowLongPress(container){
 		if(!container)return;
 		container.querySelectorAll('.mobile-note-row[data-note-id]').forEach(function(row){
@@ -918,14 +1213,831 @@ function confirmLogout(event){
 	window.addEventListener('resize',syncResponsiveMode);
 	syncResponsiveMode();
 })();
+// --- Encryption UI flows (vault-centric) ---
+
+// _vaultModal: modal for creating vault password or unlocking a vault
+var _vaultModalFolderId=null;
+var _vaultModalMode=null; // 'create' | 'unlock'
+var _vaultModalCallback=null; // called with success/failure
+
+function _showVaultModal(folderId,mode,callback){
+	_vaultModalFolderId=folderId;
+	_vaultModalMode=mode;
+	_vaultModalCallback=callback;
+	var modal=document.getElementById('vault-modal');
+	var backdrop=document.getElementById('vault-modal-backdrop');
+	var titleEl=document.getElementById('vault-modal-title');
+	var pw=document.getElementById('vault-modal-password');
+	var confirm=document.getElementById('vault-modal-confirm-wrap');
+	var warn=document.getElementById('vault-modal-warning');
+	var err=document.getElementById('vault-modal-error');
+	if(err)err.textContent='';
+	if(pw)pw.value='';
+	if(mode==='create'){
+		if(titleEl)titleEl.textContent='Create Vault';
+		if(confirm)confirm.style.display='';
+		if(warn)warn.style.display='';
+	}else{
+		if(titleEl)titleEl.textContent='Unlock Vault';
+		if(confirm)confirm.style.display='none';
+		if(warn)warn.style.display='none';
+	}
+	if(modal)modal.hidden=false;
+	if(backdrop)backdrop.hidden=false;
+	if(pw)pw.focus();
+}
+
+function closeVaultModal(){
+	var modal=document.getElementById('vault-modal');
+	var backdrop=document.getElementById('vault-modal-backdrop');
+	if(modal)modal.hidden=true;
+	if(backdrop)backdrop.hidden=true;
+	_vaultModalFolderId=null;
+	_vaultModalMode=null;
+	if(_vaultModalCallback){_vaultModalCallback(false);_vaultModalCallback=null}
+}
+
+async function submitVaultModal(event){
+	if(event)event.preventDefault();
+	var folderId=_vaultModalFolderId;
+	var mode=_vaultModalMode;
+	if(!folderId||!mode)return;
+	var pw=document.getElementById('vault-modal-password');
+	var confirmInput=document.getElementById('vault-modal-confirm');
+	var err=document.getElementById('vault-modal-error');
+	var password=(pw?pw.value:'').trim();
+	if(!password){if(err)err.textContent='Password is required.';return}
+
+	if(mode==='create'){
+		var confirmVal=(confirmInput?confirmInput.value:'').trim();
+		if(password!==confirmVal){if(err)err.textContent='Passwords do not match.';return}
+		if(password.length<4){if(err)err.textContent='Password too short (minimum 4 characters).';return}
+		try{
+			await createVault(folderId,password);
+			var cb=_vaultModalCallback;
+			_vaultModalCallback=null;
+			_closeVaultModalSilent();
+			// Update nav icons to show vault unlocked
+			_refreshVaultIcon(folderId,true);
+			touchVaultActivity(folderId);
+			startAutoLockTimer();
+			if(cb)cb(true);
+		}catch(e){
+			if(err)err.textContent='Failed to create vault: '+(e.message||e);
+		}
+	}else{
+		// unlock mode
+		try{
+			var ok=await unlockVault(folderId,password);
+			if(!ok){if(err)err.textContent='Wrong password.';if(pw){pw.value='';pw.focus()}return}
+			var cb=_vaultModalCallback;
+			_vaultModalCallback=null;
+			_closeVaultModalSilent();
+			_refreshVaultIcon(folderId,true);
+			touchVaultActivity(folderId);
+			startAutoLockTimer();
+			if(cb)cb(true);
+		}catch(e){
+			if(err)err.textContent='Unlock error: '+(e.message||e);
+		}
+	}
+}
+
+function _closeVaultModalSilent(){
+	var modal=document.getElementById('vault-modal');
+	var backdrop=document.getElementById('vault-modal-backdrop');
+	if(modal)modal.hidden=true;
+	if(backdrop)backdrop.hidden=true;
+	_vaultModalFolderId=null;
+	_vaultModalMode=null;
+}
+
+// Update vault folder lock icon in nav (client-side optimistic update)
+function _refreshVaultIcon(folderId,unlocked){
+	document.querySelectorAll('.vault-folder-lock[data-folder-id="'+folderId+'"]').forEach(function(el){
+		el.innerHTML=unlocked?SVG_LOCK_OPEN:SVG_LOCK_CLOSED;
+		el.title=unlocked?'Lock vault':'Unlock vault';
+	});
+	// Also update note lock icons for notes in this vault
+	document.querySelectorAll('.note-lock-icon').forEach(function(el){
+		var btn=el.closest('.notelist-item,.mobile-note-row');
+		if(btn&&btn.dataset.vaultId===folderId){
+		el.innerHTML=unlocked?SVG_LOCK_OPEN:SVG_LOCK_CLOSED;
+			el.classList.toggle('note-lock-unlocked',unlocked);
+		}
+	});
+}
+
+// Single source of truth: scan DOM for all vault folders and refresh their icons
+// based on isVaultUnlocked() state. Safe to call repeatedly.
+function refreshAllVaultIcons(){
+	document.querySelectorAll('.vault-folder-lock[data-folder-id]').forEach(function(el){
+		var folderId=el.getAttribute('data-folder-id');
+		if(!folderId)return;
+		var unlocked=isVaultUnlocked(folderId);
+		_log('refreshAllVaultIcons',folderId,{unlocked:unlocked});
+		_refreshVaultIcon(folderId,unlocked);
+	});
+}
+
+// Toggle vault lock: if unlocked → lock; if locked → prompt unlock
+function toggleVaultLock(folderId){
+	var unlocked=isVaultUnlocked(folderId);
+	_log('toggleVaultLock',folderId,{unlocked:unlocked});
+	if(unlocked){
+		// Lock the vault
+		clearVaultKey(folderId);
+		delete _autoLockActivity[folderId];
+		_refreshVaultIcon(folderId,false);
+		// If current note belongs to this vault, close it (clear the editor)
+		var form=activeEditorForm();
+		if(form){
+			var ta=getTA();
+			// Check form.dataset.vaultId first (set after unlock when textarea is plaintext)
+			// Fall back to parsing the body (if still encrypted)
+			var bodyVault=form.dataset.vaultId||( ta?getBodyVaultId(ta.value):null);
+			_log('toggleVaultLock close-check',folderId,{formVaultId:form.dataset.vaultId||null,bodyVault:bodyVault,noteId:form.dataset.noteId||null});
+			if(bodyVault===folderId){
+				var panel=form.closest('#editor-panel')||document.getElementById('editor-panel');
+				if(panel)panel.innerHTML='<div class="editor-empty">Select a note</div>';
+			}
+		}
+	}else{
+		_showVaultModal(folderId,'unlock',function(ok){
+			_log('toggleVaultLock unlock-callback',folderId,{ok:ok});
+			if(ok){
+				// Auto-decrypt if current note belongs to this vault
+				var form=activeEditorForm();
+				if(form){
+					var noteId=form.dataset.noteId;
+					var ta=getTA();
+					if(ta&&isEncryptedBody(ta.value)){
+						var bodyVault=getBodyVaultId(ta.value);
+						_log('toggleVaultLock unlock-open-note-check',folderId,{bodyVault:bodyVault,noteId:noteId});
+						if(bodyVault===folderId){
+							getVaultKey(folderId).then(function(key){
+								if(!key)return;
+								return _decryptWithKey(ta.value,key).then(function(pt){_completeUnlock(noteId,pt,folderId)});
+							}).catch(function(){});
+						}
+					}
+				}
+			}
+		});
+	}
+}
+
+// lockNote: lock a currently-unlocked note (by encrypting it into its vault)
+// If the note is not in a vault, do nothing (encryption requires vault)
+function lockNote(noteId){
+	var form=activeEditorForm();
+	if(!form)return;
+	var ta=getTA();
+	if(!ta)return;
+	// Determine vault from editor context (parentId select)
+	var parentSelect=form.querySelector('[name="parentId"]');
+	var folderId=parentSelect?parentSelect.value:'';
+	if(!folderId){
+		alert('Please move this note to a vault folder before encrypting it.');
+		return;
+	}
+	if(isVaultUnlocked(folderId)){
+		// Encrypt immediately
+		_doEncryptNoteInVault(noteId,folderId);
+	}else{
+		// Need to unlock vault first
+		_showVaultModal(folderId,'unlock',function(ok){
+			if(ok)_doEncryptNoteInVault(noteId,folderId);
+		});
+	}
+}
+
+async function _doEncryptNoteInVault(noteId,folderId){
+	try{
+		var ta=getTA();
+		if(!ta)return;
+		var plaintext=ta.value;
+		if(isEncryptedBody(plaintext)){_log('note already encrypted');return}
+		var key=await getVaultKey(folderId);
+		if(!key){_log('vault key missing');return}
+		var salt=getVaultSalt(folderId);
+		var ciphertext=await encryptForVault(plaintext,folderId,key,salt);
+		touchVaultActivity(folderId);
+		var form=activeEditorForm();
+		if(form){
+			form.dataset.encrypted='1';
+			form.dataset.vaultId=folderId;
+			var restoreBodyField=_setOneShotEncryptedBody(form,ciphertext);
+			htmx.trigger(form,'joplock:save');
+			setTimeout(restoreBodyField,0);
+		}
+		_updateLockToggle(noteId,true);
+		_updateNoteLockIcon(noteId,true);
+	}catch(e){
+		_log('_doEncryptNoteInVault error',e);
+		alert('Encryption failed: '+e.message);
+	}
+}
+
+// unlockNote: called from the locked editor overlay
+async function unlockNote(noteId){
+	var passwordInput=document.getElementById('editor-locked-password');
+	var errEl=document.getElementById('editor-locked-error');
+	var ta=getTA();
+	if(!ta)return;
+	var form=activeEditorForm();
+
+	// Determine vaultId from the ciphertext
+	var vaultId=getBodyVaultId(ta.value)||((form&&form.dataset.vaultId)||null);
+	var encryptedBody=isEncryptedBody(ta.value);
+	_log('unlockNote start',{noteId:noteId,vaultId:vaultId,encryptedBody:encryptedBody,formVaultId:form&&form.dataset.vaultId||null});
+
+	// Special case: note belongs to a vault but body is still plaintext in storage.
+	// Unlock the vault, immediately encrypt+save this note, then keep editing.
+	if(vaultId&&!encryptedBody){
+		var passwordPlain=(passwordInput?passwordInput.value:'');
+		if(!isVaultUnlocked(vaultId)){
+			if(!passwordPlain){if(errEl)errEl.textContent='Enter vault password.';return}
+			var unlockedPlain=await unlockVault(vaultId,passwordPlain);
+			if(!unlockedPlain){if(errEl)errEl.textContent='Wrong password.';if(passwordInput){passwordInput.value='';passwordInput.focus()}return}
+		}
+		_completeUnlock(noteId,ta.value,vaultId);
+		_doEncryptNoteInVault(noteId,vaultId);
+		return;
+	}
+
+	// Try auto-unlock with cached vault key
+	if(vaultId&&isVaultUnlocked(vaultId)){
+		try{
+			var key=await getVaultKey(vaultId);
+			if(key){
+				var plaintext=await _decryptWithKey(ta.value,key);
+				_completeUnlock(noteId,plaintext,vaultId);
+				return;
+			}
+		}catch(e){_log('auto-unlock failed')}
+	}
+
+	// Manual password entered
+	var password=(passwordInput?passwordInput.value:'');
+	if(!password&&!vaultId){if(errEl)errEl.textContent='Enter a password.';return}
+	if(!password&&vaultId){
+		// Try opening vault modal
+		_showVaultModal(vaultId,'unlock',function(ok){
+			if(ok)unlockNote(noteId);
+		});
+		return;
+	}
+
+	// Try to unlock vault with typed password
+	if(vaultId){
+		try{
+			var ok=await unlockVault(vaultId,password);
+			if(ok){
+				var key=await getVaultKey(vaultId);
+				var plaintext=await _decryptWithKey(ta.value,key);
+				_completeUnlock(noteId,plaintext,vaultId);
+				return;
+			}
+		}catch(e){}
+		// Fall through to v1 compat decrypt attempt
+	}
+
+	// v1 compat or orphaned note: try password directly (note has embedded salt)
+	try{
+		var plaintext=await decryptBody(password,ta.value);
+		_completeUnlock(noteId,plaintext,null);
+	}catch(e){
+		if(errEl)errEl.textContent='Wrong password.';
+		if(passwordInput){passwordInput.value='';passwordInput.focus()}
+	}
+}
+
+// _completeUnlock: shows plaintext in editor. vaultId may be null for v1 notes.
+function _completeUnlock(noteId,plaintext,vaultId){
+	if(vaultId)touchVaultActivity(vaultId);
+
+	var ta=getTA();
+	var lockedDiv=document.getElementById('editor-locked');
+	var host=queryActiveEditor('#cm-host');
+	var pv=queryActiveEditor('#note-preview');
+	var tb=queryActiveEditor('#editor-toolbar');
+	var form=activeEditorForm();
+
+	if(ta){
+		ta.dataset.ciphertext=ta.value;
+		ta.value=plaintext;
+		ta.style.display='';
+	}
+	if(form){
+		form.dataset.encrypted='1';
+		if(vaultId)form.dataset.vaultId=vaultId;
+		form.dataset.vaultUnlocked='1';
+	}
+
+	if(lockedDiv)lockedDiv.style.display='none';
+	if(tb)tb.style.display='';
+
+	var mdBtn=document.getElementById('markdown-toggle');
+	var pvBtn=document.getElementById('preview-toggle');
+	if(mdBtn)mdBtn.style.display='';
+	if(pvBtn)pvBtn.style.display='';
+
+	// Use user's default open mode
+	if(form)delete form.dataset.editorMode;
+	var defaultMode=_defaultNoteOpenMode||'preview';
+	if(defaultMode==='preview'&&pv){
+		pv.style.display='';
+		fetch('/fragments/preview',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'body='+encodeURIComponent(plaintext)}).then(function(r){return r.text()}).then(function(h){pv.innerHTML=h;activatePV(pv);_previewDirty=false;if(host)host.style.display='none';_editorMode='preview';syncEditorModeButtons()});
+	}else{
+		if(pv)pv.style.display='none';
+		if(host){host.style.display='';initCM(host,plaintext)}
+		_editorMode='markdown';
+		syncEditorModeButtons();
+	}
+
+	_updateLockToggle(noteId,true);
+	_updateNoteLockIcon(noteId,true);
+	if(vaultId)_refreshVaultIcon(vaultId,true);
+	snapshotHash();
+}
+
+// toggleNoteLock: single button in titlebar
+function toggleNoteLock(noteId){
+	var form=activeEditorForm();
+	var isEnc=form&&form.dataset.encrypted==='1';
+	var vaultId=form&&form.dataset.vaultId;
+	if(isEnc&&vaultId&&isVaultUnlocked(vaultId)){
+		// Vault is unlocked, note is open → lock the vault
+		toggleVaultLock(vaultId);
+	}else if(isEnc&&(!vaultId||!isVaultUnlocked(vaultId))){
+		// Encrypted note, vault locked → unlock
+		unlockNote(noteId);
+	}else{
+		// Not encrypted → lock it (encrypt into current folder's vault)
+		lockNote(noteId);
+	}
+}
+
+function _updateLockToggle(noteId,unlocked){
+	var btn=document.getElementById('lock-toggle-btn');
+	if(!btn)return;
+	btn.innerHTML=unlocked?SVG_LOCK_OPEN:SVG_LOCK_CLOSED;
+	btn.title=unlocked?'Lock vault':'Unlock vault';
+}
+
+function _updateNoteLockIcon(noteId,unlocked){
+	document.querySelectorAll('.note-lock-icon[data-note-id="'+noteId+'"]').forEach(function(el){
+		el.innerHTML=unlocked?SVG_LOCK_OPEN:SVG_LOCK_CLOSED;
+		el.classList.toggle('note-lock-unlocked',unlocked);
+	});
+}
+
+// --- Autosave interceptor for encrypted notes ---
+document.body.addEventListener('htmx:configRequest',function(e){
+	// no-op: encryption is handled in scheduleSave override
+});
+
+var _origScheduleSave=scheduleSave;
+function _setOneShotEncryptedBody(form,ciphertext){
+	if(!form)return function(){};
+	var ta=form.querySelector('textarea[name="body"], textarea.editor-body');
+	if(!ta)return function(){};
+	var originalName=ta.getAttribute('name');
+	var hidden=document.createElement('input');
+	hidden.type='hidden';
+	hidden.name='body';
+	hidden.value=ciphertext;
+	hidden.setAttribute('data-joplock-temp-body','1');
+	// Prevent duplicate body fields during htmx form serialization.
+	ta.removeAttribute('name');
+	form.appendChild(hidden);
+	return function(){
+		if(originalName!==null)ta.setAttribute('name',originalName);else ta.removeAttribute('name');
+		if(hidden.parentNode)hidden.parentNode.removeChild(hidden);
+	};
+}
+
+function buildFlushRequest(form){
+	if(!form)return Promise.resolve(null);
+	var url=form.getAttribute('hx-put');
+	if(!url)return Promise.resolve(null);
+	var pv=getPV();
+	if(pv)syncPV();else cmSyncToTA();
+	syncTitle();
+	var ta=getTA();
+	if(form.dataset.encrypted==='1'&&form.dataset.vaultId&&ta&&!isEncryptedBody(ta.value)){
+		return getVaultKey(form.dataset.vaultId).then(function(key){
+			if(!key)throw new Error('Vault is locked');
+			var salt=getVaultSalt(form.dataset.vaultId);
+			return encryptForVault(ta.value,form.dataset.vaultId,key,salt).then(function(ciphertext){
+				var restore=_setOneShotEncryptedBody(form,ciphertext);
+				var fd=new FormData(form);
+				var body=new URLSearchParams(fd).toString();
+				return { url:url, body:body, restore:restore };
+			});
+		});
+	}
+	var fd=new FormData(form);
+	var body=new URLSearchParams(fd).toString();
+	return Promise.resolve({ url:url, body:body, restore:function(){} });
+}
+
+scheduleSave=function(){
+	var form=activeEditorForm();
+	if(!form||form.dataset.encrypted!=='1'){_origScheduleSave();return}
+	var noteId=form.dataset.noteId;
+	var vaultId=form.dataset.vaultId;
+	if(!noteId){_origScheduleSave();return}
+	// If not a vault note, pass through
+	if(!vaultId){_origScheduleSave();return}
+
+	if(_saveTimer)clearTimeout(_saveTimer);
+	_saveTimer=setTimeout(async function(){
+		_saveTimer=null;
+		if(_syncPVInFlight||_pvSyncTimer){scheduleSave();return}
+		if(_anyModalOpen()){scheduleSave();return}
+		if(!form)return;
+		var h=formHash(form);
+		if(h===_savedHash){_log('encrypted scheduleSave skip, hash unchanged',h);return}
+
+		var ta=getTA();
+		if(!ta)return;
+		var plaintext=ta.value;
+		_log('encrypted save begin',vaultId,{noteId:noteId,plaintextLength:plaintext.length,alreadyEncrypted:isEncryptedBody(plaintext)});
+
+		// Skip if somehow the textarea already holds ciphertext
+		if(isEncryptedBody(plaintext)){_origScheduleSave();return}
+
+		try{
+			var key=await getVaultKey(vaultId);
+			if(!key){_log('vault key gone during save for vault',vaultId);return}
+			var salt=getVaultSalt(vaultId);
+			var ciphertext=await encryptForVault(plaintext,vaultId,key,salt);
+			_log('encrypted save ciphertext ready',vaultId,{noteId:noteId,ciphertextLength:ciphertext.length,hasMarker:isEncryptedBody(ciphertext)});
+			var restoreBodyField=_setOneShotEncryptedBody(form,ciphertext);
+			htmx.trigger(form,'joplock:save');
+			setTimeout(restoreBodyField,0);
+			touchVaultActivity(vaultId);
+		}catch(e){
+			_log('encrypted save error',e);
+			setSaveState('<span class="autosave-error">Encrypt error</span>','Error');
+		}
+	},2000);
+};
+
+// Auto-unlock on editor init if vault key is cached
+var _origInitEditorPanel=initEditorPanel;
+initEditorPanel=function(){
+	_origInitEditorPanel();
+	var form=activeEditorForm();
+	if(!form){_log('initEditorPanel vault-check: no active form');return}
+	if(form.dataset.vaultChecked){return}
+	form.dataset.vaultChecked='1';
+	_log('initEditorPanel vault-check start',{noteId:form.dataset.noteId||null,encryptedFlag:form.dataset.encrypted||null,formVaultId:form.dataset.vaultId||null});
+	if(form.dataset.encrypted!=='1'){_log('initEditorPanel vault-check skip: form not encrypted');return}
+	var noteId=form.dataset.noteId;
+	if(!noteId){_log('initEditorPanel vault-check skip: no noteId');return}
+
+	var ta=getTA();
+	if(!ta){_log('initEditorPanel vault-check skip: no textarea');return}
+	var initialVaultId=form.dataset.vaultId||null;
+	var encryptedBody=isEncryptedBody(ta.value);
+	var editorUnlocked=form.dataset.vaultUnlocked==='1';
+	if(!encryptedBody){
+		_log('initEditorPanel vault plaintext-in-vault state',{noteId:noteId,vaultId:initialVaultId,editorUnlocked:editorUnlocked,bodyPreview:ta.value.slice(0,80)});
+		if(editorUnlocked){
+			_log('initEditorPanel vault plaintext-in-vault skip: already unlocked in editor',{noteId:noteId,vaultId:initialVaultId});
+			return;
+		}
+		// Vault-bound note with plaintext body. Keep it hidden while locked; if the vault
+		// is already unlocked, immediately encrypt+save and then reveal normally.
+		if(initialVaultId&&isVaultUnlocked(initialVaultId)){
+			_log('initEditorPanel vault plaintext-in-vault auto-encrypt', {noteId:noteId,vaultId:initialVaultId});
+			_completeUnlock(noteId,ta.value,initialVaultId);
+			_doEncryptNoteInVault(noteId,initialVaultId);
+		}else{
+			var lockedDiv=document.getElementById('editor-locked');
+			var host=queryActiveEditor('#cm-host');
+			var pv=queryActiveEditor('#note-preview');
+			var tb=queryActiveEditor('#editor-toolbar');
+			var mdBtn=document.getElementById('markdown-toggle');
+			var pvBtn=document.getElementById('preview-toggle');
+			if(lockedDiv)lockedDiv.style.display='';
+			if(tb)tb.style.display='none';
+			if(host)host.style.display='none';
+			if(pv)pv.style.display='none';
+			if(ta)ta.style.display='none';
+			if(mdBtn)mdBtn.style.display='none';
+			if(pvBtn)pvBtn.style.display='none';
+			var pwField=document.getElementById('editor-locked-password');
+			if(pwField){
+				_log('initEditorPanel prompting for vault password (plaintext note in vault)',{noteId:noteId,vaultId:initialVaultId});
+				pwField.focus();
+				pwField.addEventListener('keydown',function(e){
+					if(e.key==='Enter'){e.preventDefault();_showVaultModal(initialVaultId,'unlock',function(ok){if(ok)window.location.reload()})}
+				});
+			}
+		}
+		return;
+	}
+
+	// Determine vault from ciphertext
+	var vaultId=getBodyVaultId(ta.value);
+	_log('initEditorPanel encrypted note detected',{noteId:noteId,vaultId:vaultId,bodyLength:ta.value.length});
+
+	// Store vaultId on form for autosave
+	if(vaultId&&form)form.dataset.vaultId=vaultId;
+
+	// Try auto-unlock with cached vault key
+	var unlocked=vaultId&&isVaultUnlocked(vaultId);
+	_log('initEditorPanel auto-unlock decision',{noteId:noteId,vaultId:vaultId,unlocked:!!unlocked});
+	if(unlocked){
+		getVaultKey(vaultId).then(function(key){
+			_log('initEditorPanel cached key lookup',{noteId:noteId,vaultId:vaultId,hasKey:!!key});
+			if(!key)return;
+			return _decryptWithKey(ta.value,key).then(function(pt){_completeUnlock(noteId,pt,vaultId)});
+		}).catch(function(){
+			_log('auto-unlock failed for vault',vaultId);
+			var pwField=document.getElementById('editor-locked-password');
+			if(pwField)pwField.focus();
+		});
+		return;
+	}
+
+	// Focus password field and handle Enter key
+	var pwField=document.getElementById('editor-locked-password');
+	if(pwField){
+		_log('initEditorPanel prompting for vault password',{noteId:noteId,vaultId:vaultId});
+		pwField.focus();
+		pwField.addEventListener('keydown',function(e){
+			if(e.key==='Enter'){e.preventDefault();unlockNote(noteId)}
+		});
+	}
+};
+
+// Move note: encrypt/decrypt when folder changes
+// Called when user changes folder via the editor folder select
+(function(){
+	document.body.addEventListener('change',function(e){
+		var select=e.target;
+		if(!select||select.id!=='editor-folder-select')return;
+		var form=activeEditorForm();
+		if(!form)return;
+		var noteId=form.dataset.noteId;
+		var ta=getTA();
+		if(!ta||!noteId)return;
+
+		var newFolderId=select.value;
+		var oldVaultId=form.dataset.vaultId||null;
+		var isEnc=form.dataset.encrypted==='1';
+
+		// Determine if destination is a vault (check nav DOM for vault icon)
+		var newFolderIsVault=!!document.querySelector('.vault-folder-lock[data-folder-id="'+newFolderId+'"]');
+
+		if(!isEnc&&!newFolderIsVault)return; // plain note to plain folder, nothing to do
+
+		if(isEnc&&!newFolderIsVault){
+			// Moving encrypted note out of vault → decrypt it
+			if(!oldVaultId)return;
+			if(!isVaultUnlocked(oldVaultId)){
+				select.value=oldVaultId; // revert
+				_showVaultModal(oldVaultId,'unlock',function(ok){
+					if(ok){select.value=newFolderId;select.dispatchEvent(new Event('change',{bubbles:true}))}
+				});
+				return;
+			}
+			getVaultKey(oldVaultId).then(function(key){
+				if(!key){_log('no vault key to decrypt on move');return}
+				return _decryptWithKey(ta.value,key).then(function(pt){
+					ta.value=pt;
+					delete form.dataset.encrypted;
+					delete form.dataset.vaultId;
+					_updateLockToggle(noteId,false);
+					_updateNoteLockIcon(noteId,false);
+					htmx.trigger(form,'joplock:save');
+				});
+			}).catch(function(e){_log('decrypt on move failed',e)});
+		}else if(!isEnc&&newFolderIsVault){
+			// Moving plain note into vault → encrypt it
+			if(!isVaultUnlocked(newFolderId)){
+				_showVaultModal(newFolderId,'unlock',function(ok){
+					if(ok)_doEncryptNoteInVault(noteId,newFolderId);
+				});
+			}else{
+				_doEncryptNoteInVault(noteId,newFolderId);
+			}
+		}else if(isEnc&&newFolderIsVault&&oldVaultId!==newFolderId){
+			// Moving between vaults → decrypt with old, re-encrypt with new
+			if(!oldVaultId)return;
+			var doReencrypt=function(){
+				getVaultKey(oldVaultId).then(function(oldKey){
+					if(!oldKey){_log('no old vault key');return}
+					return _decryptWithKey(ta.value,oldKey).then(function(pt){
+						if(!isVaultUnlocked(newFolderId)){
+							_showVaultModal(newFolderId,'unlock',function(ok){
+								if(!ok)return;
+								getVaultKey(newFolderId).then(function(newKey){
+									var salt=getVaultSalt(newFolderId);
+									return encryptForVault(pt,newFolderId,newKey,salt).then(function(ct){
+										form.dataset.vaultId=newFolderId;
+										var restoreBodyField=_setOneShotEncryptedBody(form,ct);
+										htmx.trigger(form,'joplock:save');
+										setTimeout(restoreBodyField,0);
+									});
+								}).catch(function(e){_log('re-encrypt failed',e)});
+							});
+						}else{
+							getVaultKey(newFolderId).then(function(newKey){
+							var salt=getVaultSalt(newFolderId);
+							return encryptForVault(pt,newFolderId,newKey,salt).then(function(ct){
+								form.dataset.vaultId=newFolderId;
+								var restoreBodyField=_setOneShotEncryptedBody(form,ct);
+								htmx.trigger(form,'joplock:save');
+								setTimeout(restoreBodyField,0);
+							});
+						}).catch(function(e){_log('re-encrypt failed',e)});
+						}
+					});
+				}).catch(function(e){_log('move between vaults failed',e)});
+			};
+			if(!isVaultUnlocked(oldVaultId)){
+				select.value=oldVaultId;
+				_showVaultModal(oldVaultId,'unlock',function(ok){
+					if(ok){select.value=newFolderId;doReencrypt()}
+				});
+			}else{
+				doReencrypt();
+			}
+		}
+	});
+})();
+
+// v1 migration: scan for v1 encrypted notes, offer to migrate to a vault
+// Called after first vault is created
+async function migrateV1Notes(newVaultFolderId){
+	try{
+		var resp=await fetch('/api/web/notes',{method:'GET'});
+		if(!resp.ok)return;
+		var data=await resp.json();
+		var notes=(data.items||[]).filter(function(n){return n.isEncrypted});
+		if(!notes.length)return;
+		// Check if any are v1 (no vault field)
+		// We can't tell without fetching each note body. Check first few.
+		var v1candidates=[];
+		for(var i=0;i<Math.min(notes.length,50);i++){
+			var nr=await fetch('/api/web/notes/'+encodeURIComponent(notes[i].id));
+			if(!nr.ok)continue;
+			var nd=await nr.json();
+			var body=(nd.item||{}).body||'';
+			var json=extractCiphertext(body);
+			if(!json)continue;
+			try{var obj=JSON.parse(json);if(!obj.vault)v1candidates.push({id:notes[i].id,body:body})}catch(e){}
+		}
+		if(!v1candidates.length)return;
+		var oldPw=prompt('Found '+v1candidates.length+' note(s) encrypted with your old password.\nEnter that password to migrate them to your new vault (or Cancel to skip):');
+		if(!oldPw)return;
+		var key=await getVaultKey(newVaultFolderId);
+		var salt=getVaultSalt(newVaultFolderId);
+		if(!key||!salt)return;
+		var migrated=0;
+		for(var j=0;j<v1candidates.length;j++){
+			try{
+				var pt=await decryptBody(oldPw,v1candidates[j].body);
+				var newCt=await encryptForVault(pt,newVaultFolderId,key,salt);
+				await fetch('/api/web/notes/'+encodeURIComponent(v1candidates[j].id),{
+					method:'PUT',
+					headers:{'Content-Type':'application/json'},
+					body:JSON.stringify({body:newCt})
+				});
+				migrated++;
+			}catch(e){_log('migrate v1 note failed',v1candidates[j].id,e)}
+		}
+		if(migrated>0)alert('Migrated '+migrated+' note(s) to your new vault.');
+	}catch(e){_log('migrateV1Notes error',e)}
+}
+
+// Create vault flow: called from folder creation modal (new vault checkbox)
+async function submitNewVaultFolder(event){
+	if(event)event.preventDefault();
+	var modal=document.getElementById('new-folder-modal');
+	var origin=modal&&modal.dataset?modal.dataset.origin:'';
+	var titleInput=document.getElementById('new-folder-title');
+	var pwInput=document.getElementById('new-vault-password');
+	var confirmInput=document.getElementById('new-vault-confirm');
+	var errEl=document.getElementById('new-vault-error');
+	var title=(titleInput?titleInput.value:'').trim();
+	var password=(pwInput?pwInput.value:'').trim();
+	var confirmVal=(confirmInput?confirmInput.value:'').trim();
+
+	if(!title){if(errEl)errEl.textContent='Notebook name is required.';return}
+	if(!password){if(errEl)errEl.textContent='Vault password is required.';return}
+	if(password!==confirmVal){if(errEl)errEl.textContent='Passwords do not match.';return}
+	if(password.length<4){if(errEl)errEl.textContent='Password too short (minimum 4 characters).';return}
+	if(errEl)errEl.textContent='';
+
+	try{
+		// Create folder via API
+		var folderResp=await fetch('/api/web/folders',{
+			method:'POST',
+			headers:{'Content-Type':'application/json'},
+			body:JSON.stringify({title:title})
+		});
+		if(!folderResp.ok){var ferr=await folderResp.json().catch(function(){return{}});throw new Error(ferr.error||'Failed to create notebook')}
+		var folderData=await folderResp.json();
+		var folderId=(folderData.item||{}).id;
+		if(!folderId)throw new Error('No notebook id returned');
+
+		// Create vault
+		await createVault(folderId,password);
+
+		// Check for v1 notes to migrate
+		migrateV1Notes(folderId);
+
+		// Close modal and refresh relevant notebook list
+		closeNewFolderModal();
+		refreshAfterFolderCreate(origin);
+	}catch(e){
+		if(errEl)errEl.textContent='Error: '+(e.message||e);
+	}
+}
+
+function closeNewFolderModal(){
+	var modal=document.getElementById('new-folder-modal');
+	var backdrop=document.getElementById('new-folder-modal-backdrop');
+	if(modal)modal.hidden=true;
+	if(backdrop)backdrop.hidden=true;
+	if(modal)delete modal.dataset.origin;
+}
+
+function openNewFolderModal(origin){
+	var modal=document.getElementById('new-folder-modal');
+	var backdrop=document.getElementById('new-folder-modal-backdrop');
+	var titleInput=document.getElementById('new-folder-title');
+	var errEl=document.getElementById('new-vault-error');
+	var isVaultCheck=document.getElementById('new-folder-is-vault');
+	var vaultFields=document.getElementById('new-vault-fields');
+	var pwInput=document.getElementById('new-vault-password');
+	var confirmInput=document.getElementById('new-vault-confirm');
+	if(titleInput)titleInput.value='';
+	if(errEl)errEl.textContent='';
+	if(isVaultCheck)isVaultCheck.checked=false;
+	if(vaultFields)vaultFields.style.display='none';
+	if(pwInput)pwInput.value='';
+	if(confirmInput)confirmInput.value='';
+	if(modal){
+		if(origin)modal.dataset.origin=origin;
+		else delete modal.dataset.origin;
+	}
+	if(modal)modal.hidden=false;
+	if(backdrop)backdrop.hidden=false;
+	if(titleInput)titleInput.focus();
+}
+
+function refreshAfterFolderCreate(origin){
+	if(origin==='mobile'){
+		var body=document.getElementById('mobile-folders-body');
+		if(body)htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
+		return;
+	}
+	htmx.ajax('GET','/fragments/nav',{target:'#nav-panel',swap:'innerHTML'});
+}
+
+function toggleNewFolderVault(checked){
+	var fields=document.getElementById('new-vault-fields');
+	if(fields)fields.style.display=checked?'':'none';
+}
+
+async function submitNewFolderModal(event){
+	if(event)event.preventDefault();
+	var isVaultCheck=document.getElementById('new-folder-is-vault');
+	var modal=document.getElementById('new-folder-modal');
+	var origin=modal&&modal.dataset?modal.dataset.origin:'';
+	if(isVaultCheck&&isVaultCheck.checked){
+		await submitNewVaultFolder(event);
+	}else{
+		// Regular folder creation
+		var titleInput=document.getElementById('new-folder-title');
+		var errEl=document.getElementById('new-vault-error');
+		var title=(titleInput?titleInput.value:'').trim();
+		if(!title){if(errEl)errEl.textContent='Notebook name is required.';return}
+		htmx.ajax('POST','/fragments/folders',{target:origin==='mobile'?'#mobile-folders-body':'#nav-panel',swap:'none',values:{title:title}}).then(function(){
+			refreshAfterFolderCreate(origin);
+		});
+		closeNewFolderModal();
+	}
+}
+
 // Expose functions needed by inline hx-on/onclick handlers (called from global scope by htmx eval)
-window.isMobileShellMode=isMobileShellMode;
-window.closeNav=closeNav;
-window.toggleNav=toggleNav;
-window.toggleNavFolder=toggleNavFolder;
-window.openFolderContextMenu=openFolderContextMenu;
-window.closeFolderModal=closeFolderModal;
-window.submitFolderEdit=submitFolderEdit;
+	window.isMobileShellMode=isMobileShellMode;
+	window.closeNav=closeNav;
+	window.toggleNav=toggleNav;
+	window.toggleNavFolder=toggleNavFolder;
+	window.openFolderContextMenu=openFolderContextMenu;
+	window.editFolderFromMenu=editFolderFromMenu;
+	window.deleteFolderFromMenu=deleteFolderFromMenu;
+	window.closeFolderModal=closeFolderModal;
+	window.submitFolderEdit=submitFolderEdit;
 window.closeLinkModal=closeLinkModal;
 window.submitLink=submitLink;
 window.closeHistoryModal=closeHistoryModal;
@@ -952,4 +2064,17 @@ window.syncPV=syncPV;
 window.getPV=getPV;
 window.setTheme=setTheme;
 window.confirmLogout=confirmLogout;
+window.lockNote=lockNote;
+window.unlockNote=unlockNote;
+window.toggleNoteLock=toggleNoteLock;
+window.toggleVaultLock=toggleVaultLock;
+window.refreshAllVaultIcons=refreshAllVaultIcons;
+window.isVaultUnlocked=isVaultUnlocked;
+window.submitVaultModal=submitVaultModal;
+window.closeVaultModal=closeVaultModal;
+window.openNewFolderModal=openNewFolderModal;
+window.closeNewFolderModal=closeNewFolderModal;
+window.toggleNewFolderVault=toggleNewFolderVault;
+window.submitNewFolderModal=submitNewFolderModal;
+window.isEncryptedBody=isEncryptedBody;
 })(); // end main IIFE

@@ -37,6 +37,7 @@ const defaultSettings = Object.freeze({
 	theme: 'matrix',
 	liveSearch: false,
 	confirmTrash: true,
+	encryptionAutoLockMinutes: 5,
 });
 
 const nowMs = () => Date.now();
@@ -63,6 +64,7 @@ const normalizeSettings = settings => ({
 	theme: validThemes.includes(settings.theme) ? settings.theme : defaultSettings.theme,
 	liveSearch: !!Number(settings.liveSearch) || settings.liveSearch === true || settings.liveSearch === '1',
 	confirmTrash: settings.confirmTrash !== false && settings.confirmTrash !== '0' && settings.confirmTrash !== 0,
+	encryptionAutoLockMinutes: normalizeInteger(settings.encryptionAutoLockMinutes, defaultSettings.encryptionAutoLockMinutes, 0, 480),
 });
 
 const createSettingsService = database => {

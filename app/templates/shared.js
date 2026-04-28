@@ -42,6 +42,7 @@ const themeOptions = [['matrix','Matrix'],['matrix-blue','Dark Blue'],['matrix-p
 
 const stripMarkdownForTitle = value => {
 	let text = `${value || ''}`.trim();
+	text = text.replace(/<[^>]+>/g, ' ');
 	while (text.startsWith('#')) text = text.slice(1).trimStart();
 	text = text
 		.replaceAll('**', '')
@@ -232,6 +233,9 @@ const passwordField = (name, opts = {}) => {
 		`<button type="button" class="login-eye" onclick="${eyeTarget};if(p.type==='password'){p.type='text';this.innerHTML='&#128065;'}else{p.type='password';this.innerHTML='&#128064;'}" title="Show/hide password">&#128064;</button>`;
 };
 
+const svgLockClosed = '<svg class="vault-svg-icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke-width="2.5"/></svg>';
+const svgLockOpen = '<svg class="vault-svg-icon" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="15" width="18" height="11" rx="2"/><path d="M7 15V8a5 5 0 0 1 10 0"/></svg>';
+
 module.exports = {
 	escapeHtml,
 	appleSplashLinks,
@@ -245,4 +249,6 @@ module.exports = {
 	renderInlineMarkdown,
 	renderMarkdown,
 	passwordField,
+	svgLockClosed,
+	svgLockOpen,
 };

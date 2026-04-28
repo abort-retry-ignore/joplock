@@ -7,6 +7,7 @@ const {
 	allNotesIcon,
 	trashFolderId,
 	stripMarkdownForTitle,
+	svgLockClosed,
 } = require('./shared');
 
 const mobileFoldersFragment = (folders, countsOrNotes) => {
@@ -34,9 +35,11 @@ const mobileFoldersFragment = (folders, countsOrNotes) => {
 	</button>`;
 	const folderRows = (folders || []).filter(f => !f.isVirtualAllNotes && f.id !== trashFolderId).map(f => {
 		const count = notesByFolder.get(f.id) || 0;
+		const vaultIcon = f.isVault ? `<span role="button" tabindex="0" class="vault-folder-lock btn-icon-sm mobile-vault-folder-lock" data-folder-id="${escapeHtml(f.id)}" title="Lock vault" onclick="event.preventDefault();event.stopPropagation();toggleVaultLock('${escapeHtml(f.id)}')">${svgLockClosed}</span>` : '';
 		return `<button class="mobile-folder-row" onclick="mobilePushNotes(${escapeHtml(JSON.stringify(f.id))},${escapeHtml(JSON.stringify(f.title || 'Untitled'))})">
 			<span class="mobile-folder-icon">${folderOutlineIcon}</span>
 			<span class="mobile-folder-title">${escapeHtml(f.title || 'Untitled')}</span>
+			${vaultIcon}
 			<span class="mobile-folder-count">${count || ''}</span>
 			<span class="mobile-folder-add" onclick="mobileNewNoteInFolder(${escapeHtml(JSON.stringify(f.id))},${escapeHtml(JSON.stringify(f.title || 'Untitled'))},event)">+</span>
 			<span class="mobile-folder-arrow">&#8250;</span>
@@ -47,11 +50,14 @@ const mobileFoldersFragment = (folders, countsOrNotes) => {
 
 // Renders a single mobile note row button.
 //   onclickJs — the onclick JS expression string (varies between notes list and search)
-const mobileNoteRow = (n, onclickJs) =>
-	`<button class="mobile-note-row" data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}" onclick="${onclickJs}">
-		<span class="mobile-note-title">${escapeHtml(stripMarkdownForTitle(n.title || 'Untitled') || 'Untitled')}</span>
+const mobileNoteRow = (n, onclickJs) => {
+	const protectedByVault = !!(n.isEncrypted || n.inVault);
+	const lockIcon = protectedByVault ? '<span class="note-lock-icon" data-note-id="' + escapeHtml(n.id) + '">' + svgLockClosed + '</span>' : '';
+	return `<button class="mobile-note-row" data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}"${n.isEncrypted ? ' data-encrypted="1"' : ''}${protectedByVault && n.parentId ? ` data-vault-id="${escapeHtml(n.parentId)}"` : ''} onclick="${onclickJs}">
+		${lockIcon}<span class="mobile-note-title">${escapeHtml(stripMarkdownForTitle(n.title || 'Untitled') || 'Untitled')}</span>
 		<span class="mobile-note-arrow">&#8250;</span>
 	</button>`;
+};
 
 const mobileNotesFragment = (notes, folderId, folderTitle, hasMore = false, nextOffset = 0) => {
 	if (!notes.length) return '<div class="empty-hint" style="padding:24px 16px;text-align:center"><div style="font-size:40px;margin-bottom:8px">&#128221;</div><div>No notes yet</div><div style="font-size:12px;color:var(--text-muted);margin-top:4px">Tap + to create one</div></div>';

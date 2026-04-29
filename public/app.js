@@ -252,45 +252,24 @@ var _mobileShellMaxWidth=768;
 function viewportWidth(){return Math.max(window.innerWidth||0,document.documentElement&&document.documentElement.clientWidth||0)}
 var _lastViewportWidth=viewportWidth();
 var _resizeReloadTimer=null;
+var _traceKey='joplock-debug-trace';
 function isMobileShellMode(){if(_uiMode==='mobile')return true;if(_uiMode==='desktop')return false;return viewportWidth()<=_mobileShellMaxWidth}
 function isDesktopMode(){return !isMobileShellMode()}
+function _trace(){if(!_dbg)return;try{var line='['+new Date().toISOString().slice(11,23)+'] '+Array.prototype.slice.call(arguments).map(function(v){return typeof v==='string'?v:JSON.stringify(v)}).join(' ');var arr=JSON.parse(sessionStorage.getItem(_traceKey)||'[]');arr.push(line);if(arr.length>80)arr=arr.slice(arr.length-80);sessionStorage.setItem(_traceKey,JSON.stringify(arr));console.log('[trace]',line)}catch(_e){}}
+function _traceDump(){if(!_dbg)return;try{var arr=JSON.parse(sessionStorage.getItem(_traceKey)||'[]');for(var i=0;i<arr.length;i++)console.log(arr[i])}catch(_e){}}
+window.joplockTraceDump=_traceDump;
+if(_dbg)_trace('boot',{w:viewportWidth(),mobile:isMobileShellMode(),startup:!!_mobileStartup});
 function handleViewportResizeReload(){
 	var w=viewportWidth();
 	if(w===_lastViewportWidth)return;
+	_trace('resize-detected',{from:_lastViewportWidth,to:w,mobile:isMobileShellMode()});
 	_lastViewportWidth=w;
 	if(_resizeReloadTimer)clearTimeout(_resizeReloadTimer);
 	_resizeReloadTimer=setTimeout(function(){
-		if(isMobileShellMode()&&window.saveMobileRedrawState)window.saveMobileRedrawState();
-		_log('viewport width changed, reloading',w);
+		if(isMobileShellMode()&&window.saveMobileRedrawState){_trace('resize-save-redraw');window.saveMobileRedrawState()}
+		_trace('resize-reload');
 		window.location.reload();
 	},150);
-}
-function _mobileLayoutSnapshot(reason){
-	if(!_dbg||!isMobileShellMode())return;
-	var body=document.getElementById('mobile-editor-body');
-	var screen=document.getElementById('mobile-editor-screen');
-	var header=document.getElementById('mobile-editor-header');
-	var form=body&&body.querySelector?body.querySelector('#note-editor-form'):null;
-	var meta=body&&body.querySelector?body.querySelector('#note-meta'):null;
-	var titlebar=body&&body.querySelector?body.querySelector('.editor-titlebar'):null;
-	var toolbar=body&&body.querySelector?body.querySelector('#editor-toolbar'):null;
-	var host=body&&body.querySelector?body.querySelector('#cm-host'):null;
-	var preview=body&&body.querySelector?body.querySelector('#note-preview'):null;
-	var snap=function(el,name){if(!el)return name+':none';var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return name+':h='+Math.round(r.height)+',top='+Math.round(r.top)+',bottom='+Math.round(r.bottom)+',display='+cs.display+',overflowY='+cs.overflowY+',flex='+cs.flex+',height='+cs.height};
-	var kids='children='+(body&&body.children?Array.prototype.map.call(body.children,function(el){return (el.id||el.className||el.tagName)+':'+Math.round(el.getBoundingClientRect().height)}).join('|'):'none');
-	_log('mobile-layout',reason,
-		'vh='+window.innerHeight,
-		snap(screen,'screen'),
-		snap(header,'header'),
-		snap(body,'body'),
-		snap(form,'form'),
-		snap(meta,'meta'),
-		snap(titlebar,'titlebar'),
-		snap(toolbar,'toolbar'),
-		snap(host,'host'),
-		snap(preview,'preview'),
-		kids,
-		'stack='+(window._mobileStack&&window._mobileStack.slice?window._mobileStack.slice().join('>'):'none'));
 }
 (function(){var serverTheme=_cfg.theme||'matrix';var s=localStorage.getItem('joplock-theme');var e=document.querySelector('.theme-picker');if(s&&s!==serverTheme){localStorage.setItem('joplock-theme',serverTheme)}if(e)e.value=serverTheme})();
 window.addEventListener('pageshow',function(e){if(e.persisted)window.location.replace('/login')});
@@ -829,18 +808,21 @@ function confirmLogout(event){
 	var _mobileFolderTitle='';
 	var _mobileNoteId='';
 	var _mobileInitDone=false;
+	var _mobileRestoreListsAfterEditor=false;
 	var _mobileRedrawStateKey='joplock-mobile-redraw-state';
 	function isMobile(){return isMobileShellMode()}
 	function saveMobileRedrawState(){
 		try{
-			sessionStorage.setItem(_mobileRedrawStateKey,JSON.stringify({
+			var state={
 				stack:_mobileStack.slice(),
 				folderId:_mobileFolderId||'',
 				folderTitle:_mobileFolderTitle||'',
 				noteId:_mobileNoteId||'',
 				noteTitle:(document.getElementById('mobile-editor-title')&&document.getElementById('mobile-editor-title').textContent)||'',
 				notesTitle:(document.getElementById('mobile-notes-title')&&document.getElementById('mobile-notes-title').textContent)||'',
-			}));
+			};
+			sessionStorage.setItem(_mobileRedrawStateKey,JSON.stringify(state));
+			_trace('redraw-state-saved',state);
 		}catch(_e){}
 	}
 	function consumeMobileRedrawState(){
@@ -849,6 +831,7 @@ function confirmLogout(event){
 			if(!raw)return null;
 			sessionStorage.removeItem(_mobileRedrawStateKey);
 			var state=JSON.parse(raw);
+			_trace('redraw-state-consumed',state);
 			return state&&state.stack&&state.stack.length?state:null;
 		}catch(_e){return null}
 	}
@@ -895,9 +878,9 @@ function confirmLogout(event){
 		_mobileStack=['folders','notes','editor'];
 		window.mobileEditorSearchClose();
 		showMobileScreen('editor','forward');
-		_mobileLayoutSnapshot('before editor fetch');
+		_trace('mobilePushEditor-start',{noteId:noteId,folderId:folderId||_mobileFolderId});
 		var body=document.getElementById('mobile-editor-body');if(body)body.innerHTML='<div class="editor-empty mobile-loading-note"><div class="note-loading-ring"></div></div>';
-		htmx.ajax('GET','/fragments/editor/'+encodeURIComponent(noteId)+'?currentFolderId='+encodeURIComponent(folderId||_mobileFolderId),{target:'#mobile-editor-body',swap:'innerHTML'}).then(function(){hideNoteOverlay()}).catch(function(){hideNoteOverlay()});
+		htmx.ajax('GET','/fragments/editor/'+encodeURIComponent(noteId)+'?currentFolderId='+encodeURIComponent(folderId||_mobileFolderId),{target:'#mobile-editor-body',swap:'innerHTML'}).then(function(){_trace('mobilePushEditor-ok',{noteId:noteId});hideNoteOverlay()}).catch(function(err){_trace('mobilePushEditor-err',{noteId:noteId,error:err&&err.message?err.message:String(err)});hideNoteOverlay()});
 	};
 	window.mobilePopScreen=function(){
 		if(!isMobile())return;
@@ -1199,6 +1182,7 @@ function confirmLogout(event){
 	window.mobileEditorSearchQuery=function(){applySearchHighlight()};
 	function mobileInit(){
 		if(!isMobile())return;
+		_trace('mobileInit-start',{initDone:_mobileInitDone,startup:!!_mobileStartup});
 		document.getElementById('mobile-app').setAttribute('aria-hidden','false');
 		['folders','notes','editor'].forEach(function(name){
 			var screen=document.getElementById(mobileScreenId(name));
@@ -1210,31 +1194,33 @@ function confirmLogout(event){
 		_mobileInitDone=true;
 		var redraw=consumeMobileRedrawState();
 		if(redraw){
+			_trace('mobileInit-redraw-branch',redraw);
 			_mobileStack=redraw.stack.slice();
 			_mobileFolderId=redraw.folderId||'';
 			_mobileFolderTitle=redraw.folderTitle||redraw.notesTitle||'Notes';
 			_mobileNoteId=redraw.noteId||'';
 			var notesTitle=document.getElementById('mobile-notes-title');if(notesTitle&&_mobileFolderTitle)notesTitle.textContent=_mobileFolderTitle;
 			var editorTitle=document.getElementById('mobile-editor-title');if(editorTitle&&redraw.noteTitle)editorTitle.textContent=redraw.noteTitle;
-			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
-			if(_mobileFolderId){
-				htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
-			}
 			if(_mobileStack[_mobileStack.length-1]==='editor'&&_mobileNoteId){
-				showMobileScreen('editor','forward');
-				var body=document.getElementById('mobile-editor-body');if(body)body.innerHTML='<div class="editor-empty mobile-loading-note"><div class="note-loading-ring"></div></div>';
-				htmx.ajax('GET','/fragments/editor/'+encodeURIComponent(_mobileNoteId)+'?currentFolderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-editor-body',swap:'innerHTML'});
+				_trace('mobileInit-redraw-editor',{noteId:_mobileNoteId,folderId:_mobileFolderId});
+				_mobileRestoreListsAfterEditor=true;
+				mobilePushEditor(_mobileNoteId,_mobileFolderId);
 			}else if(_mobileStack[_mobileStack.length-1]==='notes'){
+				_trace('mobileInit-redraw-notes',{folderId:_mobileFolderId});
+				htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
+				if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
 				showMobileScreen('notes','forward');
 			}else{
+				_trace('mobileInit-redraw-folders');
+				htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
 				_mobileStack=['folders'];
 				showMobileScreen('folders','forward');
 			}
-			_mobileLayoutSnapshot('mobile init redraw restore');
 			return;
 		}
 		var resume=mobileResumeTarget();
 		if(resume){
+			_trace('mobileInit-resume-branch',resume);
 			_mobileFolderId=resume.folderId;
 			_mobileFolderTitle=resume.folderTitle;
 			_mobileNoteId=resume.noteId;
@@ -1244,8 +1230,8 @@ function confirmLogout(event){
 			htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
 			_mobileStack=['folders','notes','editor'];
 			showMobileScreen('editor','forward');
-			_mobileLayoutSnapshot('mobile init resume');
 		}else{
+			_trace('mobileInit-default-folders');
 			_mobileStack=['folders'];
 			showMobileScreen('folders','forward');
 			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
@@ -1312,10 +1298,9 @@ function confirmLogout(event){
 		document.body.addEventListener('htmx:afterSettle',function(e){
 		var t=e.detail&&e.detail.target;
 		if(t&&t.id==='mobile-editor-body'){
+			_trace('mobile-editor-settle-start');
 			if(_cmView){_cmView.destroy();_cmView=null}
 			initEditorPanel();
-			_mobileLayoutSnapshot('after editor settle');
-			setTimeout(function(){_mobileLayoutSnapshot('after editor settle +100ms')},100);
 			var titleInput=t.querySelector('.editor-title');
 			var titleEl=document.getElementById('mobile-editor-title');
 			if(titleEl&&titleInput)titleEl.textContent=titleInput.textContent||'Note';
@@ -1333,6 +1318,13 @@ function confirmLogout(event){
 			// Wire delete button
 			var form=t.querySelector('#note-editor-form');
 			var noteId=form?decodeURIComponent((form.getAttribute('hx-put')||'').replace('/fragments/editor/','')):'';
+			_trace('mobile-editor-settle-done',{hasForm:!!form,noteId:noteId,spinner:!!t.querySelector('.mobile-loading-note,.note-loading-ring')});
+			if(_mobileRestoreListsAfterEditor){
+				_mobileRestoreListsAfterEditor=false;
+				_trace('mobile-editor-settle-refresh-lists',{folderId:_mobileFolderId});
+				htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
+				if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
+			}
 			var isDeleted=!!t.querySelector('.btn-danger[hx-confirm*="Permanently"]');
 			wireMobileDeleteBtn(noteId,isDeleted);
 			// Show FAB only when on notes screen
@@ -1353,7 +1345,6 @@ function confirmLogout(event){
 		if(t&&t.id==='mobile-notes-body'){
 			var xhr=e.detail.xhr;
 			var noteId=xhr&&xhr.getResponseHeader('X-Mobile-Note-Id');
-			_log('mobile-notes-body afterRequest',{status:xhr&&xhr.status,noteId:noteId});
 			if(noteId){window._mobileNewNoteId=noteId;mobilePushEditor(noteId,_mobileFolderId)}
 		}
 	});

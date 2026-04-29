@@ -38,7 +38,10 @@ const defaultSettings = Object.freeze({
 	liveSearch: false,
 	confirmTrash: true,
 	encryptionAutoLockMinutes: 5,
+	uiMode: 'auto',
 });
+
+const validUiModes = ['auto', 'mobile', 'desktop'];
 
 const nowMs = () => Date.now();
 
@@ -65,6 +68,7 @@ const normalizeSettings = settings => ({
 	liveSearch: !!Number(settings.liveSearch) || settings.liveSearch === true || settings.liveSearch === '1',
 	confirmTrash: settings.confirmTrash !== false && settings.confirmTrash !== '0' && settings.confirmTrash !== 0,
 	encryptionAutoLockMinutes: normalizeInteger(settings.encryptionAutoLockMinutes, defaultSettings.encryptionAutoLockMinutes, 0, 480),
+	uiMode: validUiModes.includes(settings.uiMode) ? settings.uiMode : defaultSettings.uiMode,
 });
 
 const createSettingsService = database => {
@@ -180,4 +184,5 @@ module.exports = {
 	validDateFormats,
 	validDatetimeFormats,
 	validThemes,
+	validUiModes,
 };

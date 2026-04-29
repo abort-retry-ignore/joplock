@@ -109,6 +109,30 @@ async function openSettings(page) {
 	await expect(page.getByRole('heading', { name: 'Joplock Settings' })).toBeVisible();
 }
 
+async function ensureMobileFoldersScreen(page) {
+	await expect(page.locator('#mobile-app[aria-hidden="false"]')).toBeVisible();
+	if (await page.locator('#mobile-editor-screen.mobile-screen-active').count()) {
+		await page.locator('#mobile-editor-back').click();
+	}
+	if (await page.locator('#mobile-notes-screen.mobile-screen-active').count()) {
+		await page.locator('#mobile-notes-screen .mobile-back-btn').click();
+	}
+	await expect(page.locator('#mobile-folders-screen.mobile-screen-active')).toBeVisible();
+}
+
+async function setUiMode(page, mode) {
+	const result = await page.evaluate(async value => {
+		const res = await fetch('/api/web/settings', {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'same-origin',
+			body: JSON.stringify({ uiMode: value }),
+		});
+		return res.status;
+	}, mode);
+	if (result !== 204) throw new Error(`setUiMode failed: ${result}`);
+}
+
 async function logout(page) {
 	await page.goto('/logout');
 	await expect(page.locator('#logout-login-link')).toBeVisible({ timeout: 15000 });
@@ -119,9 +143,9 @@ async function logout(page) {
 
 async function openMobileFolder(page, folderName) {
 	await expect(page.locator('#mobile-app[aria-hidden="false"]')).toBeVisible();
-	await page.evaluate(name => {
-		window.mobilePushNotes(name === 'All Notes' ? '__all__' : name, name);
-	}, folderName);
+	const row = page.locator('#mobile-folders-body .mobile-folder-row', { hasText: folderName }).first();
+	await expect(row).toBeVisible();
+	await row.click();
 	await expect(page.locator('#mobile-notes-screen.mobile-screen-active')).toBeVisible();
 	await expect(page.locator('#mobile-notes-title')).toContainText(folderName);
 }
@@ -139,6 +163,7 @@ module.exports = {
 	deleteNotebook,
 	login,
 	logout,
+	ensureMobileFoldersScreen,
 	openDesktopNote,
 	openMobileFolder,
 	openMobileNote,
@@ -146,6 +171,7 @@ module.exports = {
 	searchDesktop,
 	setNoteBody,
 	setNoteTitle,
+	setUiMode,
 	slug,
 	waitForSaved,
 };

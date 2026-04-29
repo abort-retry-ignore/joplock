@@ -75,15 +75,15 @@ const layoutPage = (options = {}) => {
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	${appleSplashLinks}
-	<link rel="stylesheet" href="/styles.css" />
+	<link rel="stylesheet" href="/styles.css?v=20260429k" />
 	<script src="/htmx.min.js"></script>
 	<script src="/turndown.min.js"></script>
 	<script src="/codemirror.min.js"></script>
 	<script src="/hljs.min.js"></script>
-	<script src="/app.js?v=20260427e" defer></script>
+	<script src="/app.js?v=20260429v" defer></script>
 	<title>Joplock</title>
 </head>
-<body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${settings.noteMonospace ? ' note-body-monospace' : ''}" style="--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;">
+<body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${settings.noteMonospace ? ' note-body-monospace' : ''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;">
 	<div id="note-loading-overlay" aria-hidden="true">
 		<div class="note-loading-ring"></div>
 		<div class="note-loading-label">Loading note…</div>
@@ -157,9 +157,18 @@ const layoutPage = (options = {}) => {
 	<div class="mobile-ctx-backdrop" id="mobile-ctx-backdrop" style="display:none" onclick="mobileCtxClose()"></div>
 	<div class="mobile-ctx-sheet" id="mobile-ctx-sheet" style="display:none">
 		<div class="mobile-ctx-title" id="mobile-ctx-title"></div>
+		<div class="mobile-ctx-meta" id="mobile-ctx-meta" style="display:none"></div>
 		<button class="mobile-ctx-btn" id="mobile-ctx-move">&#128193; Move note</button>
 		<button class="mobile-ctx-btn" id="mobile-ctx-delete">&#128465; Delete note</button>
 		<button class="mobile-ctx-btn mobile-ctx-btn-cancel" onclick="mobileCtxClose()">Cancel</button>
+	</div>
+	<!-- Mobile folder context menu (long-press on folder row) -->
+	<div class="mobile-ctx-backdrop" id="mobile-folder-ctx-backdrop" style="display:none" onclick="mobileFolderCtxClose()"></div>
+	<div class="mobile-ctx-sheet" id="mobile-folder-ctx-sheet" style="display:none">
+		<div class="mobile-ctx-title" id="mobile-folder-ctx-title"></div>
+		<button class="mobile-ctx-btn" id="mobile-folder-ctx-rename">&#9998; Rename notebook</button>
+		<button class="mobile-ctx-btn" id="mobile-folder-ctx-delete">&#128465; Delete notebook</button>
+		<button class="mobile-ctx-btn mobile-ctx-btn-cancel" onclick="mobileFolderCtxClose()">Cancel</button>
 	</div>
 	<div class="mobile-ctx-backdrop" id="mobile-folder-picker-backdrop" style="display:none" onclick="mobileFolderPickerClose()"></div>
 	<div class="mobile-ctx-sheet mobile-folder-picker-sheet" id="mobile-folder-picker-sheet" style="display:none">
@@ -208,7 +217,7 @@ const layoutPage = (options = {}) => {
 	<div class="app-statusbar">
 		<a href="/settings" class="btn btn-icon status-settings-link" title="Settings">&#9881;</a>
 		<span class="status-user">${escapeHtml(user.fullName || user.email)}</span>
-		${noteMetaFragment({ createdTime: 0, updatedTime: 0 })}
+		${noteMetaFragment({ createdTime: 0, updatedTime: 0 }, 'status-note-meta')}
 		<span class="status-spacer"></span>
 		<select class="theme-picker" onchange="setTheme(this.value)">
 			${themeOptions.map(function(t){return '<option value="'+t[0]+'"'+((settings.theme||'matrix')===t[0]?' selected':'')+'>'+t[1]+'</option>'}).join('')}
@@ -253,7 +262,8 @@ const layoutPage = (options = {}) => {
 		datetimeFormat:${JSON.stringify(String(settings.datetimeFormat || 'YYYY-MM-DD HH:mm'))},
 		liveSearch:${settings.liveSearch ? 'true' : 'false'},
 		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'},
-		encryptionAutoLockMinutes:${JSON.stringify(settings.encryptionAutoLockMinutes || 5)}
+		encryptionAutoLockMinutes:${JSON.stringify(settings.encryptionAutoLockMinutes || 5)},
+		uiMode:${JSON.stringify(settings.uiMode || 'auto')}
 	};
 	</script>
 </body>

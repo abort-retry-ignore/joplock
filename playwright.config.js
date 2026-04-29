@@ -6,10 +6,10 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5445';
 
 module.exports = defineConfig({
 	testDir: './playwright-tests',
-	fullyParallel: true,
+	fullyParallel: false,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,
-	workers: process.env.CI ? 2 : undefined,
+	workers: 1,
 	reporter: [['list'], ['html', { open: 'never' }]],
 	use: {
 		baseURL,
@@ -25,13 +25,6 @@ module.exports = defineConfig({
 				...devices['Desktop Chrome'],
 				browserName: 'chromium',
 				viewport: { width: 1440, height: 1100 },
-			},
-		},
-		{
-			name: 'tablet',
-			use: {
-				...devices['iPad Mini'],
-				browserName: 'chromium',
 			},
 		},
 		{

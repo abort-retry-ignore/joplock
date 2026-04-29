@@ -167,6 +167,14 @@ const settingsPage = (options = {}) => {
 								<option value="markdown"${settings.noteOpenMode === 'markdown' ? ' selected' : ''}>Markdown mode</option>
 							</select>
 						</label>
+						<label class="settings-field">
+							<span>Display mode</span>
+							<select id="settings-ui-mode" class="login-input" onchange="saveSetting('uiMode',this.value);setTimeout(function(){window.location.reload()},150)">
+								<option value="auto"${(settings.uiMode || 'auto') === 'auto' ? ' selected' : ''}>Auto-detect</option>
+								<option value="mobile"${settings.uiMode === 'mobile' ? ' selected' : ''}>Force mobile</option>
+								<option value="desktop"${settings.uiMode === 'desktop' ? ' selected' : ''}>Force desktop</option>
+							</select>
+						</label>
 						<label class="settings-field settings-checkbox">
 							<span>Live search</span>
 							<label><input type="checkbox" id="settings-live-search" onchange="saveSetting('liveSearch',this.checked?'1':'0')"${settings.liveSearch ? ' checked' : ''} /> Search as you type (≥3 chars)</label>

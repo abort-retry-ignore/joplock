@@ -86,7 +86,20 @@ const noteListFragment = (notes, selectedNoteId, folderId) => {
 
 const noteSyncStateFragment = note => `<span id="editor-sync-state"><input type="hidden" name="baseUpdatedTime" value="${escapeHtml(note.updatedTime || 0)}" /><input type="hidden" name="forceSave" value="" /><input type="hidden" name="createCopy" value="" /></span>`;
 
-const noteMetaFragment = note => `<span id="note-meta" class="note-meta" data-created-time="${escapeHtml(note.createdTime || 0)}" data-updated-time="${escapeHtml(note.updatedTime || 0)}"></span>`;
+const noteMetaText = note => {
+	const createdTime = Number(note && note.createdTime || 0);
+	const updatedTime = Number(note && note.updatedTime || 0);
+	if (!createdTime && !updatedTime) return '';
+	const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+	const fmt = ts => {
+		if (!ts) return '';
+		const date = new Date(ts);
+		return `${String(date.getDate()).padStart(2, '0')}-${months[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
+	};
+	return `Created ${fmt(createdTime)} | Edited ${fmt(updatedTime)}`;
+};
+
+const noteMetaFragment = (note, id = 'note-meta') => `<span id="${escapeHtml(id)}" class="note-meta" data-created-time="${escapeHtml(note.createdTime || 0)}" data-updated-time="${escapeHtml(note.updatedTime || 0)}">${escapeHtml(noteMetaText(note))}</span>`;
 
 const autosaveConflictFragment = noteId => `<span class="autosave-conflict"><span class="autosave-error">Conflict</span><button type="button" class="btn btn-sm" hx-put="/fragments/editor/${encodeURIComponent(noteId)}" hx-include="#note-editor-form" hx-target="#autosave-status" hx-swap="innerHTML" hx-vals='{"forceSave":"1"}' hx-on:click="if(getPV())syncPV()">Overwrite</button><button type="button" class="btn btn-sm" hx-put="/fragments/editor/${encodeURIComponent(noteId)}" hx-include="#note-editor-form" hx-target="#autosave-status" hx-swap="innerHTML" hx-vals='{"createCopy":"1"}' hx-on:click="if(getPV())syncPV()">Create copy</button></span>`;
 
@@ -348,7 +361,7 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 			ondrop="handleDrop(event)" ondragover="event.preventDefault()"></div>
 		<div class="editor-preview" id="note-preview" contenteditable="true"
 			ondrop="handleDrop(event)" ondragover="event.preventDefault()">${vaultProtected ? '' : renderMarkdown(note.body || '')}</div>
-	</form>${noteMetaFragment(note).replace('<span id="note-meta"', '<span id="note-meta" hx-swap-oob="outerHTML"')}`;
+	</form>${noteMetaFragment(note)}`;
 };
 
 const mobileEditorFragment = (note, folders, currentFolderId = '') => editorFragment(note, folders, currentFolderId)
@@ -387,6 +400,7 @@ module.exports = {
 	noteListItem,
 	noteListFragment,
 	noteSyncStateFragment,
+	noteMetaText,
 	noteMetaFragment,
 	autosaveConflictFragment,
 	fmtHistoryTime,

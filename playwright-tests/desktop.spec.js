@@ -21,6 +21,8 @@ test.describe('Desktop UI', () => {
 	test('covers login, notebook and note flows, search, settings, history, and logout', async ({ page }, testInfo) => {
 		test.skip(testInfo.project.name !== 'desktop');
 		acceptDialogs(page);
+		const statusMeta = page.locator('.app-statusbar #status-note-meta');
+		const statusMetaPattern = /^Created \d{2}-[A-Z][a-z]{2}-\d{2} \| Edited \d{2}-[A-Z][a-z]{2}-\d{2}$/;
 		const folderName = slug('pw-desktop-folder');
 		const noteTitle = slug('pw desktop note');
 		const noteBody = `${noteTitle}\n\nDesktop body update.`;
@@ -34,6 +36,8 @@ test.describe('Desktop UI', () => {
 		await expect(page.locator('#editor-panel #cm-host')).toBeVisible();
 		await setNoteBody(page, noteBody);
 		await waitForSaved(page);
+		await expect(statusMeta).toBeVisible();
+		await expect(statusMeta).toHaveText(statusMetaPattern);
 
 		await expect(page.locator(`.nav-folder[data-folder-title="${folderName}"]`)).toBeVisible();
 
@@ -51,6 +55,7 @@ test.describe('Desktop UI', () => {
 		await expect(page.getByRole('button', { name: noteTitle, exact: true })).toBeVisible();
 		await expect(page.locator('.nav-folder-title', { hasText: 'Search Results' })).toBeVisible();
 		await openDesktopNote(page, noteTitle);
+		await expect(statusMeta).toHaveText(statusMetaPattern);
 
 		await openSettings(page);
 		await page.locator('#settings-theme').selectOption('nord');

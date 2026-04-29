@@ -345,7 +345,11 @@ const handle = async (url, request, response, ctx) => {
 			if (!note) { sendHtml(response, 404, '<div class="editor-empty">Note not found.</div>'); return true; }
 			const enrichedNote = await enrichNoteWithVault(auth.user.id, note, folders);
 			await saveLastNoteState(auth.user.id, currentSettings, note.id, currentFolderId || note.parentId);
-			sendHtml(response, 200, templates.editorFragment(enrichedNote, folders, currentFolderId || note.parentId));
+			const uiMode = (currentSettings && currentSettings.uiMode) || 'auto';
+			const mobileRequested = uiMode === 'mobile' || request.headers['hx-target'] === 'mobile-editor-body';
+			sendHtml(response, 200, mobileRequested
+				? templates.mobileEditorFragment(enrichedNote, folders, currentFolderId || note.parentId)
+				: templates.editorFragment(enrichedNote, folders, currentFolderId || note.parentId));
 		} catch {
 			sendHtml(response, 500, '<div class="editor-empty">Error</div>');
 		}
@@ -415,6 +419,7 @@ const handle = async (url, request, response, ctx) => {
 			sendHtml(response, 200,
 				`${templates.autosaveStatusFragment()}${navOob}` +
 				`${templates.noteSyncStateFragment(refreshed || existing).replace('<span id="editor-sync-state">', '<span id="editor-sync-state" hx-swap-oob="outerHTML">')}` +
+				`${templates.noteMetaFragment(refreshed || existing, 'status-note-meta').replace('<span id="status-note-meta"', '<span id="status-note-meta" hx-swap-oob="outerHTML"')}` +
 				`${templates.noteMetaFragment(refreshed || existing).replace('<span id="note-meta"', '<span id="note-meta" hx-swap-oob="outerHTML"')}`
 			);
 		} catch (error) {

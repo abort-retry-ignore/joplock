@@ -22,6 +22,7 @@ module.exports = {
 	noteListItem: fragments.noteListItem,
 	noteListFragment: fragments.noteListFragment,
 	noteSyncStateFragment: fragments.noteSyncStateFragment,
+	noteMetaText: fragments.noteMetaText,
 	noteMetaFragment: fragments.noteMetaFragment,
 	autosaveConflictFragment: fragments.autosaveConflictFragment,
 	fmtHistoryTime: fragments.fmtHistoryTime,

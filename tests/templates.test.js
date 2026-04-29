@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const { adminUserRow, autosaveConflictFragment, autosaveStatusFragment, editorFragment, escapeHtml, folderListItem, folderListFragment, folderNotesPageFragment, historyModalFragment, historySnapshotPreviewFragment, layoutPage, loggedOutPage, mfaPage, mobileEditorFragment, mobileFoldersFragment, mobileNotesFragment, mobileSearchFragment, navigationFragment, noteListItem, noteListFragment, noteMetaFragment, noteSyncStateFragment, renderInlineMarkdown, renderMarkdown, searchResultsFragment, settingsPage, stripMarkdownForTitle } = require('../app/templates');
+	const { adminUserRow, autosaveConflictFragment, autosaveStatusFragment, editorFragment, escapeHtml, folderListItem, folderListFragment, folderNotesPageFragment, historyModalFragment, historySnapshotPreviewFragment, layoutPage, loggedOutPage, mfaPage, mobileEditorFragment, mobileFoldersFragment, mobileNotesFragment, mobileSearchFragment, navigationFragment, noteListItem, noteListFragment, noteMetaFragment, noteMetaText, noteSyncStateFragment, renderInlineMarkdown, renderMarkdown, searchResultsFragment, settingsPage, stripMarkdownForTitle } = require('../app/templates');
 
 test('autosaveConflictFragment wires overwrite and create copy actions', () => {
 	const html = autosaveConflictFragment('n1');
@@ -539,6 +539,27 @@ test('noteMetaFragment includes data attributes for times', () => {
 	const html = noteMetaFragment({ createdTime: 100, updatedTime: 200 });
 	assert.ok(html.includes('data-created-time="100"'));
 	assert.ok(html.includes('data-updated-time="200"'));
+	assert.ok(html.includes('Created 01-Jan-70 | Edited 01-Jan-70'));
+});
+
+test('noteMetaText returns empty string when no timestamps exist', () => {
+	assert.equal(noteMetaText({ createdTime: 0, updatedTime: 0 }), '');
+});
+
+test('noteMetaFragment supports custom element ids', () => {
+	const html = noteMetaFragment({ createdTime: 100, updatedTime: 200 }, 'status-note-meta');
+	assert.ok(html.includes('id="status-note-meta"'));
+});
+
+test('layoutPage renders status bar note meta with dedicated id', () => {
+	const html = layoutPage({
+		user: { email: 'a@b.com', fullName: '' },
+		navContent: '<div>Nav</div>',
+		editorContent: '<div>Editor</div>',
+		settings: {},
+	});
+	assert.ok(html.includes('id="status-note-meta"'));
+	assert.ok(!html.includes('id="note-meta" class="note-meta" data-created-time="0" data-updated-time="0"'));
 });
 
 // --- autosaveStatusFragment ---

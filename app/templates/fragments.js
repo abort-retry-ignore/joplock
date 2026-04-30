@@ -368,7 +368,8 @@ const mobileEditorFragment = (note, folders, currentFolderId = '') => editorFrag
 	.replace(/<div class="editor-titlebar">([\s\S]*?)<\/div>\s*<div class="editor-toolbar"/, (_m, titlebarInner) => {
 		const folderSelectMatch = titlebarInner.match(/<select name="parentId"[\s\S]*?<\/select>/);
 		const hiddenSelect = folderSelectMatch ? folderSelectMatch[0].replace('class="editor-folder-select"', 'class="editor-folder-select mobile-hidden-folder-select"') : '';
-		return `${hiddenSelect}<div class="editor-toolbar"`;
+		// Keep title fields hidden so autoTitle + save work; hide visual titlebar
+		return `${hiddenSelect}<input type="hidden" name="currentFolderId" value="${escapeHtml(currentFolderId || '')}" /><input type="hidden" name="title" class="editor-title-hidden" value="${escapeHtml(stripMarkdownForTitle(note.title || ''))}" /><div class="editor-title" style="display:none" data-placeholder="Note title">${escapeHtml(stripMarkdownForTitle(note.title || ''))}</div><div class="editor-toolbar"`;
 	})
 	.replace(/\s*<div class="search-nav-bar" id="search-nav-bar" hidden>[\s\S]*?<\/div>\s*/,'')
 	.replace(' hx-swap-oob="outerHTML"', '');

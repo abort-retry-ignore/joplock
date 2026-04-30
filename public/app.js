@@ -251,7 +251,7 @@ var _uiMode=_cfg.uiMode||'auto';
 var _mobileShellMaxWidth=768;
 function viewportWidth(){return Math.max(window.innerWidth||0,document.documentElement&&document.documentElement.clientWidth||0)}
 var _lastViewportWidth=viewportWidth();
-var _resizeReloadTimer=null;
+var _resizeTimer=null;
 var _traceKey='joplock-debug-trace';
 function isMobileShellMode(){if(_uiMode==='mobile')return true;if(_uiMode==='desktop')return false;return viewportWidth()<=_mobileShellMaxWidth}
 function isDesktopMode(){return !isMobileShellMode()}
@@ -259,17 +259,15 @@ function _trace(){if(!_dbg)return;try{var line='['+new Date().toISOString().slic
 function _traceDump(){if(!_dbg)return;try{var arr=JSON.parse(sessionStorage.getItem(_traceKey)||'[]');for(var i=0;i<arr.length;i++)console.log(arr[i])}catch(_e){}}
 window.joplockTraceDump=_traceDump;
 if(_dbg)_trace('boot',{w:viewportWidth(),mobile:isMobileShellMode(),startup:!!_mobileStartup});
-function handleViewportResizeReload(){
-	var w=viewportWidth();
-	if(w===_lastViewportWidth)return;
-	_trace('resize-detected',{from:_lastViewportWidth,to:w,mobile:isMobileShellMode()});
-	_lastViewportWidth=w;
-	if(_resizeReloadTimer)clearTimeout(_resizeReloadTimer);
-	_resizeReloadTimer=setTimeout(function(){
-		if(isMobileShellMode()&&window.saveMobileRedrawState){_trace('resize-save-redraw');window.saveMobileRedrawState()}
-		_trace('resize-reload');
-		window.location.reload();
-	},150);
+function handleViewportResize(){
+	// Immediately disable transitions during resize
+	document.body.classList.add('resizing');
+	if(_resizeTimer)clearTimeout(_resizeTimer);
+	_resizeTimer=setTimeout(function(){
+		document.body.classList.remove('resizing');
+		// After resize settles, sync shell mode (defined inside mobile IIFE, exposed via window)
+		if(window._syncResponsiveMode)window._syncResponsiveMode();
+	},200);
 }
 (function(){var serverTheme=_cfg.theme||'matrix';var s=localStorage.getItem('joplock-theme');var e=document.querySelector('.theme-picker');if(s&&s!==serverTheme){localStorage.setItem('joplock-theme',serverTheme)}if(e)e.value=serverTheme})();
 window.addEventListener('pageshow',function(e){if(e.persisted)window.location.replace('/login')});
@@ -277,7 +275,7 @@ function setMobileNav(open){var nav=document.getElementById('nav-panel');var bd=
 function toggleNav(){if(isMobileShellMode()){var nav=document.getElementById('nav-panel');if(!nav)return;setMobileNav(!nav.classList.contains('open'))}else{document.body.classList.toggle('nav-collapsed');localStorage.setItem('joplock-nav-collapsed',document.body.classList.contains('nav-collapsed')?'1':'')}}
 function closeNav(){setMobileNav(false)}
 (function(){if(localStorage.getItem('joplock-nav-collapsed')==='1')document.body.classList.add('nav-collapsed')})();
-function activeEditorForm(){if(isMobileShellMode()){var mobileBody=document.getElementById('mobile-editor-body');var mobileForm=mobileBody&&mobileBody.querySelector?mobileBody.querySelector('#note-editor-form'):null;if(mobileForm)return mobileForm}return document.getElementById('note-editor-form')}
+function activeEditorForm(){if(isMobileShellMode()){var mobileBody=document.getElementById('mobile-editor-body');var mobileForm=mobileBody&&mobileBody.querySelector?mobileBody.querySelector('#note-editor-form'):null;return mobileForm||null}return document.getElementById('note-editor-form')}
 function queryActiveEditor(selector){var form=activeEditorForm();return form&&form.querySelector?form.querySelector(selector):null}
 function activeEditorMeta(){if(isMobileShellMode()){var mobileBody=document.getElementById('mobile-editor-body');var mobileMeta=mobileBody&&mobileBody.querySelector?mobileBody.querySelector('#note-meta'):null;if(mobileMeta)return mobileMeta}return document.getElementById('status-note-meta')}
 function setSaveState(html,text){var s=queryActiveEditor('#autosave-status');if(s)s.innerHTML=html||'';var mobile=document.getElementById('mobile-editor-status');if(mobile)mobile.innerHTML=text?html:''}
@@ -418,10 +416,13 @@ function scheduleSyncPV(){if(_pvSyncTimer)clearTimeout(_pvSyncTimer);_pvSyncTime
 // Auto-title: first line of body becomes title unless user manually edited it
 var _titleManual=false;
 function stripMdForTitle(s){var t=String(s||'').trim().replace(/<[^>]+>/g,' ');while(t.charAt(0)==='#')t=t.slice(1).trimStart();t=t.split('**').join('').split('__').join('').split('++').join('').split('*').join('').split('_').join('').split('~~').join('').split(String.fromCharCode(96)).join('');var out='';for(var i=0;i<t.length;i++){var ch=t.charAt(i);if(ch==='!'&&t.charAt(i+1)==='['){var altEnd=t.indexOf(']',i+2);var imgOpen=altEnd>=0?t.indexOf('(',altEnd+1):-1;var imgClose=imgOpen>=0?t.indexOf(')',imgOpen+1):-1;if(altEnd>=0&&imgOpen===altEnd+1&&imgClose>=0){out+=t.slice(i+2,altEnd);i=imgClose;continue}}if(ch==='['){var labelEnd=t.indexOf(']',i+1);var linkOpen=labelEnd>=0?t.indexOf('(',labelEnd+1):-1;var linkClose=linkOpen>=0?t.indexOf(')',linkOpen+1):-1;if(labelEnd>=0&&linkOpen===labelEnd+1&&linkClose>=0){out+=t.slice(i+1,labelEnd);i=linkClose;continue}}out+=ch}return out.trim()}
-function syncTitle(){var ti=queryActiveEditor('.editor-title');var hi=queryActiveEditor('.editor-title-hidden');var mobileTitle=document.getElementById('mobile-editor-title');if(ti&&hi){var plain=stripMdForTitle(ti.textContent);hi.value=plain;hi.dispatchEvent(new Event('input',{bubbles:true}));ti.textContent=plain;if(mobileTitle)mobileTitle.textContent=plain||'Note';markEdited();scheduleSaveTitle()}}
-function initAutoTitle(){_titleManual=false;var ti=queryActiveEditor('.editor-title');if(ti){ti.addEventListener('input',function(){_titleManual=true;syncTitle()})}}
-function autoTitle(){if(_titleManual)return;var ta=getTA();var ti=queryActiveEditor('.editor-title');var mobileTitle=document.getElementById('mobile-editor-title');if(!ta||!ti)return;var val=ta.value;var lines=val.split('\n');var first='';for(var i=0;i<lines.length;i++){var l=lines[i].replace(/^#+\s*/,'').trim();if(l){first=l;break}}var firstPlain=stripMdForTitle(first);if(firstPlain&&firstPlain!==ti.textContent){ti.textContent=firstPlain;if(mobileTitle)mobileTitle.textContent=firstPlain||'Note';var hi=queryActiveEditor('.editor-title-hidden');if(hi){hi.value=firstPlain;hi.dispatchEvent(new Event('input',{bubbles:true}))}}}
-function pad2(value){return String(value).padStart(2,'0')}
+function syncTitle(){var ti=queryActiveEditor('.editor-title');var hi=queryActiveEditor('.editor-title-hidden');var mobileTitle=document.getElementById('mobile-editor-title');if(!hi)return;var raw=ti?ti.textContent:'';var plain=stripMdForTitle(raw);// Only rewrite contenteditable if stripping actually changed content (not just whitespace trim)
+if(ti&&plain!==raw.trim())ti.textContent=plain;hi.value=plain;if(mobileTitle&&document.activeElement!==mobileTitle&&mobileTitle.textContent!==plain)mobileTitle.textContent=plain||'Note';markEdited();scheduleSaveTitle()}
+function mobileSyncTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(!mobileTitle)return;var plain=stripMdForTitle(mobileTitle.textContent);var hi=queryActiveEditor('.editor-title-hidden');var ti=queryActiveEditor('.editor-title');if(hi)hi.value=plain;if(ti)ti.textContent=plain;_titleManual=true;markEdited()}
+function mobileSyncTitleAndSave(){mobileSyncTitle();scheduleSaveTitle()}
+function initAutoTitle(){_titleManual=false;var ti=queryActiveEditor('.editor-title');if(ti&&ti.style.display!=='none'){ti.addEventListener('input',function(){_titleManual=true;syncTitle()})}}
+function autoTitle(){if(_titleManual)return;var ta=getTA();var hi=queryActiveEditor('.editor-title-hidden');var ti=queryActiveEditor('.editor-title');var mobileTitle=document.getElementById('mobile-editor-title');if(!ta||!hi)return;var val=ta.value;var lines=val.split('\n');var first='';for(var i=0;i<lines.length;i++){var l=lines[i].replace(/^#+\s*/,'').trim();if(l){first=l;break}}var firstPlain=stripMdForTitle(first);if(firstPlain&&firstPlain!==hi.value){if(ti)ti.textContent=firstPlain;// Don't clobber #mobile-editor-title while user is editing it
+if(mobileTitle&&document.activeElement!==mobileTitle)mobileTitle.textContent=firstPlain;hi.value=firstPlain;hi.dispatchEvent(new Event('input',{bubbles:true}))}}function pad2(value){return String(value).padStart(2,'0')}
 var _dateFmt=_cfg.dateFormat||'MMM-DD-YY';
 var _datetimeFmt=_cfg.datetimeFormat||'YYYY-MM-DD HH:mm';
 function formatStamp(kind){var d=new Date();var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var fmt=kind==='datetime'?_datetimeFmt:_dateFmt;var YYYY=String(d.getFullYear());var YY=YYYY.slice(-2);var MM=pad2(d.getMonth()+1);var MMM=months[d.getMonth()];var DD=pad2(d.getDate());var h24=d.getHours();var HH=pad2(h24);var h12=h24%12||12;var hh=pad2(h12);var A=h24<12?'AM':'PM';var mn=pad2(d.getMinutes());var ss=pad2(d.getSeconds());return fmt.replace('YYYY',YYYY).replace('YY',YY).replace('MMM',MMM).replace('MM',MM).replace('DD',DD).replace('HH',HH).replace('hh',hh).replace('mm',mn).replace('ss',ss).replace('A',A).replace('a',A.toLowerCase())}
@@ -651,7 +652,8 @@ var _saveTimer=null;
 var _saveTitleTimer=null;
 function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
 function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
-function scheduleSaveTitle(){if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},1000)}
+function scheduleSaveTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(mobileTitle&&document.activeElement===mobileTitle)return;// Don't save while user is still editing title
+if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
 function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_log('snapshotHash',_savedHash)}
 function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
 function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_log('initEditorPanel',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';var pv=queryActiveEditor('#note-preview');var host=queryActiveEditor('#cm-host');if(form.dataset.encrypted==='1'){if(pv)pv.style.display='none';if(host)host.style.display='none';_editorMode='markdown';syncEditorModeButtons();return}var defaultMode=form.dataset.editorMode||_defaultNoteOpenMode||'preview';if(defaultMode!=='markdown')defaultMode='preview';form.dataset.editorMode=defaultMode;if(defaultMode==='preview'&&pv&&pv.style.display!=='none'){_editorMode='preview';activatePV(pv);_previewDirty=false;if(host)host.style.display='none';syncEditorModeButtons();applySearchHighlight()}else{_editorMode='markdown';form.dataset.editorMode='markdown';if(pv)pv.style.display='none';if(host){host.style.display='';initCM(host,ta?ta.value:'')}syncEditorModeButtons();applySearchHighlight()}}
@@ -788,7 +790,7 @@ window.addEventListener('online',function(){_log('browser online event');if(_dcV
 window.addEventListener('offline',function(){_log('browser offline event');showDisconnected()});
 // Always-on connectivity ping (every 30s) — triggers disconnected overlay on failure
 (function(){var _cpMs=30000;function _connectivityPing(){_dcPing().then(function(ok){if(ok)_dcOnFetchOk();else _dcOnFetchFail()}).catch(function(){_dcOnFetchFail()})}var _cpInterval=setInterval(_connectivityPing,_cpMs);_connectivityPing()})();
-window.addEventListener('load',function(){initNavPanel();initEditorPanel()});
+window.addEventListener('load',function(){if(isMobileShellMode())return;initNavPanel();initEditorPanel()});
 window.addEventListener('resize',applyMobileTitleMode);
 document.addEventListener('keydown',function(e){var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoSnapshot()}});
 	function flushSave(callback){var form=activeEditorForm();var status=queryActiveEditor('#autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty){_log('flushSave skip (not dirty)');if(callback)callback(true);return}if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}var restoreReq=function(){};buildFlushRequest(form).then(function(req){if(!req){if(callback)callback(true);return}restoreReq=req.restore||restoreReq;_log('flushSave',req.url);return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){restoreReq();_log('flushSave ok',html.slice(0,80));snapshotHash();window._mobileNewNoteId=null;setSaveState('<span class="autosave-ok">Saved</span>','Saved');if(callback)callback(true)})}).catch(function(err){restoreReq();_log('flushSave error',err);showOffline();if(callback)callback(false)})}
@@ -808,43 +810,8 @@ function confirmLogout(event){
 	var _mobileFolderTitle='';
 	var _mobileNoteId='';
 	var _mobileInitDone=false;
-	var _mobileRestoreListsAfterEditor=false;
-	var _mobileRedrawStateKey='joplock-mobile-redraw-state';
+	var _lastSyncWasMobile=null;// null=first call, true/false=previous syncResponsiveMode result
 	function isMobile(){return isMobileShellMode()}
-	function saveMobileRedrawState(){
-		try{
-			var state={
-				stack:_mobileStack.slice(),
-				folderId:_mobileFolderId||'',
-				folderTitle:_mobileFolderTitle||'',
-				noteId:_mobileNoteId||'',
-				noteTitle:(document.getElementById('mobile-editor-title')&&document.getElementById('mobile-editor-title').textContent)||'',
-				notesTitle:(document.getElementById('mobile-notes-title')&&document.getElementById('mobile-notes-title').textContent)||'',
-			};
-			sessionStorage.setItem(_mobileRedrawStateKey,JSON.stringify(state));
-			_trace('redraw-state-saved',state);
-		}catch(_e){}
-	}
-	function consumeMobileRedrawState(){
-		try{
-			var raw=sessionStorage.getItem(_mobileRedrawStateKey);
-			if(!raw)return null;
-			sessionStorage.removeItem(_mobileRedrawStateKey);
-			var state=JSON.parse(raw);
-			_trace('redraw-state-consumed',state);
-			return state&&state.stack&&state.stack.length?state:null;
-		}catch(_e){return null}
-	}
-	window.saveMobileRedrawState=saveMobileRedrawState;
-	function mobileResumeTarget(){
-		if(!_mobileStartup||!_mobileStartup.noteId)return null;
-		return {
-			folderId:_mobileStartup.folderId||'',
-			folderTitle:_mobileStartup.folderTitle||'Notes',
-			noteId:_mobileStartup.noteId,
-			noteTitle:_mobileStartup.noteTitle||'Note',
-		};
-	}
 	function mobileScreenId(name){return'mobile-'+name+'-screen'}
 	function syncMobileFabVisibility(name){
 		var fab=document.getElementById('mobile-fab');
@@ -1182,7 +1149,7 @@ function confirmLogout(event){
 	window.mobileEditorSearchQuery=function(){applySearchHighlight()};
 	function mobileInit(){
 		if(!isMobile())return;
-		_trace('mobileInit-start',{initDone:_mobileInitDone,startup:!!_mobileStartup});
+		_trace('mobileInit-start',{initDone:_mobileInitDone});
 		document.getElementById('mobile-app').setAttribute('aria-hidden','false');
 		['folders','notes','editor'].forEach(function(name){
 			var screen=document.getElementById(mobileScreenId(name));
@@ -1192,46 +1159,22 @@ function confirmLogout(event){
 		});
 		if(_mobileInitDone)return;
 		_mobileInitDone=true;
-		var redraw=consumeMobileRedrawState();
-		if(redraw){
-			_trace('mobileInit-redraw-branch',redraw);
-			_mobileStack=redraw.stack.slice();
-			_mobileFolderId=redraw.folderId||'';
-			_mobileFolderTitle=redraw.folderTitle||redraw.notesTitle||'Notes';
-			_mobileNoteId=redraw.noteId||'';
-			var notesTitle=document.getElementById('mobile-notes-title');if(notesTitle&&_mobileFolderTitle)notesTitle.textContent=_mobileFolderTitle;
-			var editorTitle=document.getElementById('mobile-editor-title');if(editorTitle&&redraw.noteTitle)editorTitle.textContent=redraw.noteTitle;
-			if(_mobileStack[_mobileStack.length-1]==='editor'&&_mobileNoteId){
-				_trace('mobileInit-redraw-editor',{noteId:_mobileNoteId,folderId:_mobileFolderId});
-				_mobileRestoreListsAfterEditor=true;
-				mobilePushEditor(_mobileNoteId,_mobileFolderId);
-			}else if(_mobileStack[_mobileStack.length-1]==='notes'){
-				_trace('mobileInit-redraw-notes',{folderId:_mobileFolderId});
-				htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
-				if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
-				showMobileScreen('notes','forward');
-			}else{
-				_trace('mobileInit-redraw-folders');
-				htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
-				_mobileStack=['folders'];
-				showMobileScreen('folders','forward');
-			}
-			return;
-		}
-		var resume=mobileResumeTarget();
-		if(resume){
-			_trace('mobileInit-resume-branch',resume);
-			_mobileFolderId=resume.folderId;
-			_mobileFolderTitle=resume.folderTitle;
-			_mobileNoteId=resume.noteId;
+		// Check if server pre-rendered a note into mobile-editor-body (resumeLastNote)
+		var startup=_mobileStartup;
+		if(startup&&startup.noteId){
+			_mobileFolderId=startup.folderId||'';
+			_mobileFolderTitle=startup.folderTitle||'Notes';
+			_mobileNoteId=startup.noteId;
 			var notesTitle=document.getElementById('mobile-notes-title');if(notesTitle)notesTitle.textContent=_mobileFolderTitle;
-			var editorTitle=document.getElementById('mobile-editor-title');if(editorTitle)editorTitle.textContent=resume.noteTitle;
-			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
-			htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
+			var editorTitle=document.getElementById('mobile-editor-title');if(editorTitle)editorTitle.textContent=startup.noteTitle||'Note';
 			_mobileStack=['folders','notes','editor'];
 			showMobileScreen('editor','forward');
+			// SSR already rendered editor content — init it directly, fetch lists in background
+			initEditorPanel();
+			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
+			if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
 		}else{
-			_trace('mobileInit-default-folders');
+			// Fresh load: start at folders screen
 			_mobileStack=['folders'];
 			showMobileScreen('folders','forward');
 			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
@@ -1248,13 +1191,56 @@ function confirmLogout(event){
 				if(Math.abs(dx)>Math.abs(dy)*1.5&&dx>60&&_mobileStack.length>1){mobileEditorBack()}
 			},{passive:true});
 	}
+	// Redraw the current mobile screen after a shell switch (no reload needed)
+	function redrawMobileUI(){
+		if(!isMobile())return;
+		_trace('redrawMobileUI',{stack:_mobileStack,folderId:_mobileFolderId,noteId:_mobileNoteId});
+		var screen=_mobileStack[_mobileStack.length-1]||'folders';
+		if(screen==='editor'&&_mobileNoteId){
+			// Re-fetch editor; lists refresh after editor settles (see htmx:afterSettle handler)
+			showMobileScreen('editor','forward');
+			var body=document.getElementById('mobile-editor-body');if(body)body.innerHTML='<div class="editor-empty mobile-loading-note"><div class="note-loading-ring"></div></div>';
+			htmx.ajax('GET','/fragments/editor/'+encodeURIComponent(_mobileNoteId)+'?currentFolderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-editor-body',swap:'innerHTML'}).then(function(){
+				// After editor settles, refresh lists in background
+				htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
+				if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
+			});
+		}else if(screen==='notes'){
+			showMobileScreen('notes','forward');
+			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
+			if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
+		}else{
+			_mobileStack=['folders'];
+			showMobileScreen('folders','forward');
+			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
+		}
+	}
 	function syncResponsiveMode(){
-		if(isMobile()){
-			mobileInit();
+		var mobile=isMobile();
+		// For auto mode, ensure body classes reflect current viewport so CSS overrides work
+		if(_uiMode==='auto'){
+			document.body.classList.toggle('force-mobile',mobile);
+			document.body.classList.toggle('force-desktop',!mobile);
+		}
+		if(mobile){
+			if(!_mobileInitDone){
+				mobileInit();
+			}else if(_lastSyncWasMobile===false){
+				// Only redraw if we just crossed from desktop→mobile
+				document.getElementById('mobile-app').setAttribute('aria-hidden','false');
+				redrawMobileUI();
+			}
+			_lastSyncWasMobile=true;
 			return;
 		}
+		_lastSyncWasMobile=false;
 		var app=document.getElementById('mobile-app');
-		if(app)app.setAttribute('aria-hidden','true');
+		if(app){
+			// Blur any focused element inside mobile-app before hiding to avoid aria-hidden warning
+			var focused=app.contains(document.activeElement)?document.activeElement:null;
+			if(focused)focused.blur();
+			app.setAttribute('aria-hidden','true');
+		}
 		mobileFabClose();
 		mobileCtxClose();
 		var fab=document.getElementById('mobile-fab');
@@ -1301,17 +1287,15 @@ function confirmLogout(event){
 			_trace('mobile-editor-settle-start');
 			if(_cmView){_cmView.destroy();_cmView=null}
 			initEditorPanel();
-			var titleInput=t.querySelector('.editor-title');
+			var titleHidden=t.querySelector('.editor-title-hidden');
 			var titleEl=document.getElementById('mobile-editor-title');
-			if(titleEl&&titleInput)titleEl.textContent=titleInput.textContent||'Note';
+			if(titleEl&&titleHidden)titleEl.textContent=titleHidden.value||'Note';
 			var mobileStatus=document.getElementById('mobile-editor-status');
 			if(mobileStatus){
 				var dirty=t.querySelector('#autosave-status .autosave-edited');
 				var saved=t.querySelector('#autosave-status .autosave-ok');
 				mobileStatus.innerHTML=dirty?'<span class="autosave-edited">Edited</span>':(saved?'<span class="autosave-ok">Saved</span>':'');
 			}
-			// Update title dynamically as user edits
-			if(titleInput&&titleEl){titleInput.addEventListener('input',function(){titleEl.textContent=titleInput.textContent||'Note'})}
 			// Hide desktop titlebar in mobile editor
 			var titlebar=t.querySelector('.editor-titlebar');
 			if(titlebar&&isMobile())titlebar.style.display='none';
@@ -1319,12 +1303,6 @@ function confirmLogout(event){
 			var form=t.querySelector('#note-editor-form');
 			var noteId=form?decodeURIComponent((form.getAttribute('hx-put')||'').replace('/fragments/editor/','')):'';
 			_trace('mobile-editor-settle-done',{hasForm:!!form,noteId:noteId,spinner:!!t.querySelector('.mobile-loading-note,.note-loading-ring')});
-			if(_mobileRestoreListsAfterEditor){
-				_mobileRestoreListsAfterEditor=false;
-				_trace('mobile-editor-settle-refresh-lists',{folderId:_mobileFolderId});
-				htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
-				if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
-			}
 			var isDeleted=!!t.querySelector('.btn-danger[hx-confirm*="Permanently"]');
 			wireMobileDeleteBtn(noteId,isDeleted);
 			// Show FAB only when on notes screen
@@ -1348,8 +1326,9 @@ function confirmLogout(event){
 			if(noteId){window._mobileNewNoteId=noteId;mobilePushEditor(noteId,_mobileFolderId)}
 		}
 	});
-	window.addEventListener('resize',function(){handleViewportResizeReload();syncResponsiveMode()});
-	window.addEventListener('orientationchange',handleViewportResizeReload);
+	window._syncResponsiveMode=syncResponsiveMode;
+	window.addEventListener('resize',handleViewportResize);
+	window.addEventListener('orientationchange',handleViewportResize);
 	syncResponsiveMode();
 })();
 // --- Encryption UI flows (vault-centric) ---
@@ -2215,4 +2194,7 @@ window.closeNewFolderModal=closeNewFolderModal;
 window.toggleNewFolderVault=toggleNewFolderVault;
 window.submitNewFolderModal=submitNewFolderModal;
 window.isEncryptedBody=isEncryptedBody;
+window.mobileSyncTitle=mobileSyncTitle;
+window.mobileSyncTitleAndSave=mobileSyncTitleAndSave;
+window.mobileTitleInput=function(){_titleManual=true}; // called oninput on #mobile-editor-title
 })(); // end main IIFE

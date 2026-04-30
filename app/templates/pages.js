@@ -75,12 +75,12 @@ const layoutPage = (options = {}) => {
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	${appleSplashLinks}
-	<link rel="stylesheet" href="/styles.css?v=20260429k" />
+	<link rel="stylesheet" href="/styles.css?v=20260430b" />
 	<script src="/htmx.min.js"></script>
 	<script src="/turndown.min.js"></script>
 	<script src="/codemirror.min.js"></script>
 	<script src="/hljs.min.js"></script>
-	<script src="/app.js?v=20260429z" defer></script>
+	<script src="/app.js?v=20260430b" defer></script>
 	<title>Joplock</title>
 </head>
 <body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${settings.noteMonospace ? ' note-body-monospace' : ''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;">
@@ -127,7 +127,7 @@ const layoutPage = (options = {}) => {
 		<div class="mobile-screen mobile-screen-right" id="mobile-editor-screen">
 			<div class="mobile-header" id="mobile-editor-header">
 				<button class="mobile-header-btn mobile-back-btn" id="mobile-editor-back" onclick="mobileEditorBack()" title="Back">&#8249;</button>
-				<span class="mobile-header-title" id="mobile-editor-title"></span>
+				<span class="mobile-header-title mobile-editor-title-editable" id="mobile-editor-title" contenteditable="true" spellcheck="false" data-placeholder="Note title" oninput="mobileTitleInput()" onblur="mobileSyncTitleAndSave()"></span>
 				<span class="mobile-editor-status" id="mobile-editor-status"></span>
 				<button class="mobile-header-btn mobile-editor-search-btn" id="mobile-editor-search-open" onclick="mobileEditorSearchOpen()" title="Find in note">&#128269;</button>
 				<button class="mobile-header-btn mobile-mode-toggle" id="mobile-md-toggle" onclick="setEditorMode('markdown')" title="Markdown">MD</button>

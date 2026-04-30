@@ -2000,6 +2000,23 @@ select.login-input option {
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
+	.mobile-editor-title-editable[contenteditable="true"] {
+		cursor: text;
+		outline: none;
+		border-bottom: 1px solid transparent;
+		transition: border-color 0.15s;
+	}
+	.mobile-editor-title-editable[contenteditable="true"]:focus {
+		border-bottom-color: var(--accent);
+		white-space: normal;
+		overflow: visible;
+		text-overflow: clip;
+	}
+	.mobile-editor-title-editable:empty:before {
+		content: attr(data-placeholder);
+		color: var(--text-muted, #888);
+		pointer-events: none;
+	}
 	.mobile-header-btn {
 		background: none;
 		border: none;
@@ -2373,6 +2390,12 @@ body.force-desktop .mobile-app { display: none !important; }
 body.force-desktop .mobile-fab { display: none !important; }
 body.force-desktop .app { display: flex !important; }
 body.force-desktop .app-statusbar { display: flex !important; }
+
+/* Disable mobile screen slide transitions during resize to prevent glitching */
+body.resizing .mobile-screen,
+body.resizing .mobile-screen-active,
+body.resizing .mobile-screen-left,
+body.resizing .mobile-screen-right { transition: none !important; }
 
 /* Mobile locked editor */
 @media (max-width: 768px) {

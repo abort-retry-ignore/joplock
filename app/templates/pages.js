@@ -75,12 +75,12 @@ const layoutPage = (options = {}) => {
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	${appleSplashLinks}
-	<link rel="stylesheet" href="/styles.css?v=20260430c" />
+	<link rel="stylesheet" href="/styles.css?v=20260430f" />
 	<script src="/htmx.min.js"></script>
 	<script src="/turndown.min.js"></script>
 	<script src="/codemirror.min.js"></script>
 	<script src="/hljs.min.js"></script>
-	<script src="/app.js?v=20260430c" defer></script>
+	<script src="/app.js?v=20260430f" defer></script>
 	<title>Joplock</title>
 </head>
 <body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${settings.noteMonospace ? ' note-body-monospace' : ''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;">

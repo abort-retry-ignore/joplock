@@ -79,10 +79,18 @@ test('mobileEditorFragment hides plaintext preview for vault-protected notes', (
 	assert.ok(!html.includes('>Top secret</div>'));
 });
 
-test('app script includes mobile FAB visibility sync helper', () => {
+test('app script enforces single-screen mobile invariant via state machine', () => {
 	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
-	assert.ok(appJs.includes('function syncMobileFabVisibility(name){'));
-	assert.ok(appJs.includes('syncMobileFabVisibility(name);'));
+	// State machine + reducer
+	assert.ok(appJs.includes('function setMobileState(patch)'), 'has setMobileState reducer');
+	assert.ok(appJs.includes('function renderMobile()'), 'has renderMobile()');
+	assert.ok(appJs.includes('function assertSingleActiveScreen()'), 'has invariant assertion');
+	// renderMobile + the self-heal path in assertSingleActiveScreen are the ONLY togglers.
+	const matches = appJs.match(/classList\.toggle\(['"]mobile-screen-active['"]/g) || [];
+	assert.ok(matches.length >= 1 && matches.length <= 2, 'mobile-screen-active toggled only in render/self-heal (got '+matches.length+')');
+	// Old fragile API removed
+	assert.ok(!appJs.includes('function showMobileScreen('), 'showMobileScreen removed');
+	assert.ok(!appJs.includes('function syncMobileFabVisibility('), 'syncMobileFabVisibility folded into renderMobile');
 });
 
 test('navigationFragment shows trash folder empty action', () => {

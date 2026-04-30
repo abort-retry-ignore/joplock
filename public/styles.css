@@ -1958,23 +1958,14 @@ select.login-input option {
 	.mobile-screen {
 		position: absolute;
 		inset: 0;
-		display: flex;
+		display: none;
 		flex-direction: column;
 		background: var(--bg);
-		transform: translateX(100%);
-		transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
-		will-change: transform;
 		pointer-events: none;
 	}
 	.mobile-screen-active {
-		transform: translateX(0);
+		display: flex;
 		pointer-events: auto;
-	}
-	.mobile-screen-left {
-		transform: translateX(-30%);
-	}
-	.mobile-screen-right {
-		transform: translateX(100%);
 	}
 
 	/* Header bar */

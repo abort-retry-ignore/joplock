@@ -40,26 +40,32 @@ const createSessionService = database => {
 		async userBySessionId(sessionId) {
 			if (!sessionId) return null;
 
-			const result = await database.query(`
-				SELECT
-					s.id AS session_id,
-					s.user_id,
-					s.created_time AS session_created_time,
-					u.id,
-					u.email,
-					u.full_name,
-					u.is_admin,
-					u.can_upload,
-					u.email_confirmed,
-					u.account_type,
-					u.created_time,
-					u.updated_time,
-					u.enabled
-				FROM sessions s
-				INNER JOIN users u ON u.id = s.user_id
-				WHERE s.id = $1
-				LIMIT 1
-			`, [sessionId]);
+			let result;
+			try {
+				result = await database.query(`
+					SELECT
+						s.id AS session_id,
+						s.user_id,
+						s.created_time AS session_created_time,
+						u.id,
+						u.email,
+						u.full_name,
+						u.is_admin,
+						u.can_upload,
+						u.email_confirmed,
+						u.account_type,
+						u.created_time,
+						u.updated_time,
+						u.enabled
+					FROM sessions s
+					INNER JOIN users u ON u.id = s.user_id
+					WHERE s.id = $1
+					LIMIT 1
+				`, [sessionId]);
+			} catch (err) {
+				process.stderr.write(`[joplock] WARNING: session lookup failed: ${err.message}\n`);
+				return null;
+			}
 
 			const row = result.rows[0];
 			if (!row) return null;

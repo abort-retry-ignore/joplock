@@ -804,57 +804,95 @@ function confirmLogout(event){
 	return ok;
 }
 // --- Mobile navigation ---
+// SINGLE-SCREEN INVARIANT: Exactly one .mobile-screen carries .mobile-screen-active at any time.
+// All transitions MUST go through setMobileState(). Direct DOM toggling is forbidden.
+// renderMobile() is the only function that writes .mobile-screen-active and screen-driven UI
+// (titles, FAB). assertSingleActiveScreen() enforces the invariant after every render.
 (function(){
-	var _mobileStack=[];// 'folders' | 'notes' | 'editor'
-	var _mobileFolderId='';
-	var _mobileFolderTitle='';
-	var _mobileNoteId='';
+	// Canonical state. Mutated only by setMobileState() (which calls renderMobile()).
+	var _state={screen:'folders',folderId:'',folderTitle:'',noteId:'',noteTitle:''};
+	var _prevRenderedScreen=null;
 	var _mobileInitDone=false;
 	var _lastSyncWasMobile=null;// null=first call, true/false=previous syncResponsiveMode result
 	function isMobile(){return isMobileShellMode()}
 	function mobileScreenId(name){return'mobile-'+name+'-screen'}
-	function syncMobileFabVisibility(name){
-		var fab=document.getElementById('mobile-fab');
-		if(!fab)return;
-		var visible=name==='folders'||name==='notes';
-		fab.style.display=visible?'flex':'none';
-		if(!visible)mobileFabClose();
+	function assertSingleActiveScreen(){
+		var active=document.querySelectorAll('.mobile-screen.mobile-screen-active');
+		if(active.length===1)return;
+		_trace('mobile-invariant-violation',{count:active.length,expected:_state.screen,ids:Array.prototype.map.call(active,function(e){return e.id})});
+		// Self-heal: force exactly one active.
+		var screens=['folders','notes','editor'];
+		screens.forEach(function(s){
+			var el=document.getElementById(mobileScreenId(s));
+			if(el)el.classList.toggle('mobile-screen-active',s===_state.screen);
+		});
 	}
-	function showMobileScreen(name,dir){
+	// The ONLY function that writes .mobile-screen-active and screen-driven UI.
+	function renderMobile(){
 		var screens=['folders','notes','editor'];
 		screens.forEach(function(s){
 			var el=document.getElementById(mobileScreenId(s));
 			if(!el)return;
-			if(s===name){el.classList.remove('mobile-screen-right','mobile-screen-left');el.classList.add('mobile-screen-active')}
-			else{el.classList.remove('mobile-screen-active');el.classList.add(dir==='forward'?'mobile-screen-left':'mobile-screen-right')}
+			el.classList.remove('mobile-screen-left','mobile-screen-right');
+			el.classList.toggle('mobile-screen-active',s===_state.screen);
 		});
-		syncMobileFabVisibility(name);
+		// Titles
+		var notesTitle=document.getElementById('mobile-notes-title');
+		if(notesTitle&&_state.folderTitle)notesTitle.textContent=_state.folderTitle;
+		var editorTitle=document.getElementById('mobile-editor-title');
+		if(editorTitle&&_state.noteTitle&&_prevRenderedScreen!=='editor')editorTitle.textContent=_state.noteTitle;
+		// FAB
+		var fab=document.getElementById('mobile-fab');
+		if(fab){
+			var fabVisible=_state.screen==='folders'||_state.screen==='notes';
+			fab.style.display=fabVisible?'flex':'none';
+			if(!fabVisible)mobileFabClose();
+		}
+		// Editor search header should not persist across screen changes
+		if(_state.screen!=='editor'&&_prevRenderedScreen==='editor'){
+			window.mobileEditorSearchClose&&window.mobileEditorSearchClose();
+		}
+		_prevRenderedScreen=_state.screen;
+		assertSingleActiveScreen();
 	}
+	// THE one entry point for all mobile screen transitions.
+	function setMobileState(patch){
+		if(!patch)return;
+		Object.keys(patch).forEach(function(k){_state[k]=patch[k]});
+		renderMobile();
+	}
+	// Read-only state access for debugging.
+	window.joplockMobileState=function(){return JSON.parse(JSON.stringify(_state))};
 	window.mobilePushNotes=function(folderId,folderTitle){
 		if(!isMobile())return;
-		_mobileFolderId=folderId;_mobileFolderTitle=folderTitle||'Notes';
-		_mobileStack=['folders','notes'];
-		var titleEl=document.getElementById('mobile-notes-title');if(titleEl)titleEl.textContent=_mobileFolderTitle;
+		setMobileState({screen:'notes',folderId:folderId,folderTitle:folderTitle||'Notes'});
 		var body=document.getElementById('mobile-notes-body');if(body)body.innerHTML='<div class="empty-hint" style="padding:16px">Loading...</div>';
-		showMobileScreen('notes','forward');
 		htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(folderId),{target:'#mobile-notes-body',swap:'innerHTML'});
 	};
 	window.mobilePushEditor=function(noteId,folderId){
 		if(!isMobile())return;
-		_mobileNoteId=noteId;
-		_mobileStack=['folders','notes','editor'];
-		window.mobileEditorSearchClose();
-		showMobileScreen('editor','forward');
-		_trace('mobilePushEditor-start',{noteId:noteId,folderId:folderId||_mobileFolderId});
+		setMobileState({screen:'editor',noteId:noteId,folderId:folderId||_state.folderId});
+		_trace('mobilePushEditor-start',{noteId:noteId,folderId:folderId||_state.folderId});
 		var body=document.getElementById('mobile-editor-body');if(body)body.innerHTML='<div class="editor-empty mobile-loading-note"><div class="note-loading-ring"></div></div>';
-		htmx.ajax('GET','/fragments/editor/'+encodeURIComponent(noteId)+'?currentFolderId='+encodeURIComponent(folderId||_mobileFolderId),{target:'#mobile-editor-body',swap:'innerHTML'}).then(function(){_trace('mobilePushEditor-ok',{noteId:noteId});hideNoteOverlay()}).catch(function(err){_trace('mobilePushEditor-err',{noteId:noteId,error:err&&err.message?err.message:String(err)});hideNoteOverlay()});
+		htmx.ajax('GET','/fragments/editor/'+encodeURIComponent(noteId)+'?currentFolderId='+encodeURIComponent(folderId||_state.folderId),{target:'#mobile-editor-body',swap:'innerHTML'}).then(function(){_trace('mobilePushEditor-ok',{noteId:noteId});hideNoteOverlay()}).catch(function(err){_trace('mobilePushEditor-err',{noteId:noteId,error:err&&err.message?err.message:String(err)});hideNoteOverlay()});
 	};
+	// Back-navigation: deterministic editor->notes->folders.
+	function mobileBack(){
+		if(_state.screen==='editor'){
+			setMobileState({screen:_state.folderId?'notes':'folders'});
+			return'notes-or-folders';
+		}
+		if(_state.screen==='notes'){
+			setMobileState({screen:'folders'});
+			return'folders';
+		}
+		return'folders';
+	}
 	window.mobilePopScreen=function(){
 		if(!isMobile())return;
-		_mobileStack.pop();
-		var current=_mobileStack[_mobileStack.length-1]||'folders';
-		showMobileScreen(current,'back');
-		if(current==='folders'){
+		var prev=_state.screen;
+		var dest=mobileBack();
+		if(prev==='editor'&&dest==='folders'){
 			// flush any dirty save when leaving editor
 			flushSave(function(){})
 		}
@@ -862,13 +900,12 @@ function confirmLogout(event){
 	window.mobileEditorBack=function(){
 		var form=document.getElementById('note-editor-form');
 		if(form&&form.dataset.encrypted==='1'){
-			_mobileStack=['folders'];
-			showMobileScreen('folders','back');
+			setMobileState({screen:'folders'});
 			return;
 		}
 		var titleEl=form&&form.querySelector('.editor-title');
 		var bodyEl=form&&form.querySelector('#note-body');
-		var noteId=_mobileNoteId;
+		var noteId=_state.noteId;
 		var title=((titleEl&&titleEl.textContent)||'').trim();
 		var body=((bodyEl&&bodyEl.value)||'').trim();
 		var shouldDiscard=!!(window._mobileNewNoteId&&noteId===window._mobileNewNoteId&&!body&&(title===''||title==='Untitled note'));
@@ -892,17 +929,17 @@ function confirmLogout(event){
 		};
 	}
 	function mobileRefreshNotes(){
-		if(_mobileFolderId){
+		if(_state.folderId){
 			var body=document.getElementById('mobile-notes-body');
-			if(body)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
+			if(body)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_state.folderId),{target:'#mobile-notes-body',swap:'innerHTML'});
 		}
 	}
 	window.mobileNewNote=function(){
-		var fid=_mobileStack.indexOf('notes')>=0?_mobileFolderId:'';
+		var fid=_state.screen==='notes'?_state.folderId:'';
 		htmx.ajax('POST','/fragments/mobile/notes/new',{target:'#mobile-notes-body',swap:'innerHTML',values:{folderId:fid||''}});
 	};
 	window.mobileFabOpen=function(){
-		if(_mobileStack[_mobileStack.length-1]==='notes') return mobileNewNote();
+		if(_state.screen==='notes') return mobileNewNote();
 		var b=document.getElementById('mobile-fab-menu-backdrop');
 		var m=document.getElementById('mobile-fab-menu');
 		if(b)b.style.display='';
@@ -916,11 +953,7 @@ function confirmLogout(event){
 	};
 	window.mobileFabNewNote=function(){
 		mobileFabClose();
-		_mobileFolderId='__all__';
-		_mobileFolderTitle='All Notes';
-		var titleEl=document.getElementById('mobile-notes-title');if(titleEl)titleEl.textContent='All Notes';
-		showMobileScreen('notes','forward');
-		_mobileStack=['folders','notes'];
+		setMobileState({screen:'notes',folderId:'__all__',folderTitle:'All Notes'});
 		mobileNewNote();
 	};
 	window.mobileFabNewFolder=function(){
@@ -929,11 +962,7 @@ function confirmLogout(event){
 	};
 	window.mobileNewNoteInFolder=function(folderId,folderTitle,event){
 		if(event){event.preventDefault();event.stopPropagation();}
-		_mobileFolderId=folderId;
-		_mobileFolderTitle=folderTitle||'Notes';
-		var titleEl=document.getElementById('mobile-notes-title');if(titleEl)titleEl.textContent=_mobileFolderTitle;
-		showMobileScreen('notes','forward');
-		_mobileStack=['folders','notes'];
+		setMobileState({screen:'notes',folderId:folderId,folderTitle:folderTitle||'Notes'});
 		mobileNewNote();
 	};
 	// Context menu (long-press on note rows)
@@ -1024,7 +1053,7 @@ function confirmLogout(event){
 		var form=activeEditorForm();
 		if(!form)return;
 		var titleInput=form.querySelector('.editor-title');
-		mobileCtxOpen(form.dataset.noteId||_mobileNoteId,(titleInput&&titleInput.textContent)||document.getElementById('mobile-editor-title')&&document.getElementById('mobile-editor-title').textContent||'Untitled');
+		mobileCtxOpen(form.dataset.noteId||_state.noteId,(titleInput&&titleInput.textContent)||document.getElementById('mobile-editor-title')&&document.getElementById('mobile-editor-title').textContent||'Untitled');
 	};
 	function wireNoteRowLongPress(container){
 		if(!container)return;
@@ -1151,32 +1180,32 @@ function confirmLogout(event){
 		if(!isMobile())return;
 		_trace('mobileInit-start',{initDone:_mobileInitDone});
 		document.getElementById('mobile-app').setAttribute('aria-hidden','false');
+		// Reset any stale active classes; renderMobile() (via setMobileState below) sets the correct one.
 		['folders','notes','editor'].forEach(function(name){
 			var screen=document.getElementById(mobileScreenId(name));
 			if(!screen)return;
 			screen.classList.remove('mobile-screen-active','mobile-screen-left','mobile-screen-right');
 			screen.style.pointerEvents='';
 		});
-		if(_mobileInitDone)return;
+		if(_mobileInitDone){renderMobile();return}
 		_mobileInitDone=true;
 		// Check if server pre-rendered a note into mobile-editor-body (resumeLastNote)
 		var startup=_mobileStartup;
 		if(startup&&startup.noteId){
-			_mobileFolderId=startup.folderId||'';
-			_mobileFolderTitle=startup.folderTitle||'Notes';
-			_mobileNoteId=startup.noteId;
-			var notesTitle=document.getElementById('mobile-notes-title');if(notesTitle)notesTitle.textContent=_mobileFolderTitle;
-			var editorTitle=document.getElementById('mobile-editor-title');if(editorTitle)editorTitle.textContent=startup.noteTitle||'Note';
-			_mobileStack=['folders','notes','editor'];
-			showMobileScreen('editor','forward');
+			setMobileState({
+				screen:'editor',
+				folderId:startup.folderId||'',
+				folderTitle:startup.folderTitle||'Notes',
+				noteId:startup.noteId,
+				noteTitle:startup.noteTitle||'Note'
+			});
 			// SSR already rendered editor content — init it directly, fetch lists in background
 			initEditorPanel();
 			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
-			if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
+			if(_state.folderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_state.folderId),{target:'#mobile-notes-body',swap:'innerHTML'});
 		}else{
 			// Fresh load: start at folders screen
-			_mobileStack=['folders'];
-			showMobileScreen('folders','forward');
+			setMobileState({screen:'folders'});
 			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
 		}
 		var fab=document.getElementById('mobile-fab');
@@ -1188,30 +1217,27 @@ function confirmLogout(event){
 				if(!swiping)return;swiping=false;
 				var dx=e.changedTouches[0].clientX-startX;
 				var dy=e.changedTouches[0].clientY-startY;
-				if(Math.abs(dx)>Math.abs(dy)*1.5&&dx>60&&_mobileStack.length>1){mobileEditorBack()}
+				if(Math.abs(dx)>Math.abs(dy)*1.5&&dx>60&&_state.screen!=='folders'){mobileEditorBack()}
 			},{passive:true});
 	}
 	// Redraw the current mobile screen after a shell switch (no reload needed)
 	function redrawMobileUI(){
 		if(!isMobile())return;
-		_trace('redrawMobileUI',{stack:_mobileStack,folderId:_mobileFolderId,noteId:_mobileNoteId});
-		var screen=_mobileStack[_mobileStack.length-1]||'folders';
-		if(screen==='editor'&&_mobileNoteId){
-			// Re-fetch editor; lists refresh after editor settles (see htmx:afterSettle handler)
-			showMobileScreen('editor','forward');
+		_trace('redrawMobileUI',{state:_state});
+		// Re-assert current state (renderMobile picks up DOM that may have been stale).
+		renderMobile();
+		if(_state.screen==='editor'&&_state.noteId){
+			// Re-fetch editor; lists refresh after editor settles
 			var body=document.getElementById('mobile-editor-body');if(body)body.innerHTML='<div class="editor-empty mobile-loading-note"><div class="note-loading-ring"></div></div>';
-			htmx.ajax('GET','/fragments/editor/'+encodeURIComponent(_mobileNoteId)+'?currentFolderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-editor-body',swap:'innerHTML'}).then(function(){
-				// After editor settles, refresh lists in background
+			htmx.ajax('GET','/fragments/editor/'+encodeURIComponent(_state.noteId)+'?currentFolderId='+encodeURIComponent(_state.folderId),{target:'#mobile-editor-body',swap:'innerHTML'}).then(function(){
 				htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
-				if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
+				if(_state.folderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_state.folderId),{target:'#mobile-notes-body',swap:'innerHTML'});
 			});
-		}else if(screen==='notes'){
-			showMobileScreen('notes','forward');
+		}else if(_state.screen==='notes'){
 			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
-			if(_mobileFolderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_mobileFolderId),{target:'#mobile-notes-body',swap:'innerHTML'});
+			if(_state.folderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_state.folderId),{target:'#mobile-notes-body',swap:'innerHTML'});
 		}else{
-			_mobileStack=['folders'];
-			showMobileScreen('folders','forward');
+			setMobileState({screen:'folders'});
 			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
 		}
 	}
@@ -1323,7 +1349,7 @@ function confirmLogout(event){
 		if(t&&t.id==='mobile-notes-body'){
 			var xhr=e.detail.xhr;
 			var noteId=xhr&&xhr.getResponseHeader('X-Mobile-Note-Id');
-			if(noteId){window._mobileNewNoteId=noteId;mobilePushEditor(noteId,_mobileFolderId)}
+			if(noteId){window._mobileNewNoteId=noteId;mobilePushEditor(noteId,_state.folderId)}
 		}
 	});
 	window._syncResponsiveMode=syncResponsiveMode;

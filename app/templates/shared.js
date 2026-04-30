@@ -104,8 +104,29 @@ const renderMarkdown = (markdown) => {
 
 	let text = String(markdown);
 
+	// Pass A: fences nested inside list items.
+	//   - <indent><marker> ```<lang>
+	//         <body lines, each indented at least as much as content>
+	//     ```
+	// Outdent the body, store the code block, and rewrite the line so the
+	// surrounding list-item wrapping (later in the pipeline) still works.
+	text = text.replace(/^([ \t]*)([-*+])[ \t]+```(\w*)[ \t]*\n([\s\S]*?)\n[ \t]*```[ \t]*$/gm, (_m, indent, marker, lang, body) => {
+		// Outdent body: strip the longest common leading whitespace from non-empty lines
+		const lines = body.split('\n');
+		let minIndent = Infinity;
+		for (const line of lines) {
+			if (!line.trim()) continue;
+			const m = line.match(/^[ \t]*/);
+			if (m && m[0].length < minIndent) minIndent = m[0].length;
+		}
+		if (!isFinite(minIndent)) minIndent = 0;
+		const code = lines.map(l => l.slice(minIndent)).join('\n').trimEnd();
+		return `${indent}${marker} ${storeCodeBlock(code, lang)}`;
+	});
+
+	// Pass B: column-0 (or up to 3 leading spaces, per CommonMark) fenced code blocks.
 	// Extract code blocks before any markdown/html transforms so their contents stay opaque.
-	text = text.replace(/^```(\w*)\n([\s\S]*?)\n```$/gm, (_m, lang, code) => storeCodeBlock(code, lang));
+	text = text.replace(/^[ ]{0,3}```(\w*)[ \t]*\n([\s\S]*?)\n[ ]{0,3}```[ \t]*$/gm, (_m, lang, code) => storeCodeBlock(code, lang));
 
 	// Consecutive full-line backtick spans → code block (ASCII art pasted as `line` per line)
 	text = text.replace(/(^`.+`(?:\n(?:`.+`|[ \t]*))*)/gm, match => {

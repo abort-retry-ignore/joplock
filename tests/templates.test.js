@@ -181,6 +181,43 @@ test('renderMarkdown handles backticks inside fenced code blocks', () => {
 	assert.ok(html.includes('.-```-.'), 'backticks inside code block should be preserved');
 });
 
+test('renderMarkdown handles fenced code blocks indented up to 3 spaces (CommonMark)', () => {
+	const md = '   ```\n   indented fence\n   ```';
+	const html = renderMarkdown(md);
+	assert.ok(html.includes('<pre'), 'indented fence should produce a code block');
+	assert.ok(html.includes('indented fence'), 'fence body should be preserved');
+});
+
+test('renderMarkdown handles closing fence with trailing whitespace', () => {
+	const md = '```\nbody\n```   ';
+	const html = renderMarkdown(md);
+	assert.ok(html.includes('<pre'), 'closing fence with trailing whitespace should still close the block');
+	assert.ok(html.includes('body'), 'fence body should be preserved');
+});
+
+test('renderMarkdown handles fenced code blocks nested inside list items', () => {
+	const md = '- ```\n      Containers docker container rm $(docker container ls -a -q) -f\n  ```\n- ```\n      Images docker image rm $(docker image ls -a -q) -f\n  ```';
+	const html = renderMarkdown(md);
+	const preCount = (html.match(/<pre/g) || []).length;
+	assert.strictEqual(preCount, 2, 'should produce two code blocks (one per list item)');
+	assert.ok(html.includes('<ul>'), 'should still wrap items in <ul>');
+	const liCount = (html.match(/<li>/g) || []).length;
+	assert.strictEqual(liCount, 2, 'should still produce two <li> items');
+	assert.ok(html.includes('Containers docker container rm'), 'first code block content preserved');
+	assert.ok(html.includes('Images docker image rm'), 'second code block content preserved');
+	// The user-reported bug: bare ``` should not leak through as inline code or text
+	assert.ok(!html.includes('&#x60;&#x60;&#x60;') && !html.includes('```'), 'no raw triple-backticks should leak through');
+});
+
+test('renderMarkdown handles fenced code block in single list item with language tag', () => {
+	const md = '- ```bash\n      echo hi\n  ```';
+	const html = renderMarkdown(md);
+	assert.ok(html.includes('<pre'), 'should produce a code block');
+	assert.ok(html.includes('class="language-bash"'), 'language tag should be preserved');
+	assert.ok(html.includes('echo hi'), 'body preserved');
+	assert.ok(html.includes('<ul>') && html.includes('<li>'), 'list structure preserved');
+});
+
 test('logged out layout clears client storage and service worker state', () => {
 	const html = layoutPage({ user: null, loginError: '' });
 	assert.ok(html.includes('<meta name="theme-color" content="#0b0b0b" />'));

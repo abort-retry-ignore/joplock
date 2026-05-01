@@ -1262,6 +1262,7 @@ function confirmLogout(event){
 			_lastSyncWasMobile=true;
 			return;
 		}
+		var wasMobile=_lastSyncWasMobile;
 		_lastSyncWasMobile=false;
 		var app=document.getElementById('mobile-app');
 		if(app){
@@ -1279,6 +1280,11 @@ function confirmLogout(event){
 		if(foldersHeader)foldersHeader.style.display='';
 		if(searchHeader)searchHeader.style.display='none';
 		setMobileNav(false);
+		// Mirror redrawMobileUI: if we just crossed mobile→desktop, re-init desktop UI.
+		// Without this, a session that started in mobile mode never calls initNavPanel/
+		// initEditorPanel for the desktop form, leaving the preview/CM host in an
+		// uninitialized state (both visible, wrong display values, stale scroll).
+		if(wasMobile===true){initNavPanel();initEditorPanel();}
 	}
 	function initMobileToolbar(){
 		var tb=document.getElementById('editor-toolbar');

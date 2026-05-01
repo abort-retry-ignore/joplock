@@ -163,7 +163,7 @@ const handle = async (url, request, response, ctx) => {
 			const currentFolderId = `${body.currentFolderId || parentId || ''}`;
 			if (!parentId) { sendHtml(response, 400, '<div class="empty-hint">Select a folder first.</div>'); return true; }
 			const created = await itemWriteService.createNote(auth.user.sessionId, {
-				title: `${body.title || ''}`.trim() || 'Untitled note',
+				title: plainNoteTitle(body.title),
 				body: '',
 				parentId,
 			}, upstreamRequestContext(request));

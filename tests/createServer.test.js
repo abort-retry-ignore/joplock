@@ -455,6 +455,31 @@ test('POST /fragments/notes selects created note and loads editor', async () => 
 	});
 });
 
+test('POST /fragments/notes saves plain title on create', async () => {
+	let createdNote = null;
+	await withServer({
+		itemWriteService: {
+			createNote: async (_sid, note) => {
+				createdNote = note;
+				return { id: 'n-new' };
+			},
+		},
+		itemService: {
+			noteByUserIdAndJopId: async (_uid, id) => ({ id, title: 'Hello world', body: '', parentId: 'f1', updatedTime: Date.now() }),
+			foldersByUserId: async () => [{ id: 'f1', title: 'Folder 1', parentId: '' }],
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/notes',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'parentId=f1&title=%23+**Hello**+%5Bworld%5D(https%3A%2F%2Fexample.com)',
+		});
+		assert.equal(res.statusCode, 200);
+		assert.equal(createdNote.title, 'Hello world');
+	});
+});
+
 test('POST /fragments/notes in vault renders locked editor with vault id', async () => {
 	await withServer({
 		itemWriteService: {

@@ -6,6 +6,7 @@ const {
 	appleSplashLinks,
 	themeOptions,
 	passwordField,
+	stripMarkdownForTitle,
 } = require('./shared');
 
 const { noteMetaFragment } = require('./fragments');
@@ -80,6 +81,7 @@ const layoutPage = (options = {}) => {
 	<script src="/turndown.min.js"></script>
 	<script src="/codemirror.min.js"></script>
 	<script src="/hljs.min.js"></script>
+	<script>window.joplockStripNoteTitle=${stripMarkdownForTitle.toString()};</script>
 	<script src="/app.js?v=20260501a" defer></script>
 	<title>Joplock</title>
 </head>

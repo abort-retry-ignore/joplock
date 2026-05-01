@@ -2,6 +2,7 @@
 'use strict';
 
 const { validDateFormats, validDatetimeFormats } = require('../settingsService');
+const { renderMarkdown: renderMarkdownImpl } = require('../markdownRenderer');
 
 const escapeHtml = value => `${value}`
 	.replaceAll('&', '&amp;')
@@ -92,148 +93,9 @@ const renderInlineMarkdown = (text) => {
 	return html;
 };
 
-// Simple markdown to HTML renderer (handles common Joplin markdown)
-const renderMarkdown = (markdown) => {
-	if (!markdown) return '';
-	const codeBlocks = [];
-	const storeCodeBlock = (code, lang) => {
-		const i = codeBlocks.length;
-		codeBlocks.push({code, lang: lang || ''});
-		return `\x00CB${i}\x00`;
-	};
-
-	let text = String(markdown);
-
-	// Pass A: fences nested inside list items.
-	//   - <indent><marker> ```<lang>
-	//         <body lines, each indented at least as much as content>
-	//     ```
-	// Outdent the body, store the code block, and rewrite the line so the
-	// surrounding list-item wrapping (later in the pipeline) still works.
-	text = text.replace(/^([ \t]*)([-*+])[ \t]+```(\w*)[ \t]*\n([\s\S]*?)\n[ \t]*```[ \t]*$/gm, (_m, indent, marker, lang, body) => {
-		// Outdent body: strip the longest common leading whitespace from non-empty lines
-		const lines = body.split('\n');
-		let minIndent = Infinity;
-		for (const line of lines) {
-			if (!line.trim()) continue;
-			const m = line.match(/^[ \t]*/);
-			if (m && m[0].length < minIndent) minIndent = m[0].length;
-		}
-		if (!isFinite(minIndent)) minIndent = 0;
-		const code = lines.map(l => l.slice(minIndent)).join('\n').trimEnd();
-		return `${indent}${marker} ${storeCodeBlock(code, lang)}`;
-	});
-
-	// Pass B: column-0 (or up to 3 leading spaces, per CommonMark) fenced code blocks.
-	// Extract code blocks before any markdown/html transforms so their contents stay opaque.
-	text = text.replace(/^[ ]{0,3}```(\w*)[ \t]*\n([\s\S]*?)\n[ ]{0,3}```[ \t]*$/gm, (_m, lang, code) => storeCodeBlock(code, lang));
-
-	// Consecutive full-line backtick spans → code block (ASCII art pasted as `line` per line)
-	text = text.replace(/(^`.+`(?:\n(?:`.+`|[ \t]*))*)/gm, match => {
-		const lines = match.split('\n');
-		const code = lines.map(l => /^`([\s\S]*)`$/.test(l) ? l.replace(/^`([\s\S]*)`$/, '$1') : l).join('\n').trimEnd();
-		return storeCodeBlock(code);
-	});
-
-	let html = escapeHtml(text);
-
-	// Passthrough <br> tags (used for blank line preservation in Joplin)
-	html = html.replace(/&lt;br&gt;/g, '<br>');
-
-	// Passthrough &nbsp; (common in notes pasted from web/rich text)
-	html = html.replace(/&amp;nbsp;/g, '&nbsp;');
-
-	// Passthrough inline <img> HTML tags (restore escaped versions)
-	// Handles: <img src=":/id" ...>, <img src=":/id" ... />, and normal URL src
-	html = html.replace(/&lt;img\s([\s\S]*?)(?:\/)?&gt;/g, (_m, attrs) => {
-		const restored = attrs.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, '\'');
-		const srcMatch = restored.match(/src=":\/([\w]{32})"/);
-		const fixedAttrs = srcMatch ? restored.replace(/src=":\/([\w]{32})"/, `src="/resources/${srcMatch[1]}"`) : restored;
-		return `<img ${fixedAttrs} class="preview-img" />`;
-	});
-
-	// Headings
-	html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
-	html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
-	html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
-	html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
-	html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
-	html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
-
-	// Horizontal rule
-	html = html.replace(/^---+$/gm, '<hr>');
-
-	// Bold + italic
-	html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-	// Bold
-	html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-	// Italic
-	html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-	// Strikethrough
-	html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
-	// Underline (Joplin markdown-it plugin)
-	html = html.replace(/\+\+(.+?)\+\+/g, '<u>$1</u>');
-	// Inline code
-	html = html.replace(/`([^`]+)`/g, '<code spellcheck="false">$1</code>');
-
-	// Joplin resource images: ![alt](:/resourceId)
-	html = html.replace(/!\[([^\]]*)\]\(:\/([0-9a-zA-Z]{32})\)/g, '<img src="/resources/$2" alt="$1" class="preview-img" />');
-	// Regular images: ![alt](url)
-	html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="preview-img" />');
-	// Joplin resource links: [text](:/resourceId)
-	html = html.replace(/\[([^\]]*)\]\(:\/([0-9a-zA-Z]{32})\)/g, '<a href="/resources/$2" target="_blank" rel="noopener">$1</a>');
-	// Regular links: [text](url)
-	html = html.replace(/\[([^\]]*)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-
-	// Checkboxes
-	html = html.replace(/^- \[x\](?:\s+(.*))?$/gm, (_m, text) => `<div class="md-checkbox checked"><span class="md-cb-icon">&#9745;</span>&nbsp;${text || ''}</div>`);
-	html = html.replace(/^- \[ \](?:\s+(.*))?$/gm, (_m, text) => `<div class="md-checkbox"><span class="md-cb-icon">&#9744;</span>&nbsp;${text || ''}</div>`);
-
-	// Unordered lists
-	html = html.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
-	// Wrap consecutive <li> in <ul>
-	html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-	// Ordered lists
-	html = html.replace(/^\d+\.\s+(.+)$/gm, '<li class="ol-item">$1</li>');
-	// Wrap consecutive ol-item <li> in <ol>
-	html = html.replace(/((?:<li class="ol-item">.*<\/li>\n?)+)/g, (_m, items) => `<ol>${items.replace(/ class="ol-item"/g, '')}</ol>`);
-	// Isolate block tags so paragraph wrapping does not create invalid <p><h1>...</h1></p> markup.
-	html = html.replace(/\n+(<(?:h[1-6]|pre|ul|ol|blockquote|hr|div)[> ])/g, '\n\n$1');
-	html = html.replace(/(<\/(?:h[1-6]|pre|ul|ol|blockquote|div)>|<hr>)\n+/g, '$1\n\n');
-	// Blockquote
-	html = html.replace(/^&gt;\s+(.+)$/gm, '<blockquote>$1</blockquote>');
-
-	// Preserve extra blank lines (3+ newlines) as explicit markers before paragraph splitting
-	html = html.replace(/\n{3,}/g, match => {
-		const extraBlanks = match.length - 2; // beyond the normal paragraph break
-		return `\n\n${Array.from({ length: extraBlanks }, () => '<div class="md-blank-line"><br></div>').join('')}\n\n`;
-	});
-
-	// Paragraphs: double newline → paragraph break
-	const blocks = html.split('\n\n');
-	const blockRe = /^<(?:h[1-6]|pre|ul|ol|blockquote|hr|div)|\x00CB\d+\x00/;
-	const out = [];
-	for (let i = 0; i < blocks.length; i++) {
-		const trimmed = blocks[i].trim();
-		if (!trimmed) continue;
-		if (blockRe.test(trimmed)) { out.push(trimmed); continue; }
-		out.push(`<p>${trimmed.replace(/\n/g, '<br>')}</p>`);
-	}
-	html = out.join('');
-
-	// Restore code block placeholders
-	html = html.replace(/\x00CB(\d+)\x00/g, (_m, i) => {
-		const b = codeBlocks[i];
-		const cls = b.lang ? ` class="language-${b.lang}"` : '';
-		return `<pre spellcheck="false"><code${cls}>${escapeHtml(b.code)}</code></pre>`;
-	});
-
-	// Strip any hx-* attributes from rendered HTML to prevent htmx from
-	// processing user content (e.g. data: URI images or pasted HTML with htmx attrs)
-	html = html.replace(/\s+hx-[a-z-]+="[^"]*"/g, '');
-
-	return html;
-};
+// renderMarkdown delegates to app/markdownRenderer.js (markdown-it engine).
+// Old regex implementation removed; markdownRenderer.js is the source of truth.
+const renderMarkdown = renderMarkdownImpl;
 
 // Renders a password input + eye-toggle button pair.
 //   name       — the input's name attribute

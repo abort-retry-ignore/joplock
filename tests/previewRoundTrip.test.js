@@ -170,6 +170,28 @@ test('preview round-trip preserves mixed formatting note', () => {
 	assert.equal(previewRoundTrip(body), body);
 });
 
+test('preview round-trip converts setext headings to ATX style', () => {
+	// Setext === -> h1 -> ATX # (not identity, but stable)
+	assert.equal(previewRoundTrip('Hello\n====='), '# Hello');
+	assert.equal(previewRoundTrip('Sub\n---'), '## Sub');
+	// Already-ATX headings are stable
+	assert.equal(previewRoundTrip('# Hello'), '# Hello');
+});
+
+test('preview round-trip expands reference links to inline', () => {
+	// Reference-style links are normalised to inline on round-trip
+	const result = previewRoundTrip('[Example][ref]\n\n[ref]: https://example.com');
+	assert.equal(result, '[Example](https://example.com)');
+});
+
+test('preview round-trip preserves strikethrough', () => {
+	assert.equal(previewRoundTrip('~~struck~~'), '~~struck~~');
+});
+
+test('preview round-trip preserves underline', () => {
+	assert.equal(previewRoundTrip('++underlined++'), '++underlined++');
+});
+
 test('logged in layout includes htmlToMarkdown normalization for preview save', () => {
 	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '' });
 	// htmlToMarkdown and other editor functions are now in public/app.js

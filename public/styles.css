@@ -530,6 +530,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	background: var(--bg-side);
 	flex-shrink: 0;
 }
+.nav-panel-header .btn { padding: 4px 6px; }
 
 .nav-search-form {
 	display: flex;
@@ -1168,6 +1169,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .editor-preview .md-blank-line { height: 1em; }
 .editor-preview[contenteditable="true"] {
 	cursor: text;
+	overflow-anchor: none;
 }
 .editor-preview h1, .editor-preview h2, .editor-preview h3,
 .editor-preview h4, .editor-preview h5, .editor-preview h6 {

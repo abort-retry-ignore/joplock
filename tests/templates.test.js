@@ -218,6 +218,50 @@ test('renderMarkdown handles fenced code block in single list item with language
 	assert.ok(html.includes('<ul>') && html.includes('<li>'), 'list structure preserved');
 });
 
+test('renderMarkdown renders GFM tables', () => {
+	const md = '| Name | Value |\n|------|-------|\n| foo  | bar   |';
+	const html = renderMarkdown(md);
+	assert.ok(html.includes('<table>'), 'should produce a table element');
+	assert.ok(html.includes('<thead>'), 'should produce a thead');
+	assert.ok(html.includes('<tbody>'), 'should produce a tbody');
+	assert.ok(html.includes('<th>Name</th>'), 'header cell preserved');
+	assert.ok(html.includes('<td>foo</td>'), 'body cell preserved');
+	assert.ok(html.includes('<td>bar</td>'), 'body cell preserved');
+});
+
+test('renderMarkdown renders indented code blocks with spellcheck attrs', () => {
+	const html = renderMarkdown('    indented code here');
+	assert.ok(html.includes('<pre spellcheck="false">'), 'pre should have spellcheck=false');
+	assert.ok(html.includes('<code spellcheck="false">'), 'code should have spellcheck=false');
+	assert.ok(html.includes('indented code here'), 'code content preserved');
+});
+
+test('renderMarkdown renders setext headings as h1 and h2', () => {
+	const h1 = renderMarkdown('Hello World\n===========');
+	assert.ok(h1.includes('<h1>Hello World</h1>'), 'setext === should produce h1');
+
+	const h2 = renderMarkdown('Subheading\n----------');
+	assert.ok(h2.includes('<h2>Subheading</h2>'), 'setext --- should produce h2');
+});
+
+test('renderMarkdown renders hard line breaks', () => {
+	const html = renderMarkdown('line one  \nline two');
+	assert.ok(html.includes('<br>'), 'two trailing spaces should produce a <br>');
+	assert.ok(html.includes('line one'), 'first line preserved');
+	assert.ok(html.includes('line two'), 'second line preserved');
+});
+
+test('renderMarkdown renders strikethrough', () => {
+	const html = renderMarkdown('~~struck through~~');
+	assert.ok(html.includes('<s>struck through</s>'), 'strikethrough should produce <s>');
+});
+
+test('renderMarkdown expands reference-style links to inline', () => {
+	const html = renderMarkdown('[Example][ref]\n\n[ref]: https://example.com');
+	assert.ok(html.includes('href="https://example.com"'), 'reference link href resolved');
+	assert.ok(html.includes('>Example</a>'), 'link text preserved');
+});
+
 test('logged out layout clears client storage and service worker state', () => {
 	const html = layoutPage({ user: null, loginError: '' });
 	assert.ok(html.includes('<meta name="theme-color" content="#0b0b0b" />'));

@@ -77,7 +77,7 @@ services:
       # Admin account — set both to enable the admin panel
       JOPLOCK_ADMIN_EMAIL: ''
       JOPLOCK_ADMIN_PASSWORD: ''
-      # Set to true to skip MFA for the admin account defined above
+      # Set to true to skip MFA check for the admin account defined above
       IGNORE_ADMIN_MFA: 'false'
 
 volumes:

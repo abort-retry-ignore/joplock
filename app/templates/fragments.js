@@ -217,7 +217,7 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 			<button type="submit" class="btn-icon-sm nav-search-btn" title="Search">&#128269;</button>${hasQuery ? `<button type="button" class="btn-icon-sm nav-search-clear" title="Clear search" onclick="var inp=document.getElementById('nav-search');inp.value='';htmx.trigger(inp,'search-submit')">&#10005;</button>` : ''}
 		</form>
 		<button class="btn btn-sm" title="New notebook"
-			onclick="event.preventDefault();openNewFolderModal()">+ Notebook</button>
+			onclick="event.preventDefault();openNewFolderModal()">+</button>
 	</div><div class="nav-items">${folderSections || '<div class="empty-hint">No notebooks yet</div>'}</div>
 	<div class="folder-context-menu" id="folder-context-menu" hidden>
 		<button type="button" class="folder-context-item" onclick="editFolderFromMenu()">Edit notebook</button>

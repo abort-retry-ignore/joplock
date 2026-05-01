@@ -593,10 +593,13 @@ function getTurndown(){
 	td.addRule('strikethrough',{filter:['del','s','strike'],replacement:function(c){return c.trim()?'~~'+c.trim()+'~~':''}});
 	// Underline
 	td.addRule('underline',{filter:'u',replacement:function(c){return c.trim()?'++'+c.trim()+'++':''}});
-	// Empty divs from contenteditable (Enter key creates <div><br></div>) — emit <br> for blank line
-	td.addRule('emptyDiv',{filter:function(n){return n.nodeName==='DIV'&&!n.classList.length&&!n.querySelector('img,a,pre,code,ul,ol,blockquote,table')&&(!n.textContent.trim()||n.innerHTML==='<br>')},replacement:function(){return '<br>'}});
-	// Empty paragraphs from contenteditable (<p><br></p>) — emit <br> for blank line
-	td.addRule('emptyP',{filter:function(n){return n.nodeName==='P'&&!n.querySelector('img')&&(!n.textContent.trim()||n.innerHTML==='<br>')},replacement:function(){return '<br>'}});
+	// Empty divs from contenteditable (Enter key creates <div><br></div>) — emit BL sentinel so
+	// line 616 converts it to one extra newline (\n\n\n), which injectBlankLineBlocks turns into
+	// exactly one md-blank-line div. Using '<br>' caused line 611 to produce 4 newlines (two divs).
+	// Using '' made blank-line edits invisible to Turndown (hash never changed, note never saved).
+	td.addRule('emptyDiv',{filter:function(n){return n.nodeName==='DIV'&&!n.classList.length&&!n.querySelector('img,a,pre,code,ul,ol,blockquote,table')&&(!n.textContent.trim()||n.innerHTML==='<br>')},replacement:function(){return '\x00BL\x00'}});
+	// Empty paragraphs from contenteditable (<p><br></p>) — same reasoning.
+	td.addRule('emptyP',{filter:function(n){return n.nodeName==='P'&&!n.querySelector('img')&&(!n.textContent.trim()||n.innerHTML==='<br>')},replacement:function(){return '\x00BL\x00'}});
 	_tdService=td;return td}
 function htmlToMarkdown(el){
 	var root=el.cloneNode(true);

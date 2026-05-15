@@ -1308,6 +1308,20 @@ test('GET /fragments/editor/:id includes folder dropdown', async () => {
 	});
 });
 
+test('GET /fragments/editor/:id allows selecting multiple upload files', async () => {
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'My Note', body: 'text', parentId: 'f1', updatedTime: Date.now() }),
+			foldersByUserId: async () => [{ id: 'f1', title: 'Folder', parentId: '' }],
+		},
+	}, async port => {
+		const res = await request(port, { path: '/fragments/editor/n1' });
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('id="file-upload"'));
+		assert.ok(res.body.includes('multiple onchange="handleFilePicker(this)"'));
+	});
+});
+
 test('POST /fragments/preview renders markdown to HTML', async () => {
 	await withServer({}, async port => {
 		const res = await request(port, {

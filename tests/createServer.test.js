@@ -2031,23 +2031,23 @@ test('GET /settings shows backup section for admin when configured', async () =>
 });
 
 test('POST /admin/backups creates backup and redirects', async () => {
-	let created = false;
+	let created = null;
 	await withServer(makeAdminMocks({
 		backupService: {
 			isConfigured: () => true,
 			isBusy: () => false,
 			activeOperation: () => '',
 			listBackups: async () => [],
-			startBackupJob: async () => { created = true; return {}; },
+			startBackupJob: async options => { created = options; return {}; },
 			backupPath: async () => ({ path: __filename, size: 1, name: 'x.dump', createdTime: 0 }),
 			startRestoreJob: async () => ({}),
 			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
 			waitForIdle: async () => ({ state: 'idle' }),
 		},
 	}), async port => {
-		const res = await request(port, { path: '/admin/backups', method: 'POST', headers: { Cookie: 'sessionId=admin-session' } });
+		const res = await request(port, { path: '/admin/backups', method: 'POST', headers: { Cookie: 'sessionId=admin-session', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'compressionMode=balanced' });
 		assert.equal(res.statusCode, 302);
-		assert.equal(created, true);
+		assert.deepEqual(created, { mode: 'balanced', useCompression: false });
 		assert.ok(res.headers.location.includes('Backup+started'));
 	});
 });
@@ -2068,7 +2068,7 @@ test('POST /admin/restore requires typed confirmation', async () => {
 test('recovery login and backup flow works without normal Joplin auth', async () => {
 	let issuedToken = '';
 	let validatedToken = '';
-	let created = false;
+	let created = null;
 	await withServer({
 		sessionService: {
 			userBySessionId: async () => null,
@@ -2094,7 +2094,7 @@ test('recovery login and backup flow works without normal Joplin auth', async ()
 			isBusy: () => false,
 			activeOperation: () => '',
 			listBackups: async () => [{ name: 'joplock-backup.dump', createdTime: 0, size: 4 }],
-			startBackupJob: async () => { created = true; return {}; },
+			startBackupJob: async options => { created = options; return {}; },
 			backupPath: async () => ({ path: __filename, size: 1, name: 'joplock-backup.dump', createdTime: 0 }),
 			startRestoreJob: async () => ({}),
 			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
@@ -2112,10 +2112,11 @@ test('recovery login and backup flow works without normal Joplin auth', async ()
 		const res = await request(port, {
 			path: '/recovery/backups',
 			method: 'POST',
-			headers: { Cookie: 'joplockRecoverySession=recovery-token' },
+			headers: { Cookie: 'joplockRecoverySession=recovery-token', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'compressionMode=fast',
 		});
 		assert.equal(res.statusCode, 302);
-		assert.equal(created, true);
+		assert.deepEqual(created, { mode: 'fast', useCompression: false });
 		assert.equal(validatedToken, 'recovery-token');
 		assert.ok(res.headers.location.includes('Backup+started'));
 	});

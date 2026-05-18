@@ -332,6 +332,9 @@ test('settings page renders backup section for admin', () => {
 	assert.ok(html.includes('/admin/status'));
 	assert.ok(html.includes('joplock-backup-2026.dump'));
 	assert.ok(html.includes('/recovery'));
+	assert.ok(html.includes('Fast (gzip:1)'));
+	assert.ok(html.includes('Balanced (zstd:3)'));
+	assert.ok(html.includes('Smallest (deployment default)'));
 });
 
 test('stripMarkdownForTitle removes common markdown markers from titles', () => {
@@ -810,6 +813,7 @@ test('recoveryPage renders login and backup controls', () => {
 	assert.ok(loggedIn.includes('/recovery/backups/joplock-backup-2026.dump/download'));
 	assert.ok(loggedIn.includes('/recovery/status'));
 	assert.ok(loggedIn.includes('Type RESTORE'));
+	assert.ok(loggedIn.includes('Balanced (zstd:3)'));
 });
 
 test('backup polling only reloads after running job transitions to terminal state', () => {

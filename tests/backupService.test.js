@@ -101,6 +101,54 @@ test('backup service uses explicit compression spec when provided', async () => 
 	assert.ok(spawnArgs.args.includes('--compress=gzip:1'));
 });
 
+test('backup service can disable extra compression per backup run', async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'joplock-backups-'));
+	let spawnArgs = null;
+	const service = createBackupService({
+		backupDir: dir,
+		compression: 'zstd:19',
+		postgresConfig: { database: 'joplin', host: 'db', port: 5432, user: 'joplin', password: 'secret' },
+		spawnImpl: (cmd, args, options) => {
+			spawnArgs = { cmd, args, options };
+			return makeChild({ stdoutText: 'dump-bytes' });
+		},
+	});
+	await service.startBackupJob({ useCompression: false });
+	assert.ok(spawnArgs.args.includes('--compress=none'));
+});
+
+test('backup service supports balanced gzip compression mode', async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'joplock-backups-'));
+	let spawnArgs = null;
+	const service = createBackupService({
+		backupDir: dir,
+		compression: 'zstd:19',
+		postgresConfig: { database: 'joplin', host: 'db', port: 5432, user: 'joplin', password: 'secret' },
+		spawnImpl: (cmd, args, options) => {
+			spawnArgs = { cmd, args, options };
+			return makeChild({ stdoutText: 'dump-bytes' });
+		},
+	});
+	await service.startBackupJob({ mode: 'balanced' });
+	assert.ok(spawnArgs.args.includes('--compress=zstd:3'));
+});
+
+test('backup service supports fast gzip compression mode', async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'joplock-backups-'));
+	let spawnArgs = null;
+	const service = createBackupService({
+		backupDir: dir,
+		compression: 'zstd:19',
+		postgresConfig: { database: 'joplin', host: 'db', port: 5432, user: 'joplin', password: 'secret' },
+		spawnImpl: (cmd, args, options) => {
+			spawnArgs = { cmd, args, options };
+			return makeChild({ stdoutText: 'dump-bytes' });
+		},
+	});
+	await service.startBackupJob({ mode: 'fast' });
+	assert.ok(spawnArgs.args.includes('--compress=gzip:1'));
+});
+
 test('backup service starts restore job via pg_restore and completes in background', async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'joplock-backups-'));
 	fs.writeFileSync(path.join(dir, 'joplock-backup-2026.dump'), 'x');

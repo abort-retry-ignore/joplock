@@ -380,7 +380,15 @@ const settingsPage = (options = {}) => {
 						<p class="settings-mfa-status"><span class="badge ${backupBusy ? 'badge-warning' : 'badge-off'}" id="admin-backup-badge">${backupBusy ? 'Running' : 'Idle'}</span> <span id="admin-backup-message">${maintenanceMode ? escapeHtml(`Maintenance mode active${activeOperation ? ` (${activeOperation})` : ''}`) : 'No backup job running.'}</span></p>
 						<pre id="admin-backup-log" class="settings-section-sub" style="white-space:pre-wrap;display:none"></pre>
 					</div>
-					<form method="POST" action="/admin/backups" style="margin-bottom:16px">
+					<form method="POST" action="/admin/backups" style="margin-bottom:16px" data-backup-form="admin">
+						<label class="settings-field" style="margin-bottom:12px;display:block">
+							<span>Compression</span>
+							<select class="login-input" name="compressionMode" data-backup-mode>
+								<option value="fast">Fast (gzip:1)</option>
+								<option value="balanced">Balanced (zstd:3)</option>
+								<option value="smallest" selected>Smallest (deployment default)</option>
+							</select>
+						</label>
 						<button type="submit" class="btn btn-primary"${backupBusy ? ' disabled' : ''}>Create backup</button>
 					</form>
 					${backups.length ? `<div class="admin-table-wrap"><table class="admin-table">
@@ -437,6 +445,15 @@ const settingsPage = (options = {}) => {
 			try{localStorage.setItem('joplock-settings-tab',name)}catch(e){}
 		};
 		(function(){var saved=null;try{saved=localStorage.getItem('joplock-settings-tab')}catch(e){}var initial='${escapeHtml(tab)}';if(saved&&saved!==initial)switchTab(saved)})();
+		(function(){
+			var key='joplock-backup-compression-mode';
+			document.querySelectorAll('[data-backup-form]').forEach(function(form){
+				var select=form.querySelector('[data-backup-mode]');
+				if(!select)return;
+				try{var saved=localStorage.getItem(key);if(saved&&Array.from(select.options).some(function(o){return o.value===saved}))select.value=saved}catch(e){}
+				select.addEventListener('change',function(){try{localStorage.setItem(key,select.value)}catch(e){}});
+			});
+		})();
 		(function(){
 			var panel=document.getElementById('admin-backup-status');
 			if(!panel)return;

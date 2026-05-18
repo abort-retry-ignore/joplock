@@ -106,8 +106,9 @@ const handle = async (url, request, response, ctx) => {
 	}
 
 	if (url.pathname === '/admin/backups' && request.method === 'POST') {
+		const body = await parseBody(request);
 		try {
-			await backupService.startBackupJob();
+			await backupService.startBackupJob({ mode: body.compressionMode || '', useCompression: body.useCompression === '1' });
 			redirect(response, '/settings?saved=Backup+started&tab=admin');
 		} catch (error) {
 			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Backup failed')}&tab=admin`);

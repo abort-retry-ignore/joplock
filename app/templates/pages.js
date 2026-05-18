@@ -401,7 +401,15 @@ const recoveryPage = (options = {}) => {
 				<h2 class="settings-section-title">Backups</h2>
 				<p class="settings-section-sub">Server-side backup directory: <code>${escapeHtml(backupDir || '(not configured)')}</code></p>
 				<p class="settings-section-sub">Jobs run in the background. This page will keep updating while backup or restore is in progress.</p>
-				<form method="POST" action="/recovery/backups" style="margin-bottom:16px">
+				<form method="POST" action="/recovery/backups" style="margin-bottom:16px" data-backup-form="recovery">
+					<label class="settings-field" style="margin-bottom:12px;display:block">
+						<span>Compression</span>
+						<select class="login-input" name="compressionMode" data-backup-mode>
+							<option value="fast">Fast (gzip:1)</option>
+							<option value="balanced">Balanced (zstd:3)</option>
+							<option value="smallest" selected>Smallest (deployment default)</option>
+						</select>
+					</label>
 					<button type="submit" class="btn btn-primary"${activeOperation ? ' disabled' : ''}>Create backup</button>
 				</form>
 				${backups.length ? `<div class="admin-table-wrap"><table class="admin-table">
@@ -441,6 +449,13 @@ const recoveryPage = (options = {}) => {
 	</div>
 	<script>
 	(function(){
+		var key='joplock-backup-compression-mode';
+		document.querySelectorAll('[data-backup-form]').forEach(function(form){
+			var select=form.querySelector('[data-backup-mode]');
+			if(!select)return;
+			try{var saved=localStorage.getItem(key);if(saved&&Array.from(select.options).some(function(o){return o.value===saved}))select.value=saved}catch(e){}
+			select.addEventListener('change',function(){try{localStorage.setItem(key,select.value)}catch(e){}});
+		});
 		var panel=document.getElementById('recovery-job-status');
 		if(!panel)return;
 		var badge=document.getElementById('recovery-job-badge');

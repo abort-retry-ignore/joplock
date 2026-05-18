@@ -70,8 +70,9 @@ const handle = async (url, request, response, ctx) => {
 	}
 
 	if (url.pathname === '/recovery/backups' && request.method === 'POST') {
+		const body = await parseBody(request);
 		try {
-			await backupService.startBackupJob();
+			await backupService.startBackupJob({ mode: body.compressionMode || '', useCompression: body.useCompression === '1' });
 			redirect(response, '/recovery?saved=Backup+started');
 		} catch (error) {
 			redirect(response, `/recovery?error=${encodeURIComponent(error.message || 'Backup failed')}`);

@@ -42,6 +42,12 @@ const createBackupService = options => {
 
 	const normalizedCompressionLevel = Number.isFinite(Number(compressionLevel)) ? Math.max(0, Math.min(9, Number(compressionLevel))) : 9;
 	const compressionArg = (typeof compression === 'string' && compression.trim()) ? compression.trim() : `gzip:${normalizedCompressionLevel}`;
+	const backupCompressionArg = jobOptions => {
+		if (jobOptions && jobOptions.mode === 'fast') return 'gzip:1';
+		if (jobOptions && jobOptions.mode === 'balanced') return 'zstd:3';
+		if (jobOptions && jobOptions.useCompression === false) return 'none';
+		return compressionArg;
+	};
 
 	let currentJob = null;
 
@@ -111,9 +117,10 @@ const createBackupService = options => {
 		Object.assign(job, updates);
 	};
 
-	const startBackupJob = async () => {
+	const startBackupJob = async jobOptions => {
 		await ensureAvailable();
 		if (isBusy()) throw new Error(`Another backup operation is already running (${currentJob.type})`);
+		const selectedCompressionArg = backupCompressionArg(jobOptions);
 		const fileName = `joplock-backup-${timestampForFile(now())}${BACKUP_EXT}`;
 		const tmpName = `${fileName}.tmp`;
 		const tmpPath = tempPathWithinDir(backupDir, tmpName);
@@ -134,7 +141,7 @@ const createBackupService = options => {
 		const out = fs.createWriteStream(tmpPath, { flags: 'wx' });
 		let child;
 		try {
-			child = spawnImpl('pg_dump', ['--format=custom', `--compress=${compressionArg}`, '--no-owner', '--no-privileges', '--dbname', `${postgresConfig.database || ''}`], {
+			child = spawnImpl('pg_dump', ['--format=custom', `--compress=${selectedCompressionArg}`, '--no-owner', '--no-privileges', '--dbname', `${postgresConfig.database || ''}`], {
 				env: pgEnv(),
 				stdio: ['ignore', 'pipe', 'pipe'],
 			});

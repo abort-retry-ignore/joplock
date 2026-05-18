@@ -7,7 +7,10 @@ const { createSettingsService } = require('./app/settingsService');
 const { createHistoryService } = require('./app/historyService');
 const { createAdminService } = require('./app/adminService');
 const { createVaultService } = require('./app/vaultService');
+const { createBackupService } = require('./app/backupService');
+const { createRecoveryService } = require('./app/recoveryService');
 const { createServer } = require('./app/createServer');
+const { normalizeEnvValue } = require('./app/env');
 
 const host = process.env.HOST || '0.0.0.0';
 const port = Number(process.env.PORT || '3001');
@@ -17,9 +20,15 @@ const joplinPublicBaseUrl = process.env.JOPLOCK_PUBLIC_BASE_URL || `http://local
 const joplinServerPublicUrl = process.env.JOPLIN_SERVER_PUBLIC_URL || `${joplinPublicBaseUrl}${joplinPublicBasePath}`;
 const publicDir = path.join(__dirname, 'public');
 
-const adminEmail = process.env.JOPLOCK_ADMIN_EMAIL || '';
-const adminPassword = process.env.JOPLOCK_ADMIN_PASSWORD || '';
+const adminEmail = normalizeEnvValue(process.env.JOPLOCK_ADMIN_EMAIL || '');
+const adminPassword = normalizeEnvValue(process.env.JOPLOCK_ADMIN_PASSWORD || '');
 const ignoreAdminMfa = process.env.IGNORE_ADMIN_MFA === 'true' || process.env.IGNORE_ADMIN_MFA === '1';
+const backupDir = process.env.JOPLOCK_BACKUP_DIR || '';
+const recoveryEnabled = process.env.JOPLOCK_RECOVERY_ENABLED === 'true' || process.env.JOPLOCK_RECOVERY_ENABLED === '1';
+const recoveryPassword = normalizeEnvValue(process.env.JOPLOCK_RECOVERY_PASSWORD || '');
+const recoverySessionTtlMinutes = Number(process.env.JOPLOCK_RECOVERY_SESSION_TTL_MINUTES || '30');
+const backupCompression = process.env.JOPLOCK_BACKUP_COMPRESSION || 'zstd:19';
+const backupCompressionLevel = Number(process.env.JOPLOCK_BACKUP_COMPRESSION_LEVEL || '9');
 
 const databasePool = createPoolFromEnv(process.env);
 const sessionService = createSessionService(databasePool);
@@ -27,6 +36,23 @@ const itemService = createItemService(databasePool);
 const settingsService = createSettingsService(databasePool);
 const historyService = createHistoryService(databasePool);
 const vaultService = createVaultService(databasePool);
+const backupService = createBackupService({
+	backupDir,
+	compression: backupCompression,
+	compressionLevel: backupCompressionLevel,
+	postgresConfig: {
+		host: process.env.POSTGRES_HOST || '127.0.0.1',
+		port: Number(process.env.POSTGRES_PORT || '5432'),
+		user: process.env.POSTGRES_USER || 'joplin',
+		password: process.env.POSTGRES_PASSWORD || 'joplin',
+		database: process.env.POSTGRES_DATABASE || 'joplin',
+	},
+});
+const recoveryService = createRecoveryService({
+	enabled: recoveryEnabled,
+	password: recoveryPassword,
+	sessionTtlMinutes: recoverySessionTtlMinutes,
+});
 const itemWriteService = createItemWriteService({
 	joplinServerOrigin,
 	joplinServerPublicUrl,
@@ -68,6 +94,8 @@ const server = createServer({
 	ignoreAdminMfa,
 	database: databasePool,
 	vaultService,
+	backupService,
+	recoveryService,
 	debug: process.env.DEBUG === 'true' || process.env.DEBUG === '1',
 });
 

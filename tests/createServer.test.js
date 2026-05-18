@@ -104,6 +104,23 @@ const defaultMocks = (overrides = {}) => ({
 		getSnapshot: async () => null,
 		...overrides.historyService,
 	},
+	backupService: overrides.backupService || {
+		isConfigured: () => true,
+		isBusy: () => false,
+		activeOperation: () => '',
+		listBackups: async () => [],
+		startBackupJob: async () => ({ name: 'joplock-backup.dump', state: 'running', type: 'backup' }),
+		backupPath: async () => ({ path: path.join(os.tmpdir(), 'joplock-test-backup.dump'), size: 4, name: 'joplock-test-backup.dump', createdTime: Date.now() }),
+		startRestoreJob: async () => ({ name: 'joplock-test-backup.dump', state: 'running', type: 'restore' }),
+		currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
+		waitForIdle: async () => ({ state: 'idle' }),
+	},
+	recoveryService: overrides.recoveryService || {
+		isEnabled: () => false,
+		createSession: () => '',
+		validateSession: () => false,
+		endSession: () => {},
+	},
 	vaultService: overrides.vaultService || null,
 	database: overrides.database || { query: async () => ({ rows: [] }) },
 });
@@ -1989,6 +2006,157 @@ test('POST /admin/users/:id/mfa/disable clears TOTP seed', async () => {
 		assert.equal(res.statusCode, 302);
 		assert.ok(res.headers.location.includes('saved=1'));
 		assert.equal(clearedId, 'user-1');
+	});
+});
+
+test('GET /settings shows backup section for admin when configured', async () => {
+	await withServer(makeAdminMocks({
+		backupService: {
+			isConfigured: () => true,
+			isBusy: () => false,
+			activeOperation: () => '',
+			listBackups: async () => [{ name: 'joplock-backup-2026.dump', createdTime: 0, size: 12 }],
+			startBackupJob: async () => ({}),
+			backupPath: async () => ({ path: __filename, size: 1, name: 'joplock-backup-2026.dump', createdTime: 0 }),
+			startRestoreJob: async () => ({}),
+			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
+			waitForIdle: async () => ({ state: 'idle' }),
+		},
+	}), async port => {
+		const res = await request(port, { path: '/settings', headers: { Cookie: 'sessionId=admin-session' } });
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('Backup &amp; Restore'));
+		assert.ok(res.body.includes('joplock-backup-2026.dump'));
+	});
+});
+
+test('POST /admin/backups creates backup and redirects', async () => {
+	let created = false;
+	await withServer(makeAdminMocks({
+		backupService: {
+			isConfigured: () => true,
+			isBusy: () => false,
+			activeOperation: () => '',
+			listBackups: async () => [],
+			startBackupJob: async () => { created = true; return {}; },
+			backupPath: async () => ({ path: __filename, size: 1, name: 'x.dump', createdTime: 0 }),
+			startRestoreJob: async () => ({}),
+			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
+			waitForIdle: async () => ({ state: 'idle' }),
+		},
+	}), async port => {
+		const res = await request(port, { path: '/admin/backups', method: 'POST', headers: { Cookie: 'sessionId=admin-session' } });
+		assert.equal(res.statusCode, 302);
+		assert.equal(created, true);
+		assert.ok(res.headers.location.includes('Backup+started'));
+	});
+});
+
+test('POST /admin/restore requires typed confirmation', async () => {
+	await withServer(makeAdminMocks(), async port => {
+		const res = await request(port, {
+			path: '/admin/restore',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=admin-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'backupName=joplock-backup.dump&confirm=nope',
+		});
+		assert.equal(res.statusCode, 302);
+		assert.ok(res.headers.location.includes('Type+RESTORE+to+confirm'));
+	});
+});
+
+test('recovery login and backup flow works without normal Joplin auth', async () => {
+	let issuedToken = '';
+	let validatedToken = '';
+	let created = false;
+	await withServer({
+		sessionService: {
+			userBySessionId: async () => null,
+			touchSession: async () => {},
+			getLastSeen: async () => null,
+			deleteSession: async () => {},
+		},
+		recoveryService: {
+			isEnabled: () => true,
+			createSession: password => {
+				if (password !== 'secret') return '';
+				issuedToken = 'recovery-token';
+				return issuedToken;
+			},
+			validateSession: token => {
+				validatedToken = token;
+				return token === 'recovery-token';
+			},
+			endSession: () => {},
+		},
+		backupService: {
+			isConfigured: () => true,
+			isBusy: () => false,
+			activeOperation: () => '',
+			listBackups: async () => [{ name: 'joplock-backup.dump', createdTime: 0, size: 4 }],
+			startBackupJob: async () => { created = true; return {}; },
+			backupPath: async () => ({ path: __filename, size: 1, name: 'joplock-backup.dump', createdTime: 0 }),
+			startRestoreJob: async () => ({}),
+			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
+			waitForIdle: async () => ({ state: 'idle' }),
+		},
+	}, async port => {
+		const login = await request(port, {
+			path: '/recovery/login',
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'password=secret',
+		});
+		assert.equal(login.statusCode, 302);
+		assert.ok(String(login.headers['set-cookie']).includes('joplockRecoverySession=recovery-token'));
+		const res = await request(port, {
+			path: '/recovery/backups',
+			method: 'POST',
+			headers: { Cookie: 'joplockRecoverySession=recovery-token' },
+		});
+		assert.equal(res.statusCode, 302);
+		assert.equal(created, true);
+		assert.equal(validatedToken, 'recovery-token');
+		assert.ok(res.headers.location.includes('Backup+started'));
+	});
+});
+
+test('failed restore keeps maintenance mode active and blocks normal routes', async () => {
+	let restoreCalled = false;
+	let jobState = 'idle';
+	await withServer({
+		recoveryService: {
+			isEnabled: () => true,
+			createSession: () => '',
+			validateSession: token => token === 'recovery-token',
+			endSession: () => {},
+		},
+		backupService: {
+			isConfigured: () => true,
+			isBusy: () => false,
+			activeOperation: () => '',
+			listBackups: async () => [{ name: 'joplock-backup.dump', createdTime: 0, size: 4 }],
+			startBackupJob: async () => ({}),
+			backupPath: async () => ({ path: __filename, size: 1, name: 'joplock-backup.dump', createdTime: 0 }),
+			startRestoreJob: async () => { restoreCalled = true; jobState = 'failed'; return {}; },
+			currentStatus: () => ({ state: jobState, type: 'restore', message: jobState === 'failed' ? 'Restore failed' : 'Restore running', error: jobState === 'failed' ? 'restore failed' : '', stderrTail: '' }),
+			waitForIdle: async () => ({ state: jobState }),
+		},
+	}, async port => {
+		const restore = await request(port, {
+			path: '/recovery/restore',
+			method: 'POST',
+			headers: { Cookie: 'joplockRecoverySession=recovery-token', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'backupName=joplock-backup.dump&confirm=RESTORE',
+		});
+		assert.equal(restore.statusCode, 302);
+		assert.equal(restoreCalled, true);
+		assert.ok(restore.headers.location.includes('Restore+started'));
+		const blocked = await request(port, { path: '/', headers: { Cookie: 'sessionId=test-session' } });
+		assert.equal(blocked.statusCode, 503);
+		assert.ok(blocked.body.includes('maintenance mode'));
+		const recovery = await request(port, { path: '/recovery', headers: { Cookie: 'joplockRecoverySession=recovery-token' } });
+		assert.equal(recovery.statusCode, 200);
 	});
 });
 

@@ -38,5 +38,12 @@ services:
       JOPLOCK_ADMIN_PASSWORD: ''
       # Set to true to skip MFA for the admin account defined above
       IGNORE_ADMIN_MFA: 'false'
+      # Full database backup storage inside the container
+      JOPLOCK_BACKUP_DIR: /backups
+      # Break-glass recovery mode for backup/restore when normal login is unavailable
+      JOPLOCK_RECOVERY_ENABLED: 'false'
+      JOPLOCK_RECOVERY_PASSWORD: ''
     extra_hosts:
       - 'host.docker.internal:host-gateway'
+    volumes:
+      - ./data/backups:/backups

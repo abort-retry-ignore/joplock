@@ -1,10 +1,12 @@
 'use strict';
 
+const fs = require('fs');
+
 const { generateSeed } = require('../auth/mfaService');
-const { redirect, parseBody } = require('./_helpers');
+const { contentDispositionFilename, redirect, parseBody, sendJson } = require('./_helpers');
 
 const handle = async (url, request, response, ctx) => {
-	const { authenticatedUser, settingsService, adminService, isJoplockAdmin } = ctx;
+	const { authenticatedUser, settingsService, adminService, isJoplockAdmin, backupService, maintenance } = ctx;
 
 	if (!url.pathname.startsWith('/admin')) return false;
 
@@ -90,6 +92,59 @@ const handle = async (url, request, response, ctx) => {
 			redirect(response, '/settings?saved=1&tab=admin');
 		} catch (error) {
 			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Disable MFA failed')}&tab=admin`);
+		}
+		return true;
+	}
+
+	if (url.pathname === '/admin/status' && request.method === 'GET') {
+		sendJson(response, 200, {
+			job: backupService ? backupService.currentStatus() : null,
+			maintenanceMode: maintenance.isEnabled(),
+			maintenanceReason: maintenance.reason(),
+		});
+		return true;
+	}
+
+	if (url.pathname === '/admin/backups' && request.method === 'POST') {
+		try {
+			await backupService.startBackupJob();
+			redirect(response, '/settings?saved=Backup+started&tab=admin');
+		} catch (error) {
+			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Backup failed')}&tab=admin`);
+		}
+		return true;
+	}
+
+	const downloadMatch = url.pathname.match(/^\/admin\/backups\/([^/]+)\/download$/);
+	if (downloadMatch && request.method === 'GET') {
+		try {
+			const fileName = decodeURIComponent(downloadMatch[1]);
+			const backup = await backupService.backupPath(fileName);
+			response.writeHead(200, {
+				'Cache-Control': 'no-store',
+				'Content-Length': backup.size,
+				'Content-Type': 'application/octet-stream',
+				'Content-Disposition': `attachment; filename="${contentDispositionFilename(backup.name)}"`,
+			});
+			fs.createReadStream(backup.path).pipe(response);
+		} catch (error) {
+			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Download failed')}&tab=admin`);
+		}
+		return true;
+	}
+
+	if (url.pathname === '/admin/restore' && request.method === 'POST') {
+		const body = await parseBody(request);
+		if ((body.confirm || '') !== 'RESTORE') {
+			redirect(response, '/settings?error=Type+RESTORE+to+confirm&tab=admin');
+			return true;
+		}
+		maintenance.enable('restore');
+		try {
+			await backupService.startRestoreJob(body.backupName || '');
+			redirect(response, '/settings?saved=Restore+started&tab=admin');
+		} catch (error) {
+			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Restore failed')}&tab=admin`);
 		}
 		return true;
 	}

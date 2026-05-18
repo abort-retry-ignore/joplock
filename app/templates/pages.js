@@ -328,6 +328,145 @@ const loggedOutPage = () => `<!DOCTYPE html>
 </body>
 </html>`;
 
+const recoveryPage = (options = {}) => {
+	const {
+		isAuthenticated = false,
+		error = '',
+		flash = '',
+		backups = [],
+		backupDir = '',
+		maintenanceMode = false,
+		activeOperation = '',
+		recoveryEnabled = false,
+	} = options;
+	const initialJob = JSON.stringify({
+		state: activeOperation ? 'running' : 'idle',
+		type: activeOperation || '',
+		message: maintenanceMode ? `Maintenance mode active${activeOperation ? ` (${activeOperation})` : ''}` : '',
+		fileName: '',
+		bytesWritten: 0,
+		error: '',
+		stderrTail: '',
+	});
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+	<meta name="theme-color" content="#0b0b0b" />
+	<link rel="manifest" href="/manifest.webmanifest" />
+	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
+	<link rel="stylesheet" href="/styles.css" />
+	<title>Joplock Recovery</title>
+</head>
+<body class="theme-dark-grey">
+	<div class="settings-page">
+		<div class="settings-card">
+			<div class="settings-header">
+				<div>
+					<h1 class="settings-title">Joplock Recovery</h1>
+					<p class="settings-sub">Backup and restore without normal Joplin login.</p>
+				</div>
+				${isAuthenticated ? '<form method="POST" action="/recovery/logout"><button type="submit" class="btn btn-sm btn-secondary">Logout</button></form>' : ''}
+			</div>
+			${!recoveryEnabled ? '<div class="settings-flash settings-flash-err">Recovery mode is disabled. Set <code>JOPLOCK_RECOVERY_ENABLED</code> and <code>JOPLOCK_RECOVERY_PASSWORD</code>.</div>' : ''}
+			${flash ? `<div class="settings-flash settings-flash-ok">${escapeHtml(flash)}</div>` : ''}
+			${error ? `<div class="settings-flash settings-flash-err">${escapeHtml(error)}</div>` : ''}
+			${maintenanceMode ? `<div class="settings-flash settings-flash-err">Maintenance mode is active${activeOperation ? ` (${escapeHtml(activeOperation)})` : ''}.</div>` : ''}
+			${!isAuthenticated ? `
+			<section class="settings-section">
+				<h2 class="settings-section-title">Recovery Login</h2>
+				<p class="settings-section-sub">Use the deployment-defined recovery password.</p>
+				<form class="settings-form" method="POST" action="/recovery/login">
+					<div class="settings-grid">
+						<label class="settings-field">
+							<span>Password</span>
+							<div class="login-password-wrap">
+								${passwordField('password', { placeholder: 'Recovery password' })}
+							</div>
+						</label>
+					</div>
+					<div class="settings-actions"><button type="submit" class="btn btn-primary">Enter recovery mode</button></div>
+				</form>
+			</section>
+			` : `
+			<section class="settings-section">
+				<h2 class="settings-section-title">Live Status</h2>
+				<div class="settings-security-card" id="recovery-job-status" data-initial='${escapeHtml(initialJob)}'>
+					<p class="settings-mfa-status"><span class="badge ${activeOperation ? 'badge-warning' : 'badge-off'}" id="recovery-job-badge">${activeOperation ? 'Running' : 'Idle'}</span> <span id="recovery-job-message">${maintenanceMode ? escapeHtml(`Maintenance mode active${activeOperation ? ` (${activeOperation})` : ''}`) : 'No background backup job running.'}</span></p>
+					<pre id="recovery-job-log" class="settings-section-sub" style="white-space:pre-wrap;display:none"></pre>
+				</div>
+			</section>
+			<section class="settings-section">
+				<h2 class="settings-section-title">Backups</h2>
+				<p class="settings-section-sub">Server-side backup directory: <code>${escapeHtml(backupDir || '(not configured)')}</code></p>
+				<p class="settings-section-sub">Jobs run in the background. This page will keep updating while backup or restore is in progress.</p>
+				<form method="POST" action="/recovery/backups" style="margin-bottom:16px">
+					<button type="submit" class="btn btn-primary"${activeOperation ? ' disabled' : ''}>Create backup</button>
+				</form>
+				${backups.length ? `<div class="admin-table-wrap"><table class="admin-table">
+					<thead><tr><th>File</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead>
+					<tbody>${backups.map(b => `<tr>
+						<td><code>${escapeHtml(b.name)}</code></td>
+						<td>${escapeHtml(new Date(b.createdTime).toISOString())}</td>
+						<td>${escapeHtml(`${b.size} bytes`)}</td>
+						<td class="admin-actions-cell">
+							<a class="btn btn-sm btn-secondary" href="/recovery/backups/${encodeURIComponent(b.name)}/download">Download</a>
+						</td>
+					</tr>`).join('')}</tbody>
+				</table></div>` : '<p class="settings-section-sub">No backups found.</p>'}
+			</section>
+			<section class="settings-section">
+				<h2 class="settings-section-title">Restore Database</h2>
+				<p class="settings-section-sub">Restore replaces the entire shared Postgres database. Stop Joplin Server and sync clients first.</p>
+				<form class="settings-form" method="POST" action="/recovery/restore">
+					<div class="settings-grid">
+						<label class="settings-field">
+							<span>Backup file</span>
+							<select class="login-input" name="backupName" required>
+								<option value="">Select backup</option>
+								${backups.map(b => `<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}</option>`).join('')}
+							</select>
+						</label>
+						<label class="settings-field">
+							<span>Confirmation</span>
+							<input type="text" class="login-input" name="confirm" placeholder="Type RESTORE" required />
+						</label>
+					</div>
+					<div class="settings-actions"><button type="submit" class="btn btn-danger"${activeOperation ? ' disabled' : ''}>Restore backup</button></div>
+				</form>
+			</section>
+			`}
+		</div>
+	</div>
+	<script>
+	(function(){
+		var panel=document.getElementById('recovery-job-status');
+		if(!panel)return;
+		var badge=document.getElementById('recovery-job-badge');
+		var msg=document.getElementById('recovery-job-message');
+		var log=document.getElementById('recovery-job-log');
+		var reloaded=false;
+		var lastState='idle';
+		function render(job){
+			if(!job)return;
+			var state=job.state||'idle';
+			badge.textContent=state.charAt(0).toUpperCase()+state.slice(1);
+			badge.className='badge '+(state==='running'?'badge-warning':(state==='completed'?'badge-ok':(state==='failed'?'badge-off':'badge-off')));
+			msg.textContent=job.message||'No background backup job running.';
+			var extra=job.error||job.stderrTail||'';
+			if(extra){log.style.display='block';log.textContent=extra}else{log.style.display='none';log.textContent=''}
+			if(lastState==='running'&&(state==='completed'||state==='failed')&&!reloaded){reloaded=true;setTimeout(function(){window.location.reload()},1200)}
+			lastState=state;
+		}
+		try{render(JSON.parse(panel.getAttribute('data-initial')||'{}'))}catch(e){}
+		setInterval(function(){fetch('/recovery/status',{headers:{'Accept':'application/json'}}).then(function(r){return r.ok?r.json():null}).then(function(data){if(data&&data.job)render(data.job)}).catch(function(){})},1500)
+	})();
+	</script>
+</body>
+</html>`;
+};
+
 // MFA verification page (two-step login)
 const mfaPage = (options = {}) => {
 	const { error = '' } = options;
@@ -359,4 +498,4 @@ const mfaPage = (options = {}) => {
 </html>`;
 };
 
-module.exports = { layoutPage, loggedOutPage, mfaPage };
+module.exports = { layoutPage, loggedOutPage, mfaPage, recoveryPage };

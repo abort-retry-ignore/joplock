@@ -12,6 +12,7 @@ const {
 } = require('./routes/_helpers');
 
 const routeAuth = require('./routes/auth');
+const routeRecovery = require('./routes/recovery');
 const routeSettings = require('./routes/settings');
 const routeAdmin = require('./routes/admin');
 const routeHistory = require('./routes/history');
@@ -37,6 +38,8 @@ const createServer = options => {
 		ignoreAdminMfa = false,
 		database = null,
 		vaultService = null,
+		backupService = null,
+		recoveryService = null,
 		debug = false,
 	} = options;
 
@@ -45,6 +48,13 @@ const createServer = options => {
 	);
 
 	const log = debug ? (...args) => process.stdout.write(`[joplock] ${args.join(' ')}\n`) : () => {};
+	let maintenanceReason = '';
+	const maintenance = {
+		isEnabled: () => !!maintenanceReason,
+		reason: () => maintenanceReason,
+		enable: reason => { maintenanceReason = `${reason || 'maintenance'}`; },
+		disable: () => { maintenanceReason = ''; },
+	};
 
 	const configuredPublicUrl = new URL(joplinPublicBaseUrl);
 	const configuredServerPublicUrl = new URL(joplinServerPublicUrl);
@@ -228,10 +238,28 @@ Code block example
 		};
 
 		const sendHtml = makeSendHtml(request, log);
+		if (maintenance.isEnabled() && backupService) {
+			const job = backupService.currentStatus();
+			if (job && job.type === 'restore' && job.state === 'completed') {
+				maintenance.disable();
+			}
+		}
+		const allowDuringMaintenance = url.pathname.startsWith('/recovery') || url.pathname === '/health';
+		if (maintenance.isEnabled() && !allowDuringMaintenance) {
+			sendHtml(response, 503, templates.recoveryPage({
+				isAuthenticated: false,
+				recoveryEnabled: !!(recoveryService && recoveryService.isEnabled()),
+				maintenanceMode: true,
+				activeOperation: maintenance.reason(),
+				error: 'Joplock is in maintenance mode. Use /recovery for backup or restore operations.',
+			}));
+			return;
+		}
 
 		// Shared context passed to all route handlers
 		const ctx = {
 			sendHtml,
+			templates,
 			authenticatedUser,
 			navData,
 			userSettings,
@@ -248,6 +276,9 @@ Code block example
 			itemWriteService,
 			adminService,
 			vaultService,
+			backupService,
+			recoveryService,
+			maintenance,
 			database,
 			// config
 			joplinPublicBasePath,
@@ -266,6 +297,7 @@ Code block example
 
 		// Route handlers (order matters — first match wins)
 		const routes = [
+			routeRecovery,
 			routeAuth,
 			routeSettings,
 			routeAdmin,

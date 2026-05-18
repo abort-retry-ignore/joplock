@@ -10,6 +10,7 @@ Joplock runs as a sidecar alongside an unmodified Joplin Server instance, sharin
 - **Low Resource usage** -- minimal memory usage on the client, fast and responsive
 - **Security-first design** -- no private data stored on the client; sessions are cleaned up on logout; per-user settings and admin controls for user management
 - **User creation from Joplock UI** -- create and modify users directly from Joplock settings page
+- **Full database backup and restore** -- create and restore complete Postgres backups for both Joplin and Joplock data
 - **Multi-factor authentication** -- optional TOTP-based MFA on top of standard Joplin sessions
 - **Fast search** -- searches titles and note bodies directly in Postgres; optional live-as-you-type search
 - **Near-instant autosave** -- debounced saves with conflict detection, hash-based deduplication, and an undo ring buffer with full note history snapshots
@@ -34,6 +35,23 @@ That keeps desktop, mobile, CLI, and Joplock compatible with the same account an
 
 All configuration is done directly in the compose files via inline environment variables with comments. No `.env` file is needed -- just edit the values in `docker-compose.yml` or `docker-compose.example-full.yml` before starting.
 
+Backup and recovery configuration:
+
+- `JOPLOCK_BACKUP_DIR` enables server-side full database backups
+- `JOPLOCK_BACKUP_COMPRESSION` controls the `pg_dump` compression method, for example `zstd:19` or `gzip:9`
+- `JOPLOCK_BACKUP_COMPRESSION_LEVEL=0-9` controls `pg_dump` compression for backup files
+- `JOPLOCK_RECOVERY_ENABLED=true` enables the break-glass recovery page at `/recovery`
+- `JOPLOCK_RECOVERY_PASSWORD` protects that recovery page
+
+Important:
+
+- Backups are only durable if `JOPLOCK_BACKUP_DIR` is mounted to persistent storage.
+- Default backup compression is `zstd:19`, which is usually smaller than `gzip:9`.
+- `JOPLOCK_BACKUP_COMPRESSION` takes precedence over `JOPLOCK_BACKUP_COMPRESSION_LEVEL`.
+- Higher compression produces smaller backup files but may take longer to create.
+- Recovery mode is for backup and restore only, not regular note usage.
+- Restore replaces the entire shared Postgres database, including Joplock-owned tables.
+
 ## Docker
 
 Published container image:
@@ -55,6 +73,27 @@ docker compose -f docker-compose-build.yml up -d --build
 
 On Linux, the compose files map `host.docker.internal` to the host gateway so Joplock can reach host services by default.
 
+### Backup And Restore
+
+Normal workflow:
+
+1. Sign in as the configured Joplock admin.
+2. Open `Settings -> Admin -> Backup & Restore`.
+3. Create a backup or restore an existing server-side backup.
+
+Break-glass workflow when normal Joplin login is unavailable:
+
+1. Enable `JOPLOCK_RECOVERY_ENABLED=true` and set `JOPLOCK_RECOVERY_PASSWORD`.
+2. Open `/recovery`.
+3. Sign in with the recovery password.
+4. Create or restore full database backups from there.
+
+Before restoring:
+
+1. Stop or quiesce Joplin Server if possible.
+2. Stop active sync clients.
+3. Expect the entire shared Postgres database to be replaced.
+
 ### Full Example Stack
 
 Use this as a reference/demo stack with Postgres, Joplin Server, and Joplock together. Edit the values in `docker-compose.example-full.yml` as needed, then:
@@ -66,4 +105,3 @@ docker compose -f docker-compose.example-full.yml up -d
 The full example uses the public `joplin/server:latest` image. Joplock is exposed on `http://localhost:5444` by default. Joplin Server is internal-only unless you add a port mapping.
 
 The full example is meant as a working reference compose file. Adjust it for your real deployment.
-

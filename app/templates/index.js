@@ -45,6 +45,7 @@ module.exports = {
 	layoutPage: pages.layoutPage,
 	loggedOutPage: pages.loggedOutPage,
 	mfaPage: pages.mfaPage,
+	recoveryPage: pages.recoveryPage,
 
 	// mobile fragments
 	mobileFoldersFragment: mobile.mobileFoldersFragment,

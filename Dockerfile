@@ -2,6 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+RUN apk add --no-cache postgresql16-client
+
 COPY package.json ./package.json
 COPY package-lock.json ./package-lock.json
 RUN npm install --omit=dev

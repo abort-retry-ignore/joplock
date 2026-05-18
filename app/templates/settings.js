@@ -93,10 +93,19 @@ const adminUserRow = (u, currentUserId) => {
 };
 
 const settingsPage = (options = {}) => {
-	const { user, settings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, flash = '', flashError = '', activeTab = 'appearance' } = options;
+	const { user, settings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', flash = '', flashError = '', activeTab = 'appearance' } = options;
 	const validTabs = ['appearance', 'profile', 'security'];
 	if (isAdmin) validTabs.push('admin');
 	const tab = validTabs.includes(activeTab) ? activeTab : 'appearance';
+	const initialJob = JSON.stringify({
+		state: backupBusy ? 'running' : 'idle',
+		type: activeOperation || '',
+		message: maintenanceMode ? `Maintenance mode active${activeOperation ? ` (${activeOperation})` : ''}` : '',
+		fileName: '',
+		bytesWritten: 0,
+		error: '',
+		stderrTail: '',
+	});
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -122,6 +131,7 @@ const settingsPage = (options = {}) => {
 			</div>
 			${flash ? `<div class="settings-flash settings-flash-ok">${escapeHtml(flash)}</div>` : ''}
 			${flashError ? `<div class="settings-flash settings-flash-err">${escapeHtml(flashError)}</div>` : ''}
+			${maintenanceMode ? `<div class="settings-flash settings-flash-err">Maintenance mode is active${activeOperation ? ` (${escapeHtml(activeOperation)})` : ''}.</div>` : ''}
 			<div class="settings-tabs" role="tablist">
 				<button type="button" role="tab" class="settings-tab${tab === 'appearance' ? ' active' : ''}" data-tab="appearance" onclick="switchTab('appearance')">Appearance</button>
 				<button type="button" role="tab" class="settings-tab${tab === 'profile' ? ' active' : ''}" data-tab="profile" onclick="switchTab('profile')">Profile</button>
@@ -362,6 +372,45 @@ const settingsPage = (options = {}) => {
 						<tbody>${adminUsers.map(u => adminUserRow(u, user.id)).join('')}</tbody>
 					</table></div>` : '<p class="settings-section-sub">No users found.</p>'}
 				</section>
+				<section class="settings-section">
+					<h2 class="settings-section-title">Backup &amp; Restore</h2>
+					<p class="settings-section-sub">Create and restore full Postgres backups for Joplin and Joplock.</p>
+					${backupEnabled ? `
+					<div class="settings-security-card" id="admin-backup-status" data-initial='${escapeHtml(initialJob)}' style="margin-bottom:16px">
+						<p class="settings-mfa-status"><span class="badge ${backupBusy ? 'badge-warning' : 'badge-off'}" id="admin-backup-badge">${backupBusy ? 'Running' : 'Idle'}</span> <span id="admin-backup-message">${maintenanceMode ? escapeHtml(`Maintenance mode active${activeOperation ? ` (${activeOperation})` : ''}`) : 'No backup job running.'}</span></p>
+						<pre id="admin-backup-log" class="settings-section-sub" style="white-space:pre-wrap;display:none"></pre>
+					</div>
+					<form method="POST" action="/admin/backups" style="margin-bottom:16px">
+						<button type="submit" class="btn btn-primary"${backupBusy ? ' disabled' : ''}>Create backup</button>
+					</form>
+					${backups.length ? `<div class="admin-table-wrap"><table class="admin-table">
+						<thead><tr><th>File</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead>
+						<tbody>${backups.map(b => `<tr>
+							<td><code>${escapeHtml(b.name)}</code></td>
+							<td>${escapeHtml(new Date(b.createdTime).toISOString())}</td>
+							<td>${escapeHtml(`${b.size} bytes`)}</td>
+							<td class="admin-actions-cell"><a class="btn btn-sm btn-secondary" href="/admin/backups/${encodeURIComponent(b.name)}/download">Download</a></td>
+						</tr>`).join('')}</tbody>
+					</table></div>` : '<p class="settings-section-sub">No backups found yet.</p>'}
+					<form class="settings-form" method="POST" action="/admin/restore" style="margin-top:16px">
+						<div class="settings-grid">
+							<label class="settings-field">
+								<span>Backup file</span>
+								<select class="login-input" name="backupName" required>
+									<option value="">Select backup</option>
+									${backups.map(b => `<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}</option>`).join('')}
+								</select>
+							</label>
+							<label class="settings-field">
+								<span>Confirmation</span>
+								<input type="text" class="login-input" name="confirm" placeholder="Type RESTORE" required />
+							</label>
+						</div>
+						<div class="settings-actions"><button type="submit" class="btn btn-danger"${backupBusy ? ' disabled' : ''}>Restore backup</button></div>
+					</form>
+					<p class="settings-section-sub" style="margin-top:12px">If normal login is unavailable, use <code>/recovery</code> with the deployment recovery password.</p>
+					` : `<p class="settings-section-sub">Backups are not configured. Set <code>JOPLOCK_BACKUP_DIR</code> in deployment config.</p>`}
+				</section>
 			</div>` : ''}
 		</div>
 	</div>
@@ -388,6 +437,28 @@ const settingsPage = (options = {}) => {
 			try{localStorage.setItem('joplock-settings-tab',name)}catch(e){}
 		};
 		(function(){var saved=null;try{saved=localStorage.getItem('joplock-settings-tab')}catch(e){}var initial='${escapeHtml(tab)}';if(saved&&saved!==initial)switchTab(saved)})();
+		(function(){
+			var panel=document.getElementById('admin-backup-status');
+			if(!panel)return;
+			var badge=document.getElementById('admin-backup-badge');
+			var msg=document.getElementById('admin-backup-message');
+			var log=document.getElementById('admin-backup-log');
+			var reloaded=false;
+			var lastState='idle';
+			function render(job){
+				if(!job)return;
+				var state=job.state||'idle';
+				badge.textContent=state.charAt(0).toUpperCase()+state.slice(1);
+				badge.className='badge '+(state==='running'?'badge-warning':(state==='completed'?'badge-ok':(state==='failed'?'badge-off':'badge-off')));
+				msg.textContent=job.message||'No backup job running.';
+				var extra=job.error||job.stderrTail||'';
+				if(extra){log.style.display='block';log.textContent=extra}else{log.style.display='none';log.textContent=''}
+				if(lastState==='running'&&(state==='completed'||state==='failed')&&!reloaded){reloaded=true;setTimeout(function(){window.location.reload()},1200)}
+				lastState=state;
+			}
+			try{render(JSON.parse(panel.getAttribute('data-initial')||'{}'))}catch(e){}
+			setInterval(function(){fetch('/admin/status',{headers:{'Accept':'application/json'}}).then(function(r){return r.ok?r.json():null}).then(function(data){if(data&&data.job)render(data.job)}).catch(function(){})},1500)
+		})();
 		document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!e.target.closest('dialog[open]')){window.location.href='/'}});
 	})();
 	</script>

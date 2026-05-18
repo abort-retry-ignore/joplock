@@ -231,9 +231,10 @@ const layoutPage = (options = {}) => {
 			<div class="code-modal-header">
 				<h3 class="code-modal-title" id="code-modal-title">Insert code block</h3>
 				<select id="code-lang" class="login-input code-lang-select">
-					<option value="">Plain text</option>
-					<option value="bash">Bash</option>
-					<option value="c">C</option>
+				<option value="">Plain text</option>
+				<option value="bash">Bash</option>
+				<option value="basic">BASIC</option>
+				<option value="c">C</option>
 					<option value="cpp">C++</option>
 					<option value="css">CSS</option>
 					<option value="go">Go</option>

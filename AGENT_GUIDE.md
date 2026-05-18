@@ -224,6 +224,7 @@ Tablet still uses the mobile shell in the current responsive design. Mobile/tabl
 - The hidden textarea `#note-body` is the form field used for saves
 - In markdown mode, CodeMirror changes sync into `#note-body`
 - In rendered mode, preview DOM changes sync back into markdown via `htmlToMarkdown()`
+- File/image uploads should alter markdown first, then refresh rendered preview from markdown; do not treat preview-only DOM insertion as authoritative state
 - The title is mirrored between `.editor-title`, hidden title input, and mobile title header when applicable
 
 ### Save lifecycle
@@ -231,9 +232,18 @@ Tablet still uses the mobile shell in the current responsive design. Mobile/tabl
 - `markEdited()` updates UI state to `Edited`
 - `scheduleSave()` triggers delayed autosave for body/form changes
 - `scheduleSaveTitle()` is a shorter timer for title changes
+- If `scheduleSave()` or `scheduleSaveTitle()` sees the same form hash as `_savedHash`, the visible save state should return to `Saved`, not remain `Edited`
 - `flushSave()` is the forced-save path used before leaving a dirty note; it must also handle vault-note encryption before navigation proceeds
 - `htmx:afterRequest` on the editor save path transitions UI state back to `Saved`
 - Offline/request failure paths set status to `Offline`
+
+### Upload behavior
+
+- The hidden file input `#file-upload` supports multi-select uploads
+- `handleFilePicker()` snapshots the selected `FileList` before clearing the input so mobile/desktop pickers do not lose files
+- `uploadFiles()` should batch multi-file selections and avoid mid-batch autosave races that can reload the editor before later files are applied
+- Desktop and mobile rendered-mode uploads must preserve selection order across multiple images
+- Image-only uploads must not promote the image filename into the note title; auto-title should ignore image-only first lines
 
 ### Important fragility points
 
@@ -374,6 +384,7 @@ If a UI action appears broken, check:
 - Verify whether the current editor is actually inside `#mobile-editor-body`
 - Check `syncEditorModeButtons()` and `setEditorMode()`
 - Check whether the note was initialized with the expected `noteOpenMode`
+- If switching modes marks the note `Edited`, confirm the current form hash differs from `_savedHash`; unchanged hashes should show `Saved`
 
 ### If title UI drifts
 
@@ -445,6 +456,7 @@ Recommended inner loop:
 - **All Notes fix**: `/fragments/folder-notes` now normalizes `__all_notes__` → `__all__` so the virtual folder loads correctly
 - **Service worker cache bump**: `v12` forces PWA to fetch fresh CSS/JS after update
 - **Checkbox styling**: checked items show accent-colored bold icon via `.md-cb-icon` span; icon is styled independently from text using flexbox layout; turndown serializer, click-toggle handler, and new-checkbox inserter all updated to match
+- **Multi-image uploads**: picker uploads now support multiple files, update markdown as the source of truth, preserve upload order in rendered mode, and refresh preview from markdown after each batch
 
 ## Key Conventions
 

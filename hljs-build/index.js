@@ -12,6 +12,7 @@ import c from 'highlight.js/lib/languages/c';
 import yaml from 'highlight.js/lib/languages/yaml';
 import bash from 'highlight.js/lib/languages/bash';
 import dockerfile from 'highlight.js/lib/languages/dockerfile';
+import basic from 'highlight.js/lib/languages/basic';
 
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('js', javascript);
@@ -37,5 +38,7 @@ hljs.registerLanguage('shell', bash);
 hljs.registerLanguage('zsh', bash);
 hljs.registerLanguage('dockerfile', dockerfile);
 hljs.registerLanguage('docker-compose', yaml);
+hljs.registerLanguage('basic', basic);
+hljs.registerLanguage('bas', basic);
 
 window.hljs = hljs;

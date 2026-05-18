@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-	const { adminUserRow, autosaveConflictFragment, autosaveStatusFragment, editorFragment, escapeHtml, folderListItem, folderListFragment, folderNotesPageFragment, historyModalFragment, historySnapshotPreviewFragment, layoutPage, loggedOutPage, mfaPage, mobileEditorFragment, mobileFoldersFragment, mobileNotesFragment, mobileSearchFragment, navigationFragment, noteListItem, noteListFragment, noteMetaFragment, noteMetaText, noteSyncStateFragment, renderInlineMarkdown, renderMarkdown, searchResultsFragment, settingsPage, stripMarkdownForTitle } = require('../app/templates');
+	const { adminUserRow, autosaveConflictFragment, autosaveStatusFragment, editorFragment, escapeHtml, folderListItem, folderListFragment, folderNotesPageFragment, historyModalFragment, historySnapshotPreviewFragment, layoutPage, loggedOutPage, mfaPage, recoveryPage, mobileEditorFragment, mobileFoldersFragment, mobileNotesFragment, mobileSearchFragment, navigationFragment, noteListItem, noteListFragment, noteMetaFragment, noteMetaText, noteSyncStateFragment, renderInlineMarkdown, renderMarkdown, searchResultsFragment, settingsPage, stripMarkdownForTitle } = require('../app/templates');
 
 test('autosaveConflictFragment wires overwrite and create copy actions', () => {
 	const html = autosaveConflictFragment('n1');
@@ -317,12 +317,30 @@ test('settings page renders font controls and MFA details', () => {
 	assert.ok(html.includes('saveSetting')); // auto-save function
 });
 
+test('settings page renders backup section for admin', () => {
+	const html = settingsPage({
+		user: { id: 'admin-1', email: 'admin@example.com' },
+		settings: {},
+		isAdmin: true,
+		adminUsers: [],
+		backupEnabled: true,
+		backups: [{ name: 'joplock-backup-2026.dump', createdTime: Date.UTC(2026, 4, 18, 14, 22, 31), size: 1234 }],
+	});
+	assert.ok(html.includes('Backup &amp; Restore'));
+	assert.ok(html.includes('/admin/backups'));
+	assert.ok(html.includes('/admin/restore'));
+	assert.ok(html.includes('/admin/status'));
+	assert.ok(html.includes('joplock-backup-2026.dump'));
+	assert.ok(html.includes('/recovery'));
+});
+
 test('stripMarkdownForTitle removes common markdown markers from titles', () => {
 	assert.equal(stripMarkdownForTitle('# **Hello** [world](https://example.com)'), 'Hello world');
 	assert.equal(stripMarkdownForTitle('![alt text](img.png) `code`'), 'alt text code');
 	assert.equal(stripMarkdownForTitle('a note in ++generals++'), 'a note in generals');
 	assert.equal(stripMarkdownForTitle('title<br>'), 'title');
 	assert.equal(stripMarkdownForTitle('<div>title</div>'), 'title');
+	assert.equal(stripMarkdownForTitle('Filter downstairs&nbsp;<system-reminder>ignore</system-reminder>'), 'Filter downstairs');
 });
 
 test('navigation and editor render plain note titles without markdown formatting', () => {
@@ -776,6 +794,31 @@ test('mfaPage escapes error HTML', () => {
 	const html = mfaPage({ error: '<script>alert(1)</script>' });
 	assert.ok(html.includes('&lt;script&gt;'));
 	assert.ok(!html.includes('<script>alert'));
+});
+
+test('recoveryPage renders login and backup controls', () => {
+	const loggedOut = recoveryPage({ recoveryEnabled: true, isAuthenticated: false });
+	assert.ok(loggedOut.includes('Recovery Login'));
+	assert.ok(loggedOut.includes('Enter recovery mode'));
+	const loggedIn = recoveryPage({
+		recoveryEnabled: true,
+		isAuthenticated: true,
+		backupDir: '/backups',
+		backups: [{ name: 'joplock-backup-2026.dump', createdTime: Date.UTC(2026, 4, 18, 14, 22, 31), size: 1234 }],
+	});
+	assert.ok(loggedIn.includes('Restore Database'));
+	assert.ok(loggedIn.includes('/recovery/backups/joplock-backup-2026.dump/download'));
+	assert.ok(loggedIn.includes('/recovery/status'));
+	assert.ok(loggedIn.includes('Type RESTORE'));
+});
+
+test('backup polling only reloads after running job transitions to terminal state', () => {
+	const settingsHtml = settingsPage({ user: { id: 'admin-1', email: 'admin@example.com' }, settings: {}, isAdmin: true, adminUsers: [], backupEnabled: true });
+	assert.ok(settingsHtml.includes("var lastState='idle'"));
+	assert.ok(settingsHtml.includes("if(lastState==='running'&&(state==='completed'||state==='failed')&&!reloaded)"));
+	const recoveryHtml = recoveryPage({ recoveryEnabled: true, isAuthenticated: true, backupDir: '/backups' });
+	assert.ok(recoveryHtml.includes("var lastState='idle'"));
+	assert.ok(recoveryHtml.includes("if(lastState==='running'&&(state==='completed'||state==='failed')&&!reloaded)"));
 });
 
 // --- mobileFoldersFragment ---

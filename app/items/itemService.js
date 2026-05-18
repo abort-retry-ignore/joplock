@@ -70,6 +70,16 @@ const VIRTUAL_TRASH_ID = '__trash__';
 
 const ensureIndexes = async database => {
 	await database.query(`
+		CREATE OR REPLACE FUNCTION joplock_content_utf8(data bytea)
+		RETURNS text
+		LANGUAGE sql
+		IMMUTABLE
+		PARALLEL SAFE
+		AS $$
+			SELECT convert_from(data, 'UTF8')
+		$$
+	`);
+	await database.query(`
 		CREATE INDEX IF NOT EXISTS idx_items_owner_type_parent_updated
 		ON items (owner_id, jop_type, jop_parent_id, jop_updated_time DESC)
 	`);
@@ -80,8 +90,8 @@ const ensureIndexes = async database => {
 		ON items
 		USING GIN (
 			(
-				COALESCE(convert_from(content, 'UTF8')::json->>'title', '') || ' ' ||
-				COALESCE(convert_from(content, 'UTF8')::json->>'body', '')
+				COALESCE(joplock_content_utf8(content)::json->>'title', '') || ' ' ||
+				COALESCE(joplock_content_utf8(content)::json->>'body', '')
 			) gin_trgm_ops
 		)
 		WHERE jop_type = 1

@@ -5,7 +5,7 @@ const { redirect, parseBody } = require('./_helpers');
 const templates = require('../templates');
 
 const handle = async (url, request, response, ctx) => {
-	const { sendHtml, authenticatedUser, settingsService, adminService, database, isJoplockAdmin } = ctx;
+	const { sendHtml, authenticatedUser, settingsService, adminService, database, isJoplockAdmin, backupService, maintenance } = ctx;
 
 	// GET /settings
 	if (url.pathname === '/settings' && request.method === 'GET') {
@@ -14,6 +14,7 @@ const handle = async (url, request, response, ctx) => {
 		const settings = await settingsService.settingsByUserId(auth.user.id);
 		const isAdmin = isJoplockAdmin(auth.user);
 		let adminUsers = null;
+		let backups = [];
 		if (isAdmin) {
 			try {
 				const users = await adminService.listUsers();
@@ -27,12 +28,16 @@ const handle = async (url, request, response, ctx) => {
 					};
 				}));
 			} catch {}
+			try {
+				if (backupService && backupService.isConfigured()) backups = await backupService.listBackups();
+			} catch {}
 		}
 		const userTotpSeed = await settingsService.getTotpSeed(auth.user.id);
 		const userTotpEnabled = !!userTotpSeed;
 		const setupSeed = url.searchParams.get('mfaSetup') || '';
 		const userTotpSetupSeed = setupSeed && !userTotpEnabled ? setupSeed : '';
 		const userTotpSetupQr = userTotpSetupSeed ? qrCodeDataUrl(otpauthUri(userTotpSetupSeed, auth.user.email, 'Joplock')) : '';
+		const savedParam = url.searchParams.get('saved') || '';
 		sendHtml(response, 200, templates.settingsPage({
 			user: auth.user,
 			settings,
@@ -42,7 +47,12 @@ const handle = async (url, request, response, ctx) => {
 			isAdmin,
 			isDockerAdmin: isAdmin,
 			adminUsers,
-			flash: url.searchParams.get('saved') === '1' ? 'Settings saved.' : (url.searchParams.get('mfaEnabled') === '1' ? 'MFA enabled successfully.' : ''),
+			backups,
+			backupEnabled: !!(backupService && backupService.isConfigured()),
+			backupBusy: !!(backupService && backupService.isBusy && backupService.isBusy()),
+			maintenanceMode: maintenance && maintenance.isEnabled ? maintenance.isEnabled() : false,
+			activeOperation: maintenance && maintenance.reason ? maintenance.reason() : '',
+			flash: savedParam === '1' ? 'Settings saved.' : (savedParam || (url.searchParams.get('mfaEnabled') === '1' ? 'MFA enabled successfully.' : '')),
 			flashError: url.searchParams.get('error') || '',
 			activeTab: url.searchParams.get('tab') || 'appearance',
 		}));

@@ -4,6 +4,14 @@
 const { validDateFormats, validDatetimeFormats } = require('../settingsService');
 const { renderMarkdown: renderMarkdownImpl } = require('../markdownRenderer');
 
+const decodeTitleEntities = value => `${value || ''}`
+	.replaceAll('&nbsp;', ' ')
+	.replaceAll('&amp;', '&')
+	.replaceAll('&lt;', '<')
+	.replaceAll('&gt;', '>')
+	.replaceAll('&quot;', '"')
+	.replaceAll('&#39;', "'");
+
 const escapeHtml = value => `${value}`
 	.replaceAll('&', '&amp;')
 	.replaceAll('<', '&lt;')
@@ -42,7 +50,8 @@ const trashFolderId = 'de1e7ede1e7ede1e7ede1e7ede1e7ede';
 const themeOptions = [['matrix','Matrix'],['matrix-blue','Dark Blue'],['matrix-purple','Dark Purple'],['matrix-amber','Dark Amber'],['matrix-orange','Dark Orange'],['dark-grey','Dark Grey'],['dark-red','Dark Red'],['dark','Dark'],['light','Light'],['oled-dark','OLED Dark'],['solarized-light','Solarized Light'],['solarized-dark','Solarized Dark'],['nord','Nord'],['dracula','Dracula'],['aritim-dark','Aritim Dark']];
 
 const stripMarkdownForTitle = value => {
-	let text = `${value || ''}`.trim();
+	let text = decodeTitleEntities(value).trim();
+	text = text.replace(/<system-reminder\b[^>]*>[\s\S]*?<\/system-reminder>/gi, ' ');
 	text = text.replace(/<[^>]+>/g, ' ');
 	while (text.startsWith('#')) text = text.slice(1).trimStart();
 	text = text
@@ -78,7 +87,7 @@ const stripMarkdownForTitle = value => {
 		}
 		output += ch;
 	}
-	return output.trim();
+	return output.replace(/\s+/g, ' ').trim();
 };
 
 // Render only inline markdown (bold, italic, strikethrough, inline code) — no block elements

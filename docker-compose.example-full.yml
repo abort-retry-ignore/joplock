@@ -79,6 +79,14 @@ services:
       JOPLOCK_ADMIN_PASSWORD: ''
       # Set to true to skip MFA check for the admin account defined above
       IGNORE_ADMIN_MFA: 'false'
+      # Full database backup storage inside the container
+      JOPLOCK_BACKUP_DIR: /backups
+      # Optional break-glass recovery mode for backup/restore
+      JOPLOCK_RECOVERY_ENABLED: 'false'
+      JOPLOCK_RECOVERY_PASSWORD: ''
+    volumes:
+      - backup_data:/backups
 
 volumes:
   db_data:
+  backup_data:

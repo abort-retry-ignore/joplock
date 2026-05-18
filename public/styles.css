@@ -595,8 +595,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	color: var(--accent);
 }
 
-:is(.theme-matrix, .theme-matrix-blue, .theme-matrix-purple, .theme-matrix-amber, .theme-matrix-orange) .nav-folder-title,
-:is(.theme-matrix, .theme-matrix-blue, .theme-matrix-purple, .theme-matrix-amber, .theme-matrix-orange) .sidebar-item-name {
+.theme-matrix .nav-folder-title,
+.theme-matrix .sidebar-item-name {
 	color: #7ee787;
 }
 

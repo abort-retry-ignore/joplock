@@ -50,7 +50,14 @@ const trashFolderId = 'de1e7ede1e7ede1e7ede1e7ede1e7ede';
 const themeOptions = [['matrix','Matrix'],['matrix-blue','Dark Blue'],['matrix-purple','Dark Purple'],['matrix-amber','Dark Amber'],['matrix-orange','Dark Orange'],['dark-grey','Dark Grey'],['dark-red','Dark Red'],['dark','Dark'],['light','Light'],['oled-dark','OLED Dark'],['solarized-light','Solarized Light'],['solarized-dark','Solarized Dark'],['nord','Nord'],['dracula','Dracula'],['aritim-dark','Aritim Dark']];
 
 const stripMarkdownForTitle = value => {
-	let text = decodeTitleEntities(value).trim();
+	let text = `${value || ''}`
+		.replaceAll('&nbsp;', ' ')
+		.replaceAll('&amp;', '&')
+		.replaceAll('&lt;', '<')
+		.replaceAll('&gt;', '>')
+		.replaceAll('&quot;', '"')
+		.replaceAll('&#39;', "'")
+		.trim();
 	text = text.replace(/<system-reminder\b[^>]*>[\s\S]*?<\/system-reminder>/gi, ' ');
 	text = text.replace(/<[^>]+>/g, ' ');
 	while (text.startsWith('#')) text = text.slice(1).trimStart();

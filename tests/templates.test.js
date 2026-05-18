@@ -162,8 +162,14 @@ test('navigationFragment includes shared folder context menu and modal', () => {
 test('renderMarkdown rewrites raw html resource images without self-closing slash', () => {
 	const html = renderMarkdown('<img src=":/49a3f012f300473d98a33b97940306b1" alt="x" width="313" height="417">');
 	assert.ok(html.includes('src="/resources/49a3f012f300473d98a33b97940306b1"'));
+	assert.ok(html.includes('class="preview-img"'));
 	assert.ok(html.includes('width="313"'));
 	assert.ok(html.includes('height="417"'));
+});
+
+test('renderMarkdown appends preview-img to raw html image classes', () => {
+	const html = renderMarkdown('<img src=":/49a3f012f300473d98a33b97940306b1" alt="x" class="custom" />');
+	assert.ok(html.includes('class="custom preview-img"'));
 });
 
 test('renderMarkdown opens resource links in another tab', () => {

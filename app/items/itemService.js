@@ -3,6 +3,8 @@ const MODEL_TYPE_FOLDER = 2;
 const MODEL_TYPE_RESOURCE = 4;
 const TRASH_FOLDER_ID = 'de1e7ede1e7ede1e7ede1e7ede1e7ede';
 
+const safeJsonExpression = expr => `CASE WHEN left(trim(${expr}), 1) = '{' THEN (${expr})::json ELSE '{}'::json END`;
+
 const decodeItemContent = content => {
 	if (!content) return {};
 	const raw = Buffer.isBuffer(content) ? content.toString('utf8') : `${content}`;
@@ -86,12 +88,15 @@ const ensureIndexes = async database => {
 	// pg_trgm enables GIN trigram indexes for fast ILIKE body/title search
 	await database.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
 	await database.query(`
+		DROP INDEX IF EXISTS idx_items_search_trgm
+	`);
+	await database.query(`
 		CREATE INDEX IF NOT EXISTS idx_items_search_trgm
 		ON items
 		USING GIN (
 			(
-				COALESCE(joplock_content_utf8(content)::json->>'title', '') || ' ' ||
-				COALESCE(joplock_content_utf8(content)::json->>'body', '')
+				COALESCE(${safeJsonExpression('joplock_content_utf8(content)')}->>'title', '') || ' ' ||
+				COALESCE(${safeJsonExpression('joplock_content_utf8(content)')}->>'body', '')
 			) gin_trgm_ops
 		)
 		WHERE jop_type = 1
@@ -232,7 +237,7 @@ const createItemService = database => {
 				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content
 				FROM (
 					SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content,
-						convert_from(content, 'UTF8')::json AS parsed
+						${safeJsonExpression("convert_from(content, 'UTF8')")} AS parsed
 					FROM items
 					WHERE owner_id = $1 AND jop_type = $2
 				) sub

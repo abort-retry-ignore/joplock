@@ -525,6 +525,50 @@ test('POST /fragments/notes in vault renders locked editor with vault id', async
 	});
 });
 
+test('POST /fragments/notes falls back to created note when immediate read misses', async () => {
+	await withServer({
+		itemWriteService: {
+			createNote: async () => ({ id: 'n-new' }),
+		},
+		itemService: {
+			noteByUserIdAndJopId: async () => null,
+			foldersByUserId: async () => [{ id: 'f1', title: 'Folder 1', parentId: '' }],
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/notes',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'parentId=f1',
+		});
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('hx-put="/fragments/editor/n-new"'));
+		assert.ok(res.body.includes('value="f1" selected'));
+	});
+});
+
+test('POST /fragments/notes/in-general falls back to created note when immediate read misses', async () => {
+	await withServer({
+		itemWriteService: {
+			createNote: async () => ({ id: 'n-new' }),
+		},
+		itemService: {
+			noteByUserIdAndJopId: async () => null,
+			foldersByUserId: async () => [{ id: 'general', title: 'General', parentId: '' }],
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/notes/in-general',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: '',
+		});
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('hx-put="/fragments/editor/n-new"'));
+		assert.ok(res.body.includes('value="general" selected'));
+	});
+});
+
 test('DELETE /fragments/notes/:id trashes note and shows trash folder', async () => {
 	let trashed = false;
 	await withServer({

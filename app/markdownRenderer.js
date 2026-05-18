@@ -11,6 +11,7 @@ const MarkdownIt = require('markdown-it');
 
 const RESOURCE_ID_RE = /^:\/([0-9a-fA-F]{32})$/;
 const JOPLIN_SRC_RE = /src=":\/([0-9a-fA-F]{32})"/g;
+const HTML_IMG_RE = /<img\b([^>]*?)(\/)?>/gi;
 
 function escapeHtmlAttr(str) {
 	return String(str)
@@ -217,6 +218,16 @@ function injectBlankLineBlocks(src) {
 function postProcess(html) {
 	// Rewrite :/<id> in src attrs from raw HTML passthrough (<img src=":/...">)
 	html = html.replace(JOPLIN_SRC_RE, (_m, id) => `src="/resources/${id}"`);
+
+	// Raw HTML images bypass markdown-it's image renderer, so normalize them here
+	// to preserve preview-only behaviors like resize handles.
+	html = html.replace(HTML_IMG_RE, (match, attrs = '', selfClosing = '') => {
+		if (/\bclass\s*=\s*"[^"]*\bpreview-img\b/.test(attrs)) return match;
+		if (/\bclass\s*=\s*"([^"]*)"/.test(attrs)) {
+			return match.replace(/\bclass\s*=\s*"([^"]*)"/, (_m, classes) => `class="${classes} preview-img"`);
+		}
+		return `<img${attrs} class="preview-img"${selfClosing ? '/' : ''}>`;
+	});
 
 	// Strip hx-* attributes (htmx injection guard)
 	html = html.replace(/\s+hx-[a-z-]+="[^"]*"/g, '');

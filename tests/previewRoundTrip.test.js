@@ -75,6 +75,35 @@ const previewRoundTrip = markdown => {
 	return out;
 };
 
+const previewHtmlRoundTrip = html => {
+	const rendered = renderMarkdown(html);
+	const dom = new JSDOM(`<div id="root">${rendered}</div>`);
+	const td = new TurndownService({
+		headingStyle: 'atx',
+		hr: '---',
+		codeBlockStyle: 'fenced',
+		bulletListMarker: '-',
+		emDelimiter: '*',
+		strongDelimiter: '**',
+		br: '<br>',
+	});
+	td.addRule('joplinImg', {
+		filter: node => node.nodeName === 'IMG',
+		replacement: (_content, node) => {
+			const alt = node.getAttribute('alt') || '';
+			const src = node.getAttribute('src') || '';
+			const w = node.style.width || node.getAttribute('width');
+			const h = node.style.height || node.getAttribute('height');
+			const rm = src.match(/^\/resources\/([0-9a-zA-Z]{32})$/);
+			const imgSrc = rm ? `:/${rm[1]}` : src;
+			if (w || h) return `<img src="${imgSrc}" alt="${alt}"${w ? ` width="${parseInt(w, 10)}"` : ''}${h ? ` height="${parseInt(h, 10)}"` : ''} />`;
+			if (rm) return `![${alt}](:/${rm[1]})`;
+			return `![${alt}](${src})`;
+		},
+	});
+	return td.turndown(dom.window.document.getElementById('root').innerHTML);
+};
+
 const previewRoundTripWithCopyButtons = markdown => {
 	const html = renderMarkdown(markdown);
 	const dom = new JSDOM(`<div id="root">${html}</div>`);
@@ -106,6 +135,11 @@ test('preview round-trip preserves printable ascii', () => {
 		return `${String(code).padStart(3, '0')}: before${String.fromCharCode(code)}after`;
 	}).join('\n');
 	assert.equal(previewRoundTrip(asciiBody), asciiBody);
+});
+
+test('preview round-trip preserves raw html resource image sizing', () => {
+	const body = '<img src=":/49a3f012f300473d98a33b97940306b1" alt="Custom mini 3d" width="454" height="654" />';
+	assert.equal(previewHtmlRoundTrip(body), body);
 });
 
 test('preview round-trip preserves blank-line markers', () => {

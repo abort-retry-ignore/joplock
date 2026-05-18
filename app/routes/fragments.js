@@ -10,6 +10,16 @@ const templates = require('../templates');
 const editorPanelOob = html => `<div id="editor-panel" hx-swap-oob="innerHTML">${html}</div>`;
 const editorEmpty = () => editorPanelOob('<div class="editor-empty">Select a note</div>');
 
+const createdNoteFallback = (created, parentId, title = 'Untitled note', body = '') => ({
+	id: created && created.id ? created.id : '',
+	title,
+	body,
+	parentId,
+	createdTime: Date.now(),
+	updatedTime: Date.now(),
+	deletedTime: 0,
+});
+
 const moveFolderNotesToGeneral = async (userId, sessionId, folderId, itemService, itemWriteService, requestContext) => {
 	const sourceFolder = await itemService.folderByUserIdAndJopId(userId, folderId);
 	if (!sourceFolder) {
@@ -171,7 +181,9 @@ const handle = async (url, request, response, ctx) => {
 				navData(auth.user.id),
 				itemService.noteByUserIdAndJopId(auth.user.id, created.id),
 			]);
-			const note = rawNote ? await enrichNoteWithVault(auth.user.id, rawNote, folders) : rawNote;
+			const note = rawNote
+				? await enrichNoteWithVault(auth.user.id, rawNote, folders)
+				: createdNoteFallback(created, parentId, plainNoteTitle(body.title));
 			// Override parentId: DB may not reflect it yet due to Joplin Server async processing
 			if (note && parentId) note.parentId = parentId;
 			const selFolder = selectedFolderForNav(currentFolderId);
@@ -205,7 +217,9 @@ const handle = async (url, request, response, ctx) => {
 				navData(auth.user.id),
 				itemService.noteByUserIdAndJopId(auth.user.id, created.id),
 			]);
-			const note = rawNote ? await enrichNoteWithVault(auth.user.id, rawNote, navFolders) : rawNote;
+			const note = rawNote
+				? await enrichNoteWithVault(auth.user.id, rawNote, navFolders)
+				: createdNoteFallback(created, general.id, 'Untitled note');
 			// Override parentId: DB may not reflect it yet due to Joplin Server async processing
 			if (note) note.parentId = general.id;
 			const selFolder = selectedFolderForNav(general.id);
@@ -384,7 +398,9 @@ const handle = async (url, request, response, ctx) => {
 					parentId: parentFolderId,
 				}, upstreamRequestContext(request));
 				const rawCreatedNote = await itemService.noteByUserIdAndJopId(auth.user.id, created.id);
-				const createdNote = rawCreatedNote ? await enrichNoteWithVault(auth.user.id, rawCreatedNote, folders) : rawCreatedNote;
+				const createdNote = rawCreatedNote
+					? await enrichNoteWithVault(auth.user.id, rawCreatedNote, folders)
+					: createdNoteFallback(created, parentFolderId, copyTitle, body.body);
 				// Override parentId: DB may not reflect it yet due to Joplin Server async processing
 				if (createdNote && parentFolderId) createdNote.parentId = parentFolderId;
 				await saveLastNoteState(auth.user.id, currentSettings, created.id, currentFolderId || (createdNote && createdNote.parentId) || parentFolderId);

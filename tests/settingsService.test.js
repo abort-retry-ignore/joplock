@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createSettingsService, defaultSettings, normalizeSettings } = require('../app/settingsService');
+const { createSettingsService, defaultAppSettings, defaultSettings, normalizeAppSettings, normalizeSettings } = require('../app/settingsService');
 
 test('settingsService returns defaults when row is missing', async () => {
 	const queries = [];
@@ -68,6 +68,33 @@ test('settingsService reads JSON settings from row', async () => {
 	assert.equal(settings.autoLogoutMinutes, 60);
 });
 
+test('settingsService appSettings returns defaults when row is missing', async () => {
+	const service = createSettingsService({
+		query: async (sql) => {
+			if (sql.includes('SELECT')) return { rows: [] };
+			return { rows: [] };
+		},
+	});
+	const settings = await service.appSettings();
+	assert.deepEqual(settings, defaultAppSettings);
+});
+
+test('settingsService saves normalized app settings as JSON', async () => {
+	const calls = [];
+	const service = createSettingsService({
+		query: async (sql, params) => {
+			calls.push({ sql, params });
+			return { rows: [] };
+		},
+	});
+	const saved = await service.saveAppSettings({ authRateLimitAttempts: '9999' });
+	assert.equal(saved.authRateLimitAttempts, 1000);
+	const insertCall = calls.find(c => c.sql.includes('INSERT INTO joplock_settings'));
+	assert.ok(insertCall, 'should insert app settings into joplock_settings');
+	assert.equal(insertCall.params[0], '__app__');
+	assert.equal(JSON.parse(insertCall.params[1]).authRateLimitAttempts, 1000);
+});
+
 test('settingsService returns defaults when table creation fails', async () => {
 	const service = createSettingsService({
 		query: async () => { throw new Error('permission denied'); },
@@ -106,4 +133,11 @@ test('normalizeSettings accepts new matrix theme variants', () => {
 	assert.equal(normalizeSettings({ theme: 'matrix-amber' }).theme, 'matrix-amber');
 	assert.equal(normalizeSettings({ theme: 'matrix-orange' }).theme, 'matrix-orange');
 	assert.equal(normalizeSettings({ theme: 'not-a-theme' }).theme, 'matrix');
+});
+
+test('normalizeAppSettings clamps authRateLimitAttempts', () => {
+	assert.equal(normalizeAppSettings({ authRateLimitAttempts: 0 }).authRateLimitAttempts, 1);
+	assert.equal(normalizeAppSettings({ authRateLimitAttempts: 2000 }).authRateLimitAttempts, 1000);
+	assert.equal(normalizeAppSettings({ authRateLimitAttempts: 'abc' }).authRateLimitAttempts, 20);
+	assert.equal(normalizeAppSettings({ authRateLimitAttempts: 25 }).authRateLimitAttempts, 25);
 });

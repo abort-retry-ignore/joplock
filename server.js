@@ -9,6 +9,7 @@ const { createAdminService } = require('./app/adminService');
 const { createVaultService } = require('./app/vaultService');
 const { createBackupService } = require('./app/backupService');
 const { createRecoveryService } = require('./app/recoveryService');
+const { createRateLimitService } = require('./app/auth/rateLimitService');
 const { createServer } = require('./app/createServer');
 const { normalizeEnvValue } = require('./app/env');
 
@@ -29,6 +30,7 @@ const recoveryPassword = normalizeEnvValue(process.env.JOPLOCK_RECOVERY_PASSWORD
 const recoverySessionTtlMinutes = Number(process.env.JOPLOCK_RECOVERY_SESSION_TTL_MINUTES || '30');
 const backupCompression = process.env.JOPLOCK_BACKUP_COMPRESSION || 'zstd:19';
 const backupCompressionLevel = Number(process.env.JOPLOCK_BACKUP_COMPRESSION_LEVEL || '9');
+const loginRateLimitService = createRateLimitService();
 
 const databasePool = createPoolFromEnv(process.env);
 const sessionService = createSessionService(databasePool);
@@ -96,6 +98,7 @@ const server = createServer({
 	vaultService,
 	backupService,
 	recoveryService,
+	rateLimitService: loginRateLimitService,
 	debug: process.env.DEBUG === 'true' || process.env.DEBUG === '1',
 });
 

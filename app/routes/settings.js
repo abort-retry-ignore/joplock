@@ -13,6 +13,7 @@ const handle = async (url, request, response, ctx) => {
 		if (auth.error || !auth.user) { redirect(response, '/login'); return true; }
 		const settings = await settingsService.settingsByUserId(auth.user.id);
 		const isAdmin = isJoplockAdmin(auth.user);
+		const appSettings = isAdmin ? await settingsService.appSettings() : null;
 		let adminUsers = null;
 		let backups = [];
 		if (isAdmin) {
@@ -52,6 +53,7 @@ const handle = async (url, request, response, ctx) => {
 			backupBusy: !!(backupService && backupService.isBusy && backupService.isBusy()),
 			maintenanceMode: maintenance && maintenance.isEnabled ? maintenance.isEnabled() : false,
 			activeOperation: maintenance && maintenance.reason ? maintenance.reason() : '',
+			appSettings,
 			flash: savedParam === '1' ? 'Settings saved.' : (savedParam || (url.searchParams.get('mfaEnabled') === '1' ? 'MFA enabled successfully.' : '')),
 			flashError: url.searchParams.get('error') || '',
 			activeTab: url.searchParams.get('tab') || 'appearance',

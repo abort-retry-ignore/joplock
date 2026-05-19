@@ -9,7 +9,41 @@ const templates = require('../templates');
 const handle = async (url, request, response, ctx) => {
 	const { sendHtml, sessionService, settingsService, itemWriteService, upstreamRequestContext,
 		joplinServerOrigin, configuredPublicUrl, ignoreAdminMfa, adminEmail,
-		ensureStarterContent, debug } = ctx;
+		ensureStarterContent, debug, rateLimitService } = ctx;
+
+	const clientIp = rateLimitService.clientIpFromRequest(request);
+
+	const sendHtmlWithHeaders = (statusCode, html, headers = {}) => {
+		response.writeHead(statusCode, {
+			'Cache-Control': 'no-store',
+			'Content-Type': 'text/html; charset=utf-8',
+			...headers,
+		});
+		response.end(html);
+	};
+
+	const sendLoginRateLimited = retryAfterSec => {
+		sendHtmlWithHeaders(429, templates.layoutPage({ debug,
+			user: null,
+			joplinBasePath: ctx.joplinPublicBasePath,
+			settings: null,
+			mfaEnabled: false,
+			loginError: 'Too many login attempts. Try again later.',
+		}), {
+			'Retry-After': `${retryAfterSec}`,
+		});
+	};
+
+	const sendMfaRateLimited = retryAfterSec => {
+		sendHtmlWithHeaders(429, templates.mfaPage({ error: 'Too many authentication attempts. Try again later.' }), {
+			'Retry-After': `${retryAfterSec}`,
+		});
+	};
+
+	const authRateLimitAttempts = async () => {
+		const appSettings = settingsService && settingsService.appSettings ? await settingsService.appSettings() : null;
+		return appSettings && Number.isFinite(appSettings.authRateLimitAttempts) ? appSettings.authRateLimitAttempts : 20;
+	};
 
 	// GET /login/mfa
 	if (url.pathname === '/login/mfa' && request.method === 'GET') {
@@ -25,9 +59,15 @@ const handle = async (url, request, response, ctx) => {
 	// POST /login/mfa
 	if (url.pathname === '/login/mfa' && request.method === 'POST') {
 		try {
+			const maxAttempts = await authRateLimitAttempts();
 			const pendingSession = sessionIdFromHeaders(request.headers, 'pendingSession');
 			if (!pendingSession) {
 				redirect(response, '/login');
+				return true;
+			}
+			const mfaRateLimit = rateLimitService.check(clientIp, `mfa:${pendingSession}`, maxAttempts);
+			if (mfaRateLimit.limited) {
+				sendMfaRateLimited(mfaRateLimit.retryAfterSec);
 				return true;
 			}
 			const body = await parseBody(request);
@@ -43,9 +83,11 @@ const handle = async (url, request, response, ctx) => {
 			}
 			const userTotpSeed = await settingsService.getTotpSeed(user.id);
 			if (!userTotpSeed || !verifyWithSeed(userTotpSeed, totp)) {
+				rateLimitService.recordFailure(clientIp, `mfa:${pendingSession}`, maxAttempts);
 				redirect(response, '/login/mfa?error=Invalid+code');
 				return true;
 			}
+			rateLimitService.clear(clientIp, `mfa:${pendingSession}`);
 			try {
 				await ensureStarterContent({ ...user, sessionId: pendingSession }, request);
 			} catch {}
@@ -94,10 +136,16 @@ const handle = async (url, request, response, ctx) => {
 	// POST /login
 	if (url.pathname === '/login' && request.method === 'POST') {
 		try {
+			const maxAttempts = await authRateLimitAttempts();
 			const body = await parseBody(request);
 			const email = body.email || '';
 			const password = body.password || '';
 			const totp = body.totp || '';
+			const loginRateLimit = rateLimitService.check(clientIp, `login:${email}`, maxAttempts);
+			if (loginRateLimit.limited) {
+				sendLoginRateLimited(loginRateLimit.retryAfterSec);
+				return true;
+			}
 			if (!email || !password) {
 				redirect(response, `/login?error=${encodeURIComponent('Email and password are required')}`);
 				return true;
@@ -135,6 +183,7 @@ const handle = async (url, request, response, ctx) => {
 			});
 
 			if (loginResult.statusCode < 200 || loginResult.statusCode >= 300) {
+				rateLimitService.recordFailure(clientIp, `login:${email}`, maxAttempts);
 				redirect(response, `/login?error=${encodeURIComponent('Invalid email or password')}`);
 				return true;
 			}
@@ -153,12 +202,20 @@ const handle = async (url, request, response, ctx) => {
 						response.end();
 						return true;
 					}
+					const mfaRateLimit = rateLimitService.check(clientIp, `mfa:${user.id || email}`, maxAttempts);
+					if (mfaRateLimit.limited) {
+						sendMfaRateLimited(mfaRateLimit.retryAfterSec);
+						return true;
+					}
 					if (!verifyWithSeed(userTotpSeed, totp)) {
+						rateLimitService.recordFailure(clientIp, `mfa:${user.id || email}`, maxAttempts);
 						redirect(response, `/login?error=${encodeURIComponent('Invalid authentication code')}`);
 						return true;
 					}
+					rateLimitService.clear(clientIp, `mfa:${user.id || email}`);
 				}
 			}
+			rateLimitService.clear(clientIp, `login:${email}`);
 			if (user) {
 				try {
 					await ensureStarterContent({ ...user, sessionId: session.id }, request);

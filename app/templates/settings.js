@@ -93,7 +93,7 @@ const adminUserRow = (u, currentUserId) => {
 };
 
 const settingsPage = (options = {}) => {
-	const { user, settings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', flash = '', flashError = '', activeTab = 'appearance' } = options;
+	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', flash = '', flashError = '', activeTab = 'appearance' } = options;
 	const validTabs = ['appearance', 'profile', 'security'];
 	if (isAdmin) validTabs.push('admin');
 	const tab = validTabs.includes(activeTab) ? activeTab : 'appearance';
@@ -343,6 +343,19 @@ const settingsPage = (options = {}) => {
 
 			${isAdmin ? `<!-- Tab: Admin -->
 			<div class="settings-tab-panel${tab === 'admin' ? ' active' : ''}" id="tab-admin">
+				<section class="settings-section">
+					<h2 class="settings-section-title">Login Security</h2>
+					<p class="settings-section-sub">Allow this many failed login or MFA attempts from the same source within 15 minutes before blocking with HTTP 429.</p>
+					<form class="settings-form" method="POST" action="/admin/security">
+						<div class="settings-grid">
+							<label class="settings-field">
+								<span>Allowed attempts per 15 minutes</span>
+								<input type="number" class="login-input" name="authRateLimitAttempts" min="1" max="1000" value="${escapeHtml(appSettings.authRateLimitAttempts != null ? appSettings.authRateLimitAttempts : 20)}" />
+							</label>
+						</div>
+						<div class="settings-actions"><button type="submit" class="btn btn-primary">Save security settings</button></div>
+					</form>
+				</section>
 				<section class="settings-section">
 					<h2 class="settings-section-title">Create New User</h2>
 					<form class="settings-form" method="POST" action="/admin/users">

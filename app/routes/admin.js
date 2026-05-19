@@ -105,6 +105,21 @@ const handle = async (url, request, response, ctx) => {
 		return true;
 	}
 
+	if (url.pathname === '/admin/security' && request.method === 'POST') {
+		const body = await parseBody(request);
+		try {
+			const current = await settingsService.appSettings();
+			await settingsService.saveAppSettings({
+				...current,
+				authRateLimitAttempts: Number.parseInt(`${body.authRateLimitAttempts || ''}`, 10),
+			});
+			redirect(response, '/settings?saved=1&tab=admin');
+		} catch (error) {
+			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Security settings failed')}&tab=admin`);
+		}
+		return true;
+	}
+
 	if (url.pathname === '/admin/backups' && request.method === 'POST') {
 		const body = await parseBody(request);
 		try {

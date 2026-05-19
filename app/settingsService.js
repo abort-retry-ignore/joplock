@@ -41,6 +41,12 @@ const defaultSettings = Object.freeze({
 	uiMode: 'auto',
 });
 
+const APP_SETTINGS_ROW_ID = '__app__';
+
+const defaultAppSettings = Object.freeze({
+	authRateLimitAttempts: 20,
+});
+
 const validUiModes = ['auto', 'mobile', 'desktop'];
 
 const nowMs = () => Date.now();
@@ -69,6 +75,10 @@ const normalizeSettings = settings => ({
 	confirmTrash: settings.confirmTrash !== false && settings.confirmTrash !== '0' && settings.confirmTrash !== 0,
 	encryptionAutoLockMinutes: normalizeInteger(settings.encryptionAutoLockMinutes, defaultSettings.encryptionAutoLockMinutes, 0, 480),
 	uiMode: validUiModes.includes(settings.uiMode) ? settings.uiMode : defaultSettings.uiMode,
+});
+
+const normalizeAppSettings = settings => ({
+	authRateLimitAttempts: normalizeInteger(settings.authRateLimitAttempts, defaultAppSettings.authRateLimitAttempts, 1, 1000),
 });
 
 const createSettingsService = database => {
@@ -128,6 +138,38 @@ const createSettingsService = database => {
 			return normalized;
 		},
 
+		async appSettings() {
+			await ensureTable();
+			if (!_tableAvailable) return { ...defaultAppSettings };
+			try {
+				const result = await database.query(
+					'SELECT settings FROM joplock_settings WHERE user_id = $1 LIMIT 1',
+					[APP_SETTINGS_ROW_ID],
+				);
+				const row = result.rows[0];
+				if (!row) return { ...defaultAppSettings };
+				const json = typeof row.settings === 'string' ? JSON.parse(row.settings) : (row.settings || {});
+				return normalizeAppSettings({ ...defaultAppSettings, ...json });
+			} catch {
+				return { ...defaultAppSettings };
+			}
+		},
+
+		async saveAppSettings(settings) {
+			await ensureTable();
+			const normalized = normalizeAppSettings(settings);
+			if (!_tableAvailable) return normalized;
+			const timestamp = nowMs();
+			await database.query(`
+				INSERT INTO joplock_settings (user_id, settings, updated_time)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (user_id) DO UPDATE SET
+					settings = EXCLUDED.settings,
+					updated_time = EXCLUDED.updated_time
+			`, [APP_SETTINGS_ROW_ID, JSON.stringify(normalized), timestamp]);
+			return normalized;
+		},
+
 		async getTotpSeed(userId) {
 			await ensureTable();
 			if (!_tableAvailable) return null;
@@ -179,7 +221,9 @@ const createSettingsService = database => {
 
 module.exports = {
 	createSettingsService,
+	defaultAppSettings,
 	defaultSettings,
+	normalizeAppSettings,
 	normalizeSettings,
 	validDateFormats,
 	validDatetimeFormats,

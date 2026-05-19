@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+const { createRateLimitService } = require('../app/auth/rateLimitService');
 const { createServer } = require('../app/createServer');
 
 const request = (port, options = {}) => {
@@ -93,6 +94,8 @@ const defaultMocks = (overrides = {}) => ({
 	settingsService: {
 		settingsByUserId: async () => ({ noteFontSize: 15, codeFontSize: 12, noteMonospace: false, resumeLastNote: false, lastNoteId: '', lastNoteFolderId: '', dateFormat: 'MMM-DD-YY', datetimeFormat: 'YYYY-MM-DD HH:mm', autoLogout: false, autoLogoutMinutes: 15 }),
 		saveSettings: async (_userId, settings) => settings,
+		appSettings: async () => ({ authRateLimitAttempts: 20 }),
+		saveAppSettings: async settings => settings,
 		getTotpSeed: async () => null,
 		setTotpSeed: async () => true,
 		clearTotpSeed: async () => true,
@@ -121,6 +124,7 @@ const defaultMocks = (overrides = {}) => ({
 		validateSession: () => false,
 		endSession: () => {},
 	},
+	rateLimitService: overrides.rateLimitService,
 	vaultService: overrides.vaultService || null,
 	database: overrides.database || { query: async () => ({ rows: [] }) },
 });
@@ -900,6 +904,179 @@ test('POST /login creates starter content for user with no real folders', async 
 	}
 });
 
+test('POST /login returns 429 after repeated failed attempts', async () => {
+	const upstream = http.createServer((req, res) => {
+		if (req.method === 'POST' && req.url === '/api/sessions') {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'invalid' }));
+			return;
+		}
+		res.writeHead(404, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'not found' }));
+	});
+	await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+	const upstreamPort = upstream.address().port;
+	try {
+		await withServer({
+			joplinServerOrigin: `http://127.0.0.1:${upstreamPort}`,
+			joplinServerPublicUrl: `http://127.0.0.1:${upstreamPort}`,
+			rateLimitService: createRateLimitService(),
+			settingsService: {
+				appSettings: async () => ({ authRateLimitAttempts: 3 }),
+			},
+		}, async port => {
+			for (let attempt = 1; attempt <= 3; attempt += 1) {
+				const res = await request(port, {
+					path: '/login',
+					method: 'POST',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.10' },
+					body: 'email=user%40example.com&password=badpass',
+				});
+				assert.equal(res.statusCode, 302);
+			}
+
+			const blocked = await request(port, {
+				path: '/login',
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.10' },
+				body: 'email=user%40example.com&password=badpass',
+			});
+			assert.equal(blocked.statusCode, 429);
+			assert.equal(blocked.headers['retry-after'], '900');
+			assert.ok(blocked.body.includes('Too many login attempts'));
+		});
+	} finally {
+		await new Promise(resolve => upstream.close(resolve));
+	}
+});
+
+test('POST /login clears account failure streak after successful login', async () => {
+	let loginAttempts = 0;
+	const upstream = http.createServer((req, res) => {
+		if (req.method === 'POST' && req.url === '/api/sessions') {
+			loginAttempts += 1;
+			if (loginAttempts === 2) {
+				res.writeHead(200, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({ id: 'fresh-session' }));
+				return;
+			}
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'invalid' }));
+			return;
+		}
+		res.writeHead(404, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'not found' }));
+	});
+	await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+	const upstreamPort = upstream.address().port;
+	try {
+		await withServer({
+			joplinServerOrigin: `http://127.0.0.1:${upstreamPort}`,
+			joplinServerPublicUrl: `http://127.0.0.1:${upstreamPort}`,
+			rateLimitService: createRateLimitService(),
+			settingsService: {
+				appSettings: async () => ({ authRateLimitAttempts: 2 }),
+			},
+			sessionService: {
+				userBySessionId: async sessionId => {
+					if (sessionId === 'test-session') return { id: 'user-1', email: 'user@example.com', sessionId };
+					if (sessionId === 'fresh-session') return { id: 'user-1', email: 'user@example.com', sessionId };
+					return null;
+				},
+			},
+		}, async port => {
+			const firstFailure = await request(port, {
+				path: '/login',
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.20' },
+				body: 'email=user%40example.com&password=badpass',
+			});
+			assert.equal(firstFailure.statusCode, 302);
+
+			const success = await request(port, {
+				path: '/login',
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.20' },
+				body: 'email=user%40example.com&password=goodpass',
+			});
+			assert.equal(success.statusCode, 302);
+			assert.equal(success.headers.location, '/');
+
+			const secondFailure = await request(port, {
+				path: '/login',
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.20' },
+				body: 'email=user%40example.com&password=badpass-again',
+			});
+			assert.equal(secondFailure.statusCode, 302);
+
+			const thirdFailure = await request(port, {
+				path: '/login',
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.20' },
+				body: 'email=user%40example.com&password=badpass-final',
+			});
+			assert.equal(thirdFailure.statusCode, 302);
+
+			const blocked = await request(port, {
+				path: '/login',
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.20' },
+				body: 'email=user%40example.com&password=badpass-blocked',
+			});
+			assert.equal(blocked.statusCode, 429);
+		});
+	} finally {
+		await new Promise(resolve => upstream.close(resolve));
+	}
+});
+
+test('POST /login/mfa returns 429 after repeated invalid codes', async () => {
+	await withServer({
+		rateLimitService: createRateLimitService(),
+		sessionService: {
+			userBySessionId: async sessionId => sessionId === 'pending-1' ? { id: 'user-1', email: 'user@example.com', sessionId } : null,
+		},
+		settingsService: {
+			appSettings: async () => ({ authRateLimitAttempts: 2 }),
+			settingsByUserId: async () => ({}),
+			saveSettings: async (_userId, settings) => settings,
+			getTotpSeed: async () => 'JBSWY3DPEHPK3PXP',
+			setTotpSeed: async () => true,
+			clearTotpSeed: async () => true,
+		},
+	}, async port => {
+		for (let attempt = 1; attempt <= 2; attempt += 1) {
+			const res = await request(port, {
+				path: '/login/mfa',
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/x-www-form-urlencoded',
+					Cookie: 'pendingSession=pending-1',
+					'X-Forwarded-For': '198.51.100.30',
+				},
+				body: 'totp=000000',
+			});
+			assert.equal(res.statusCode, 302);
+			assert.equal(res.headers.location, '/login/mfa?error=Invalid+code');
+		}
+
+		const blocked = await request(port, {
+			path: '/login/mfa',
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/x-www-form-urlencoded',
+				Cookie: 'pendingSession=pending-1',
+				'X-Forwarded-For': '198.51.100.30',
+			},
+			body: 'totp=000000',
+		});
+		assert.equal(blocked.statusCode, 429);
+		assert.equal(blocked.headers['retry-after'], '900');
+		assert.ok(blocked.body.includes('Too many authentication attempts'));
+	});
+});
+
 test('GET /settings redirects unauthenticated user to login', async () => {
 	await withServer({}, async port => {
 		const res = await request(port, { path: '/settings', headers: {} });
@@ -1544,6 +1721,32 @@ test('GET /settings shows admin tab for admin user', async () => {
 		assert.equal(res.statusCode, 200);
 		assert.ok(res.body.includes('tab-admin'), 'should include admin tab panel');
 		assert.ok(res.body.includes('Create New User'), 'should include create user form');
+		assert.ok(res.body.includes('Allowed attempts per 15 minutes'));
+	});
+});
+
+test('POST /admin/security saves auth rate limit setting', async () => {
+	let saved = null;
+	await withServer(makeAdminMocks({
+		settingsService: {
+			settingsByUserId: async () => ({ noteFontSize: 15 }),
+			saveSettings: async (_id, s) => s,
+			appSettings: async () => ({ authRateLimitAttempts: 20 }),
+			saveAppSettings: async s => { saved = s; return s; },
+			getTotpSeed: async () => null,
+			setTotpSeed: async () => true,
+			clearTotpSeed: async () => true,
+		},
+	}), async port => {
+		const res = await request(port, {
+			path: '/admin/security',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=admin-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'authRateLimitAttempts=35',
+		});
+		assert.equal(res.statusCode, 302);
+		assert.ok(res.headers.location.includes('saved=1'));
+		assert.deepEqual(saved, { authRateLimitAttempts: 35 });
 	});
 });
 

@@ -3,6 +3,7 @@
 const http = require('http');
 const path = require('path');
 const { sessionIdFromHeaders } = require('./auth/cookies');
+const { createRateLimitService } = require('./auth/rateLimitService');
 const templates = require('./templates');
 
 const {
@@ -40,6 +41,7 @@ const createServer = options => {
 		vaultService = null,
 		backupService = null,
 		recoveryService = null,
+		rateLimitService = createRateLimitService(),
 		debug = false,
 	} = options;
 
@@ -278,6 +280,7 @@ Code block example
 			vaultService,
 			backupService,
 			recoveryService,
+			rateLimitService,
 			maintenance,
 			database,
 			// config

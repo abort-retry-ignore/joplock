@@ -135,6 +135,7 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 		token.attrSet('href', href);
 		token.attrSet('target', '_blank');
 		token.attrSet('rel', 'noopener');
+		token.attrSet('data-resource-id', m[1]);
 	} else if (/^https?:\/\//i.test(href) || /^\/\//.test(href)) {
 		token.attrSet('target', '_blank');
 		token.attrSet('rel', 'noopener');

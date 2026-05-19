@@ -10,6 +10,8 @@ const {
 	passwordField,
 } = require('./shared');
 
+const ASSET_VERSION = '20260519pwa1';
+
 const adminUserRow = (u, currentUserId) => {
 	const enabled = u.enabled !== false;
 	const isSelf = u.id === currentUserId;
@@ -112,11 +114,11 @@ const settingsPage = (options = {}) => {
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 	<meta name="theme-color" content="#08110b" />
-	<link rel="manifest" href="/manifest.webmanifest" />
+	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	${appleSplashLinks}
-	<link rel="stylesheet" href="/styles.css" />
+	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<title>Joplock Settings</title>
 </head>
 <body class="theme-${escapeHtml(settings.theme || 'matrix')}">

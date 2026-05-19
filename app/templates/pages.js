@@ -11,6 +11,8 @@ const {
 
 const { noteMetaFragment } = require('./fragments');
 
+const ASSET_VERSION = '20260519pwa1';
+
 // layoutPage: the main app shell (or login page when user is null)
 const layoutPage = (options = {}) => {
 	const { user, navContent, editorContent, loginError, debug = false, mobileStartup = null, mobileEditorContent = '' } = options;
@@ -28,11 +30,11 @@ const layoutPage = (options = {}) => {
 	<meta name="mobile-web-app-capable" content="yes" />
 	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 	<meta name="apple-mobile-web-app-title" content="Joplock" />
-	<link rel="manifest" href="/manifest.webmanifest" />
+	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	${appleSplashLinks}
-	<link rel="stylesheet" href="/styles.css?v=20260515a" />
+	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<title>Joplock</title>
 </head>
 <body class="theme-dark-grey${settings.noteMonospace ? ' note-body-monospace' : ''}" style="--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;">
@@ -73,17 +75,17 @@ const layoutPage = (options = {}) => {
 	<meta name="mobile-web-app-capable" content="yes" />
 	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 	<meta name="apple-mobile-web-app-title" content="Joplock" />
-	<link rel="manifest" href="/manifest.webmanifest" />
+	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	${appleSplashLinks}
-	<link rel="stylesheet" href="/styles.css?v=20260515a" />
+	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<script src="/htmx.min.js"></script>
 	<script src="/turndown.min.js"></script>
 	<script src="/codemirror.min.js"></script>
 	<script src="/hljs.min.js"></script>
 	<script>window.joplockStripNoteTitle=${stripMarkdownForTitle.toString()};</script>
-	<script src="/app.js?v=20260515a" defer></script>
+	<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 	<title>Joplock</title>
 </head>
 <body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${settings.noteMonospace ? ' note-body-monospace' : ''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;">
@@ -284,11 +286,11 @@ const loggedOutPage = () => `<!DOCTYPE html>
 	<meta name="mobile-web-app-capable" content="yes" />
 	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 	<meta name="apple-mobile-web-app-title" content="Joplock" />
-	<link rel="manifest" href="/manifest.webmanifest" />
+	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	${appleSplashLinks}
-	<link rel="stylesheet" href="/styles.css" />
+	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<title>Logging out...</title>
 </head>
 <body class="theme-dark-grey">
@@ -355,9 +357,9 @@ const recoveryPage = (options = {}) => {
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 	<meta name="theme-color" content="#0b0b0b" />
-	<link rel="manifest" href="/manifest.webmanifest" />
+	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
-	<link rel="stylesheet" href="/styles.css" />
+	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<title>Joplock Recovery</title>
 </head>
 <body class="theme-dark-grey">
@@ -492,9 +494,9 @@ const mfaPage = (options = {}) => {
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 	<meta name="theme-color" content="#0b0b0b" />
-	<link rel="manifest" href="/manifest.webmanifest" />
+	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
-	<link rel="stylesheet" href="/styles.css" />
+	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<title>Verify Identity - Joplock</title>
 </head>
 <body class="theme-dark-grey">

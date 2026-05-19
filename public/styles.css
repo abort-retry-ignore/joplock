@@ -1255,6 +1255,73 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .editor-preview[contenteditable="true"] .preview-img:hover { border-color: var(--accent); opacity: 0.95; }
 .editor-preview[contenteditable="true"] .preview-img:active { border-color: var(--accent); }
 
+.preview-img-download-wrap {
+	position: relative;
+	display: inline-block;
+	max-width: 100%;
+	margin: 12px 0;
+}
+.preview-img-download-wrap .preview-img { margin: 0; }
+.preview-img-download-btn {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	font-size: 18px;
+	font-weight: 700;
+	font-family: inherit;
+	background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+	color: var(--text-heading);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	cursor: pointer;
+	line-height: 1;
+	z-index: 1;
+	opacity: 0.28;
+	backdrop-filter: blur(4px);
+	box-shadow: 0 1px 6px rgba(0,0,0,0.28);
+	transition: opacity 0.18s ease, color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+.preview-img-download-wrap:hover .preview-img-download-btn,
+.preview-img-download-wrap:focus-within .preview-img-download-btn,
+.preview-img-download-btn:focus,
+.preview-img-download-btn:active {
+	opacity: 1;
+}
+.preview-img-download-wrap:hover .preview-img-download-btn,
+.preview-img-download-wrap:focus-within .preview-img-download-btn {
+	color: #fff;
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 82%, transparent);
+	transform: scale(1.04);
+}
+.preview-img-download-btn:hover,
+.preview-img-download-btn:focus,
+.preview-img-download-btn:active {
+	color: #fff;
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 82%, transparent);
+	transform: scale(1.04);
+}
+@media (hover: none), (pointer: coarse) {
+	.preview-img-download-btn {
+		width: 24px;
+		height: 24px;
+		top: 6px;
+		right: 6px;
+		font-size: 15px;
+		opacity: 1;
+		background: color-mix(in srgb, var(--accent) 80%, transparent);
+		color: #fff;
+		border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+	}
+}
+
 /* Autosave */
 .autosave-ok { color: #5fd38d; font-size: 11px; opacity: 0.9; }
 .autosave-edited { color: var(--danger); font-size: 11px; opacity: 0.95; }

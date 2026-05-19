@@ -162,6 +162,7 @@ test('navigationFragment includes shared folder context menu and modal', () => {
 test('renderMarkdown rewrites raw html resource images without self-closing slash', () => {
 	const html = renderMarkdown('<img src=":/49a3f012f300473d98a33b97940306b1" alt="x" width="313" height="417">');
 	assert.ok(html.includes('src="/resources/49a3f012f300473d98a33b97940306b1"'));
+	assert.ok(html.includes('data-resource-id="49a3f012f300473d98a33b97940306b1"'));
 	assert.ok(html.includes('class="preview-img"'));
 	assert.ok(html.includes('width="313"'));
 	assert.ok(html.includes('height="417"'));
@@ -172,9 +173,9 @@ test('renderMarkdown appends preview-img to raw html image classes', () => {
 	assert.ok(html.includes('class="custom preview-img"'));
 });
 
-test('renderMarkdown opens resource links in another tab', () => {
+test('renderMarkdown rewrites resource links to download URLs', () => {
 	const html = renderMarkdown('[Manual](:/49a3f012f300473d98a33b97940306b1)');
-	assert.ok(html.includes('href="/resources/49a3f012f300473d98a33b97940306b1"'));
+	assert.ok(html.includes('href="/resources/49a3f012f300473d98a33b97940306b1?download=1"'));
 	assert.ok(html.includes('target="_blank"'));
 	assert.ok(html.includes('rel="noopener"'));
 });
@@ -435,6 +436,12 @@ test('logged in layout uses ordered list command and block transforms in preview
 	assert.ok(!html.includes('clean-md-toggle'));
 });
 
+test('editorFragment uses openFilePicker for upload toolbar action', () => {
+	const html = editorFragment({ id: 'n1', title: 'Active', body: 'Body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'Folder 1' }]);
+	assert.ok(html.includes('onclick="openFilePicker()"'));
+	assert.ok(!html.includes("document.getElementById('file-upload').click()"));
+});
+
 test('logged in layout emits inline config script that parses', () => {
 	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '<div></div>' });
 	// The last script before </body> is now just the config object
@@ -488,6 +495,15 @@ test('styles color folders differently from notes', () => {
 	assert.ok(css.includes('.notelist-item-title {'));
 	assert.ok(css.includes('color: var(--accent);'));
 	assert.ok(css.includes('color: var(--text);'));
+});
+
+test('app script snapshots upload insertion targets before opening file picker', () => {
+	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+	assert.ok(appJs.includes('function openFilePicker(){_uploadInsertTarget=_captureUploadInsertTarget();'));
+	assert.ok(appJs.includes('window.openFilePicker=openFilePicker;'));
+	assert.ok(appJs.includes('function _captureUploadInsertTarget(){'));
+	assert.ok(appJs.includes('function _insertUploadedMarkdown(markdown){'));
+	assert.ok(appJs.includes('if(_uploadBatchDepth===0)_uploadInsertTarget=null;'));
 });
 
 test('searchResultsFragment renders note items', () => {

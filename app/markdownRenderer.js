@@ -118,8 +118,10 @@ md.renderer.rules.image = (tokens, idx, options, _env, self) => {
 	let src = token.attrGet('src') || '';
 	const alt = self.renderInlineAsText(token.children, options, _env);
 	const m = src.match(RESOURCE_ID_RE);
-	if (m) src = `/resources/${m[1]}`;
-	return `<img src="${escapeHtmlAttr(src)}" alt="${escapeHtmlAttr(alt)}" class="preview-img" />`;
+	const resourceId = m ? m[1] : '';
+	if (resourceId) src = `/resources/${resourceId}`;
+	const resourceAttr = resourceId ? ` data-resource-id="${resourceId}"` : '';
+	return `<img src="${escapeHtmlAttr(src)}" alt="${escapeHtmlAttr(alt)}" class="preview-img"${resourceAttr} />`;
 };
 
 // link_open: rewrite :/<id> href, add target+rel for external links
@@ -129,7 +131,7 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 	let href = token.attrGet('href') || '';
 	const m = href.match(RESOURCE_ID_RE);
 	if (m) {
-		href = `/resources/${m[1]}`;
+		href = `/resources/${m[1]}?download=1`;
 		token.attrSet('href', href);
 		token.attrSet('target', '_blank');
 		token.attrSet('rel', 'noopener');
@@ -217,7 +219,7 @@ function injectBlankLineBlocks(src) {
 
 function postProcess(html) {
 	// Rewrite :/<id> in src attrs from raw HTML passthrough (<img src=":/...">)
-	html = html.replace(JOPLIN_SRC_RE, (_m, id) => `src="/resources/${id}"`);
+	html = html.replace(JOPLIN_SRC_RE, (_m, id) => `src="/resources/${id}" data-resource-id="${id}"`);
 
 	// Raw HTML images bypass markdown-it's image renderer, so normalize them here
 	// to preserve preview-only behaviors like resize handles.

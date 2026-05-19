@@ -344,7 +344,7 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 			<span class="tb-div"></span>
 			<button type="button" class="tb" title="Link" onclick="insertLink()">&#128279;</button>
 			<button type="button" class="tb" title="Image" onclick="insertImg()">&#128247;</button>
-			<button type="button" class="tb" title="Upload file" onclick="document.getElementById('file-upload').click()">&#128206;</button>
+			<button type="button" class="tb" title="Upload file" onclick="openFilePicker()">&#128206;</button>
 			<input type="file" id="file-upload" style="display:none" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" multiple onchange="handleFilePicker(this)" />
 			<span class="tb-div"></span>
 			<button type="button" class="tb" title="Note history" onclick="openHistoryModal('${escapeHtml(note.id)}')">&#128336;</button>

@@ -7,6 +7,17 @@ const TurndownService = require('../vendor/turndown-lib/turndown.cjs.js');
 const previewRoundTrip = markdown => {
 	const html = renderMarkdown(markdown);
 	const dom = new JSDOM(`<div id="root">${html}</div>`);
+	dom.window.document.querySelectorAll('img.preview-img[data-resource-id]').forEach(img => {
+		const wrap = dom.window.document.createElement('span');
+		wrap.className = 'preview-img-download-wrap';
+		img.parentNode.insertBefore(wrap, img);
+		wrap.appendChild(img);
+		const btn = dom.window.document.createElement('button');
+		btn.type = 'button';
+		btn.className = 'preview-img-download-btn';
+		btn.textContent = 'Download';
+		wrap.appendChild(btn);
+	});
 	const td = new TurndownService({
 		headingStyle: 'atx',
 		hr: '---',
@@ -15,6 +26,30 @@ const previewRoundTrip = markdown => {
 		emDelimiter: '*',
 		strongDelimiter: '**',
 		br: '<br>',
+	});
+	td.addRule('joplinImg', {
+		filter: node => node.nodeName === 'IMG',
+		replacement: (_content, node) => {
+			const alt = node.getAttribute('alt') || '';
+			const src = node.getAttribute('src') || '';
+			const w = node.style.width || node.getAttribute('width');
+			const h = node.style.height || node.getAttribute('height');
+			const rm = src.match(/^\/resources\/([0-9a-zA-Z]{32})$/);
+			if (src.startsWith('data:')) return alt ? `[${alt}]` : '';
+			if (w || h) {
+				const imgSrc = rm ? `:/${rm[1]}` : src;
+				return `<img src="${imgSrc}" alt="${alt}"${w ? ` width="${parseInt(w, 10)}"` : ''}${h ? ` height="${parseInt(h, 10)}"` : ''} />`;
+			}
+			if (rm) return `![${alt}](:/${rm[1]})`;
+			return `![${alt}](${src})`;
+		},
+	});
+	td.addRule('joplinLink', {
+		filter: node => node.nodeName === 'A' && /^\/resources\/[0-9a-zA-Z]{32}(?:\?download=1)?$/.test((node.getAttribute('href') || '').split('#')[0]),
+		replacement: (content, node) => {
+			const m = (node.getAttribute('href') || '').match(/^\/resources\/([0-9a-zA-Z]{32})/);
+			return `[${content}](:/${m[1]})`;
+		},
 	});
 	td.addRule('checkbox', {
 		filter: node => node.nodeName === 'DIV' && node.classList.contains('md-checkbox'),
@@ -44,7 +79,13 @@ const previewRoundTrip = markdown => {
 		filter: node => node.nodeName === 'DIV' && node.classList.contains('md-blank-line'),
 		replacement: () => '\x00BL\x00',
 	});
-	let md = td.turndown(dom.window.document.getElementById('root').innerHTML);
+	const root = dom.window.document.getElementById('root').cloneNode(true);
+	root.querySelectorAll('.preview-img-download-btn').forEach(btn => btn.remove());
+	root.querySelectorAll('.preview-img-download-wrap').forEach(wrap => {
+		const img = wrap.querySelector('img');
+		if (img) wrap.replaceWith(img);
+	});
+	let md = td.turndown(root.innerHTML);
 	const nl = String.fromCharCode(10);
 	const headingGapRe = new RegExp(`^(#{1,6}[^${nl}]*)${nl}{2,}(?=\\S)`, 'gm');
 	const headingLeadRe = new RegExp(`([^${nl}])${nl}{2,}(#{1,6}\\s)`, 'g');
@@ -78,6 +119,17 @@ const previewRoundTrip = markdown => {
 const previewHtmlRoundTrip = html => {
 	const rendered = renderMarkdown(html);
 	const dom = new JSDOM(`<div id="root">${rendered}</div>`);
+	dom.window.document.querySelectorAll('img.preview-img[data-resource-id]').forEach(img => {
+		const wrap = dom.window.document.createElement('span');
+		wrap.className = 'preview-img-download-wrap';
+		img.parentNode.insertBefore(wrap, img);
+		wrap.appendChild(img);
+		const btn = dom.window.document.createElement('button');
+		btn.type = 'button';
+		btn.className = 'preview-img-download-btn';
+		btn.textContent = 'Download';
+		wrap.appendChild(btn);
+	});
 	const td = new TurndownService({
 		headingStyle: 'atx',
 		hr: '---',
@@ -101,7 +153,20 @@ const previewHtmlRoundTrip = html => {
 			return `![${alt}](${src})`;
 		},
 	});
-	return td.turndown(dom.window.document.getElementById('root').innerHTML);
+	td.addRule('joplinLink', {
+		filter: node => node.nodeName === 'A' && /^\/resources\/[0-9a-zA-Z]{32}(?:\?download=1)?$/.test((node.getAttribute('href') || '').split('#')[0]),
+		replacement: (content, node) => {
+			const m = (node.getAttribute('href') || '').match(/^\/resources\/([0-9a-zA-Z]{32})/);
+			return `[${content}](:/${m[1]})`;
+		},
+	});
+	const root = dom.window.document.getElementById('root').cloneNode(true);
+	root.querySelectorAll('.preview-img-download-btn').forEach(btn => btn.remove());
+	root.querySelectorAll('.preview-img-download-wrap').forEach(wrap => {
+		const img = wrap.querySelector('img');
+		if (img) wrap.replaceWith(img);
+	});
+	return td.turndown(root.innerHTML);
 };
 
 const previewRoundTripWithCopyButtons = markdown => {
@@ -125,6 +190,7 @@ const previewRoundTripWithCopyButtons = markdown => {
 	});
 	let root = dom.window.document.getElementById('root').cloneNode(true);
 	root.querySelectorAll('.pre-copy-btn').forEach(btn => btn.remove());
+	root.querySelectorAll('.preview-img-download-btn').forEach(btn => btn.remove());
 	let md = td.turndown(root.innerHTML);
 	return md;
 };
@@ -140,6 +206,11 @@ test('preview round-trip preserves printable ascii', () => {
 test('preview round-trip preserves raw html resource image sizing', () => {
 	const body = '<img src=":/49a3f012f300473d98a33b97940306b1" alt="Custom mini 3d" width="454" height="654" />';
 	assert.equal(previewHtmlRoundTrip(body), body);
+});
+
+test('preview round-trip ignores injected resource image download buttons', () => {
+	const body = '![diagram](:/49a3f012f300473d98a33b97940306b1)';
+	assert.equal(previewRoundTrip(body), body);
 });
 
 test('preview round-trip preserves blank-line markers', () => {

@@ -506,6 +506,17 @@ test('app script snapshots upload insertion targets before opening file picker',
 	assert.ok(appJs.includes('if(_uploadBatchDepth===0)_uploadInsertTarget=null;'));
 });
 
+test('app script uses iOS-safe resource download helper', () => {
+	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+	assert.ok(appJs.includes('function _isIOSWebKit(){'));
+	assert.ok(appJs.includes('function _isStandalonePWA(){'));
+	assert.ok(appJs.includes('function _openResourceInNewContext(url){'));
+	assert.ok(appJs.includes('function downloadResource(resourceId){'));
+	assert.ok(appJs.includes("if(_isIOSWebKit()&&_isStandalonePWA()){_openResourceInNewContext(url);return}"));
+	assert.ok(appJs.includes("if(_isIOSWebKit()){window.location.assign(url);return}"));
+	assert.ok(appJs.includes('downloadResource(resourceId)'));
+});
+
 test('searchResultsFragment renders note items', () => {
 	const notes = [{ id: 'n1', title: 'My Note', body: '', bodyPreview: '', parentId: 'f1', deletedTime: 0 }];
 	const html = searchResultsFragment(notes);

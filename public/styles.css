@@ -1596,6 +1596,15 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 
 .login-card { text-align: center; max-width: 360px; width: 100%; }
 
+.login-logo {
+	display: block;
+	width: 96px;
+	height: 96px;
+	margin: 0 auto 14px;
+	border-radius: 22px;
+	box-shadow: 0 14px 32px var(--shadow);
+}
+
 .login-title {
 	font-size: 36px;
 	font-weight: 800;
@@ -1603,9 +1612,19 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	margin-bottom: 8px;
 }
 
+.login-brand {
+	font-size: 28px;
+	letter-spacing: 0.16em;
+}
+
 .login-sub {
 	color: var(--text-dim);
 	margin-bottom: 20px;
+}
+
+.login-tagline {
+	font-size: 13px;
+	line-height: 1.35;
 }
 
 .login-form {
@@ -1875,10 +1894,15 @@ select.login-input option {
 		max-width: 320px;
 		margin: 0 auto;
 	}
-	.login-title { font-size: 30px; }
-	.login-sub { margin-bottom: 16px; }
+	.login-logo { width: 108px; height: 108px; margin-bottom: 16px; }
+	.login-title { font-size: 36px; }
+	.login-brand { font-size: 24px; }
+	.login-sub { margin-bottom: 20px; font-size: 18px; line-height: 1.45; }
+	.login-tagline { font-size: 12px; line-height: 1.3; }
 	.login-input,
-	.login-btn { font-size: 16px; }
+	.login-btn { font-size: 18px; }
+	.login-input { padding: 12px 14px; }
+	.login-btn { width: 100%; min-height: 52px; padding: 14px 18px; font-size: 20px; font-weight: 700; }
 	.app { display: block; position: relative; height: calc(100vh - var(--statusbar-height) - env(safe-area-inset-bottom, 0px) - 22px); }
 	body.mobile-nav-open { overflow: hidden; }
 	.nav-toggle-btn { display: none; }
@@ -1956,6 +1980,7 @@ select.login-input option {
 	#autosave-indicator { margin-left: auto; font-size: 10px; order: 1; }
 	.btn,
 	.btn-sm { padding: 4px 8px; font-size: 11px; }
+	.login-btn { font-size: 20px; }
 	.btn-icon { width: 26px; height: 26px; font-size: 13px; order: 1; }
 	.editor-title-mobile-readonly {
 		pointer-events: none;

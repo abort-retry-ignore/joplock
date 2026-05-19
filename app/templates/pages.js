@@ -46,8 +46,9 @@ const layoutPage = (options = {}) => {
 	</script>
 	<div class="login-page">
 		<div class="login-card">
-			<h1 class="login-title">Joplock</h1>
-			<p class="login-sub">Sign in with your Joplin Server credentials.</p>
+			<img src="/icon-192.png" alt="Joplock" class="login-logo" width="96" height="96" />
+			<h1 class="login-title login-brand">JOPLOCK</h1>
+			<p class="login-sub login-tagline">Sign in with your Joplin Server credentials.</p>
 			<form class="login-form" method="POST" action="/login">
 				<input type="email" name="email" placeholder="Email" class="login-input" required autofocus />
 				<div class="login-password-wrap">

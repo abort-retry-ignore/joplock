@@ -50,6 +50,7 @@ services:
 
   joplock:
     image: ghcr.io/abort-retry-ignore/joplock:latest
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       - server

@@ -13,6 +13,7 @@
 services:
   joplock:
     image: ghcr.io/abort-retry-ignore/joplock:latest
+    pull_policy: always
     ports:
       # Host port : container port
       - '5444:3001'

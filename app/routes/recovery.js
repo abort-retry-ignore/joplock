@@ -10,12 +10,17 @@ const recoveryCookie = token => `${RECOVERY_COOKIE}=${encodeURIComponent(token)}
 const expiredRecoveryCookie = () => `${RECOVERY_COOKIE}=; Path=/recovery; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 
 const handle = async (url, request, response, ctx) => {
-	const { sendHtml, templates, recoveryService, backupService, maintenance } = ctx;
+	const { sendHtml, templates, recoveryService, backupService, maintenance, rateLimitService, settingsService } = ctx;
 	if (!url.pathname.startsWith('/recovery')) return false;
 
 	const isEnabled = recoveryService && recoveryService.isEnabled();
 	const token = sessionIdFromHeaders(request.headers, RECOVERY_COOKIE);
 	const isAuthenticated = !!(isEnabled && recoveryService.validateSession(token));
+	const clientIp = rateLimitService.clientIpFromRequest(request);
+	const authRateLimitAttempts = async () => {
+		const appSettings = settingsService && settingsService.appSettings ? await settingsService.appSettings() : null;
+		return appSettings && Number.isFinite(appSettings.authRateLimitAttempts) ? appSettings.authRateLimitAttempts : 20;
+	};
 	const render = async extras => {
 		const backups = isAuthenticated && backupService && backupService.isConfigured() ? await backupService.listBackups().catch(() => []) : [];
 		sendHtml(response, 200, templates.recoveryPage({
@@ -39,12 +44,33 @@ const handle = async (url, request, response, ctx) => {
 			redirect(response, '/recovery?error=Recovery+mode+is+disabled');
 			return true;
 		}
+		const maxAttempts = await authRateLimitAttempts();
+		const recoveryRateLimit = rateLimitService.check(clientIp, 'recovery-login', maxAttempts);
+		if (recoveryRateLimit.limited) {
+			response.writeHead(429, {
+				'Cache-Control': 'no-store',
+				'Content-Type': 'text/html; charset=utf-8',
+				'Retry-After': `${recoveryRateLimit.retryAfterSec}`,
+			});
+			response.end(templates.recoveryPage({
+				isAuthenticated: false,
+				recoveryEnabled: isEnabled,
+				backups: [],
+				backupDir: backupService && backupService.isConfigured() ? (process.env.JOPLOCK_BACKUP_DIR || '') : '',
+				maintenanceMode: maintenance.isEnabled(),
+				activeOperation: backupService && backupService.isBusy() ? backupService.activeOperation() : '',
+				error: 'Too many recovery login attempts. Try again later.',
+			}));
+			return true;
+		}
 		const body = await parseBody(request);
 		const newToken = recoveryService.createSession(body.password || '');
 		if (!newToken) {
+			rateLimitService.recordFailure(clientIp, 'recovery-login', maxAttempts);
 			redirect(response, '/recovery?error=Invalid+recovery+password');
 			return true;
 		}
+		rateLimitService.clear(clientIp, 'recovery-login');
 		redirect(response, '/recovery?saved=Recovery+mode+enabled', { 'Set-Cookie': recoveryCookie(newToken) });
 		return true;
 	}

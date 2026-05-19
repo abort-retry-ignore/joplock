@@ -2369,6 +2369,132 @@ test('recovery login and backup flow works without normal Joplin auth', async ()
 	});
 });
 
+test('recovery login returns 429 after repeated invalid passwords', async () => {
+	await withServer({
+		rateLimitService: createRateLimitService(),
+		settingsService: {
+			appSettings: async () => ({ authRateLimitAttempts: 2 }),
+			settingsByUserId: async () => ({}),
+			saveSettings: async (_userId, settings) => settings,
+			saveAppSettings: async settings => settings,
+			getTotpSeed: async () => null,
+			setTotpSeed: async () => true,
+			clearTotpSeed: async () => true,
+		},
+		recoveryService: {
+			isEnabled: () => true,
+			createSession: password => password === 'secret' ? 'recovery-token' : '',
+			validateSession: token => token === 'recovery-token',
+			endSession: () => {},
+		},
+		backupService: {
+			isConfigured: () => true,
+			isBusy: () => false,
+			activeOperation: () => '',
+			listBackups: async () => [],
+			startBackupJob: async () => ({}),
+			backupPath: async () => ({ path: __filename, size: 1, name: 'joplock-backup.dump', createdTime: 0 }),
+			startRestoreJob: async () => ({}),
+			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
+			waitForIdle: async () => ({ state: 'idle' }),
+		},
+	}, async port => {
+		for (let attempt = 1; attempt <= 2; attempt += 1) {
+			const res = await request(port, {
+				path: '/recovery/login',
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.40' },
+				body: 'password=wrong',
+			});
+			assert.equal(res.statusCode, 302);
+			assert.ok(res.headers.location.includes('Invalid+recovery+password'));
+		}
+
+		const blocked = await request(port, {
+			path: '/recovery/login',
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.40' },
+			body: 'password=wrong',
+		});
+		assert.equal(blocked.statusCode, 429);
+		assert.equal(blocked.headers['retry-after'], '900');
+		assert.ok(blocked.body.includes('Too many recovery login attempts. Try again later.'));
+	});
+});
+
+test('recovery login clears failure streak after successful password', async () => {
+	await withServer({
+		rateLimitService: createRateLimitService(),
+		settingsService: {
+			appSettings: async () => ({ authRateLimitAttempts: 2 }),
+			settingsByUserId: async () => ({}),
+			saveSettings: async (_userId, settings) => settings,
+			saveAppSettings: async settings => settings,
+			getTotpSeed: async () => null,
+			setTotpSeed: async () => true,
+			clearTotpSeed: async () => true,
+		},
+		recoveryService: {
+			isEnabled: () => true,
+			createSession: password => password === 'secret' ? 'recovery-token' : '',
+			validateSession: token => token === 'recovery-token',
+			endSession: () => {},
+		},
+		backupService: {
+			isConfigured: () => true,
+			isBusy: () => false,
+			activeOperation: () => '',
+			listBackups: async () => [],
+			startBackupJob: async () => ({}),
+			backupPath: async () => ({ path: __filename, size: 1, name: 'joplock-backup.dump', createdTime: 0 }),
+			startRestoreJob: async () => ({}),
+			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
+			waitForIdle: async () => ({ state: 'idle' }),
+		},
+	}, async port => {
+		const firstFailure = await request(port, {
+			path: '/recovery/login',
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.41' },
+			body: 'password=wrong',
+		});
+		assert.equal(firstFailure.statusCode, 302);
+
+		const success = await request(port, {
+			path: '/recovery/login',
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.41' },
+			body: 'password=secret',
+		});
+		assert.equal(success.statusCode, 302);
+		assert.ok(String(success.headers['set-cookie']).includes('joplockRecoverySession=recovery-token'));
+
+		const secondFailure = await request(port, {
+			path: '/recovery/login',
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.41' },
+			body: 'password=wrong-again',
+		});
+		assert.equal(secondFailure.statusCode, 302);
+
+		const thirdFailure = await request(port, {
+			path: '/recovery/login',
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.41' },
+			body: 'password=wrong-final',
+		});
+		assert.equal(thirdFailure.statusCode, 302);
+
+		const blocked = await request(port, {
+			path: '/recovery/login',
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-For': '198.51.100.41' },
+			body: 'password=wrong-blocked',
+		});
+		assert.equal(blocked.statusCode, 429);
+	});
+});
+
 test('failed restore keeps maintenance mode active and blocks normal routes', async () => {
 	let restoreCalled = false;
 	let jobState = 'idle';

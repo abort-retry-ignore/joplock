@@ -1312,6 +1312,23 @@ test('GET /resources/:id forces attachment download when requested', async () =>
 	});
 });
 
+test('GET /resources/:id viewer renders html page with back control', async () => {
+	const blobData = Buffer.from('%PDF-1.7');
+	await withServer({
+		itemService: {
+			resourceMetaByUserId: async (_uid, rid) => rid === 'abcdef01234567890abcdef012345678' ? { id: rid, mime: 'application/pdf', title: 'manual.pdf', filename: 'manual.pdf' } : null,
+			resourceBlobByUserId: async (_uid, rid) => rid === 'abcdef01234567890abcdef012345678' ? blobData : null,
+		},
+	}, async port => {
+		const res = await request(port, { path: '/resources/abcdef01234567890abcdef012345678?viewer=1' });
+		assert.equal(res.statusCode, 200);
+		assert.ok((res.headers['content-type'] || '').includes('text/html'));
+		assert.ok(res.body.includes('resource-viewer-page-btn'));
+		assert.ok(res.body.includes('history.length > 1 ? history.back() : window.close()'));
+		assert.ok(res.body.includes('/resources/abcdef01234567890abcdef012345678?download=1'));
+	});
+});
+
 test('GET /api/web/notes returns all notes for virtual all notes folder', async () => {
 	let receivedOptions = null;
 	await withServer({

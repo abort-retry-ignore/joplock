@@ -1,7 +1,13 @@
 'use strict';
 
 const { send, sendJson, readRawBody, parseMultipart, contentDispositionFilename, shouldInlineResource } = require('./_helpers');
-const templates = require('../templates');
+
+const escapeHtml = value => `${value}`
+	.replaceAll('&', '&amp;')
+	.replaceAll('<', '&lt;')
+	.replaceAll('>', '&gt;')
+	.replaceAll('"', '&quot;')
+	.replaceAll("'", '&#39;');
 
 const handle = async (url, request, response, ctx) => {
 	const { authenticatedUser, itemService, itemWriteService, upstreamRequestContext } = ctx;
@@ -27,6 +33,57 @@ const handle = async (url, request, response, ctx) => {
 
 			const mime = (meta && meta.mime) || 'application/octet-stream';
 			const filename = contentDispositionFilename((meta && (meta.filename || meta.title)) || `${resourceId}`);
+			const viewer = url.searchParams.get('viewer') === '1';
+			if (viewer) {
+				const title = escapeHtml(filename);
+				const resourceUrl = `/resources/${encodeURIComponent(resourceId)}`;
+				let body;
+				if (/^image\//i.test(mime)) {
+					body = `<img src="${resourceUrl}" alt="${title}" class="resource-viewer-page-img" />`;
+				} else if (/^text\//i.test(mime)) {
+					// Embed text inline — avoids iframe auth issues on iOS PWA
+					const text = blob.toString('utf8');
+					body = `<pre class="resource-viewer-page-text">${escapeHtml(text)}</pre>`;
+				} else if (mime === 'application/pdf') {
+					// PDFs: use object tag which handles auth cookie better than iframe on some browsers
+					body = `<object data="${resourceUrl}" type="application/pdf" class="resource-viewer-page-frame"><p style="color:#fff;padding:16px">PDF preview not available. <a href="${resourceUrl}?download=1" style="color:#6ee7b7">Save file</a></p></object>`;
+				} else {
+					body = `<div class="resource-viewer-page-unsupported"><p>Preview not available for this file type.</p><a class="resource-viewer-page-btn" href="${resourceUrl}?download=1">Save file</a></div>`;
+				}
+				send(response, 200, `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+	<meta name="theme-color" content="#08110b" />
+	<title>${title}</title>
+	<style>
+		:root { color-scheme: dark; }
+		body { margin: 0; font-family: system-ui, sans-serif; background: #000; color: #fff; }
+		.resource-viewer-page { min-height: 100vh; display: flex; flex-direction: column; }
+		.resource-viewer-page-bar { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px; background: #111827; border-bottom: 1px solid rgba(255,255,255,0.12); }
+		.resource-viewer-page-btn { appearance: none; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); color: #fff; border-radius: 10px; padding: 8px 14px; font: inherit; }
+		.resource-viewer-page-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+		.resource-viewer-page-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #000; }
+		.resource-viewer-page-img { max-width: 100%; max-height: calc(100vh - 64px - env(safe-area-inset-top, 0px)); object-fit: contain; }
+		.resource-viewer-page-frame { width: 100%; height: calc(100vh - 64px - env(safe-area-inset-top, 0px)); border: 0; background: #fff; }
+		.resource-viewer-page-text { max-width: 100%; width: 100%; box-sizing: border-box; padding: 16px; margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; font-size: 14px; color: #e5e7eb; background: #111; overflow: auto; max-height: calc(100vh - 64px - env(safe-area-inset-top, 0px)); }
+		.resource-viewer-page-unsupported { display: flex; flex-direction: column; align-items: center; gap: 16px; color: #9ca3af; padding: 32px; text-align: center; }
+	</style>
+</head>
+<body>
+	<div class="resource-viewer-page">
+		<div class="resource-viewer-page-bar">
+			<button type="button" class="resource-viewer-page-btn" onclick="history.length > 1 ? history.back() : window.close()">Back</button>
+			<div class="resource-viewer-page-title">${title}</div>
+			<a class="resource-viewer-page-btn" href="${resourceUrl}?download=1">Save</a>
+		</div>
+		<div class="resource-viewer-page-body">${body}</div>
+	</div>
+</body>
+</html>`, { 'Cache-Control': 'no-store', 'Content-Type': 'text/html; charset=utf-8' });
+				return true;
+			}
 			const download = url.searchParams.get('download') === '1';
 			const disposition = `${download || !shouldInlineResource(mime) ? 'attachment' : 'inline'}; filename="${filename}"`;
 			response.writeHead(200, {

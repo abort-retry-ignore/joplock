@@ -1332,7 +1332,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	z-index: 10011;
 	display: flex; flex-direction: column; gap: 6px;
 	padding: 10px;
-	min-width: 220px;
+	min-width: 180px;
 	overflow: auto;
 	background: var(--bg-side);
 	border: 1px solid var(--border);

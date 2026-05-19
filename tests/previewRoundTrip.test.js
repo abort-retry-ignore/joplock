@@ -51,6 +51,17 @@ const previewRoundTrip = markdown => {
 			return `[${content}](:/${m[1]})`;
 		},
 	});
+	td.addRule('externalLink', {
+		filter: node => {
+			const href = (node.getAttribute('href') || '').trim();
+			return node.nodeName === 'A' && !!href && !/^\/resources\//.test(href);
+		},
+		replacement: (content, node) => {
+			const href = (node.getAttribute('href') || '').trim();
+			const label = (content || '').trim() || href;
+			return `[${label}](${href})`;
+		},
+	});
 	td.addRule('checkbox', {
 		filter: node => node.nodeName === 'DIV' && node.classList.contains('md-checkbox'),
 		replacement: (content, node) => {
@@ -158,6 +169,17 @@ const previewHtmlRoundTrip = html => {
 		replacement: (content, node) => {
 			const m = (node.getAttribute('href') || '').match(/^\/resources\/([0-9a-zA-Z]{32})/);
 			return `[${content}](:/${m[1]})`;
+		},
+	});
+	td.addRule('externalLink', {
+		filter: node => {
+			const href = (node.getAttribute('href') || '').trim();
+			return node.nodeName === 'A' && !!href && !/^\/resources\//.test(href);
+		},
+		replacement: (content, node) => {
+			const href = (node.getAttribute('href') || '').trim();
+			const label = (content || '').trim() || href;
+			return `[${label}](${href})`;
 		},
 	});
 	const root = dom.window.document.getElementById('root').cloneNode(true);
@@ -287,6 +309,18 @@ test('preview round-trip expands reference links to inline', () => {
 	// Reference-style links are normalised to inline on round-trip
 	const result = previewRoundTrip('[Example][ref]\n\n[ref]: https://example.com');
 	assert.equal(result, '[Example](https://example.com)');
+});
+
+test('preview round-trip preserves plain url markdown links', () => {
+	assert.equal(previewRoundTrip('[https://example.com](https://example.com)'), '[https://example.com](https://example.com)');
+});
+
+test('preview html round-trip keeps auto-linked url text as markdown link', () => {
+	assert.equal(previewHtmlRoundTrip('<p><a href="https://example.com">https://example.com</a></p>'), '[https://example.com](https://example.com)');
+});
+
+test('preview html round-trip keeps named links as inline markdown links', () => {
+	assert.equal(previewHtmlRoundTrip('<p><a href="https://example.com">Example</a></p>'), '[Example](https://example.com)');
 });
 
 test('preview round-trip preserves strikethrough', () => {

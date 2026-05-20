@@ -1864,6 +1864,7 @@ test('GET /settings shows admin tab for admin user', async () => {
 		database: {
 			query: async (sql, params = []) => {
 				queries.push({ sql, params });
+				if (sql.includes('server_version')) return { rows: [{ version: 'PostgreSQL 16.2', version_num: 160002 }] };
 				if (sql.includes("current_setting('default_toast_compression')")) return { rows: [{ current: 'pglz', available: ['pglz', 'lz4'] }] };
 				if (sql.includes('pg_column_compression(content)')) {
 					return {
@@ -1888,8 +1889,10 @@ test('GET /settings shows admin tab for admin user', async () => {
 		assert.ok(res.body.includes('Database Compression'));
 		assert.ok(res.body.includes('Notes'));
 		assert.ok(res.body.includes('Attachments'));
+		assert.ok(res.body.includes('PostgreSQL 16.2'), 'should show pg version');
 		assert.ok(res.body.includes('<code>pglz</code>'));
 		assert.ok(res.body.includes('<code>none</code>'));
+		assert.ok(queries.some(q => q.sql.includes('server_version')));
 		assert.ok(queries.some(q => q.sql.includes('pg_column_compression(content)')));
 	});
 });

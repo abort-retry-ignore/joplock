@@ -418,6 +418,8 @@ const settingsPage = (options = {}) => {
 					<h2 class="settings-section-title">Database Compression</h2>
 					<p class="settings-section-sub">Live Postgres compression usage from the database. Changing the default affects new rows only.</p>
 					<section class="settings-security-card" style="margin-bottom:16px">
+						<p class="settings-mfa-status"><span class="badge badge-off">PostgreSQL version</span> <code>${escapeHtml(dbCompression && dbCompression.pgVersion ? dbCompression.pgVersion : 'unknown')}</code></p>
+						${dbCompression && dbCompression.supported === false ? `<p class="settings-section-sub">Toast compression settings require PostgreSQL 14 or later.</p>` : `
 						<p class="settings-mfa-status"><span class="badge badge-off">Default for new rows</span> <code>${escapeHtml(dbCompression && dbCompression.current ? dbCompression.current : 'unknown')}</code></p>
 						<form method="POST" action="/admin/db-compression" class="settings-form" style="margin-top:12px">
 							<div class="settings-grid">
@@ -429,8 +431,9 @@ const settingsPage = (options = {}) => {
 								</label>
 							</div>
 							<div class="settings-actions"><button type="submit" class="btn btn-primary">Apply for new items</button></div>
-						</form>
+						</form>`}
 					</section>
+					${dbCompression && dbCompression.supported === false ? '' : `
 					<section class="settings-security-card" style="margin-bottom:16px">
 						<h3 class="settings-section-title" style="font-size:15px">Notes</h3>
 						<p class="settings-mfa-status"><span class="badge badge-off">Current usage</span> <code>${escapeHtml(dbCompression && dbCompression.usage && dbCompression.usage.notes ? dbCompression.usage.notes.current : 'unknown')}</code></p>
@@ -440,7 +443,7 @@ const settingsPage = (options = {}) => {
 						<h3 class="settings-section-title" style="font-size:15px">Attachments</h3>
 						<p class="settings-mfa-status"><span class="badge badge-off">Current usage</span> <code>${escapeHtml(dbCompression && dbCompression.usage && dbCompression.usage.attachments ? dbCompression.usage.attachments.current : 'unknown')}</code></p>
 						${compressionUsageRows(dbCompression && dbCompression.usage ? dbCompression.usage.attachments : null)}
-					</section>
+					</section>`}
 				</section>
 				<section class="settings-section">
 					<h2 class="settings-section-title">Backup &amp; Restore</h2>

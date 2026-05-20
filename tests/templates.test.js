@@ -346,6 +346,8 @@ test('settings page renders backup section for admin', () => {
 		isAdmin: true,
 		adminUsers: [],
 		dbCompression: {
+			pgVersion: 'PostgreSQL 16.2',
+			supported: true,
 			current: 'pglz',
 			available: ['pglz', 'lz4'],
 			usage: {
@@ -360,6 +362,7 @@ test('settings page renders backup section for admin', () => {
 	assert.ok(html.includes('Database Compression'));
 	assert.ok(html.includes('/admin/db-compression'));
 	assert.ok(html.includes('Live Postgres compression usage from the database'));
+	assert.ok(html.includes('PostgreSQL 16.2'), 'should show pg version');
 	assert.ok(html.includes('<code>pglz</code>'));
 	assert.ok(html.includes('<option value="lz4">lz4</option>'));
 	assert.ok(html.includes('Notes'));
@@ -384,19 +387,18 @@ test('settings page renders database compression section without backups configu
 		isAdmin: true,
 		adminUsers: [],
 		dbCompression: {
-			current: 'lz4',
-			available: ['pglz', 'lz4'],
-			usage: {
-				notes: { current: 'mixed', rows: [{ compression: 'pglz', rowCount: 5, totalBytes: 2048 }, { compression: 'lz4', rowCount: 2, totalBytes: 1024 }] },
-				attachments: { current: 'none', rows: [] },
-			},
+			pgVersion: 'PostgreSQL 13.18',
+			supported: false,
+			current: '',
+			available: [],
+			usage: null,
 		},
 		backupEnabled: false,
 	});
 	assert.ok(html.includes('Database Compression'));
-	assert.ok(html.includes('/admin/db-compression'));
-	assert.ok(html.includes('<code>mixed</code>'));
-	assert.ok(html.includes('No rows found.'));
+	assert.ok(html.includes('PostgreSQL 13.18'), 'should show pg version');
+	assert.ok(html.includes('require PostgreSQL 14'), 'should show unsupported message');
+	assert.ok(!html.includes('/admin/db-compression'), 'should not show compression form');
 	assert.ok(html.includes('Backups are not configured.'));
 });
 

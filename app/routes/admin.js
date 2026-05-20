@@ -120,6 +120,29 @@ const handle = async (url, request, response, ctx) => {
 		return true;
 	}
 
+	if (url.pathname === '/admin/db-compression' && request.method === 'POST') {
+		const body = await parseBody(request);
+		const requested = `${body.defaultToastCompression || ''}`.trim();
+		if (!requested) {
+			redirect(response, '/settings?error=Compression+mode+is+required&tab=admin');
+			return true;
+		}
+		try {
+			const availableResult = await ctx.database.query('SELECT enumvals FROM pg_settings WHERE name = $1', ['default_toast_compression']);
+			const available = Array.isArray(availableResult.rows[0] && availableResult.rows[0].enumvals) ? availableResult.rows[0].enumvals : [];
+			if (!available.includes(requested)) {
+				redirect(response, `/settings?error=${encodeURIComponent('Unsupported compression mode')}&tab=admin`);
+				return true;
+			}
+			await ctx.database.query(`ALTER SYSTEM SET default_toast_compression = '${requested}'`);
+			await ctx.database.query('SELECT pg_reload_conf()');
+			redirect(response, `/settings?saved=${encodeURIComponent(`Database compression set to ${requested} for new items`)}&tab=admin`);
+		} catch (error) {
+			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Database compression update failed')}&tab=admin`);
+		}
+		return true;
+	}
+
 	if (url.pathname === '/admin/backups' && request.method === 'POST') {
 		const body = await parseBody(request);
 		try {

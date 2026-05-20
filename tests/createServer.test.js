@@ -263,6 +263,55 @@ test('PUT /api/web/notes/:id returns 404 for missing note', async () => {
 	});
 });
 
+test('POST /api/web/notes rejects plaintext create inside vault', async () => {
+	let created = false;
+	await withServer({
+		itemWriteService: {
+			createNote: async () => { created = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/api/web/notes',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ title: 'Secret', body: 'plain body', parentId: 'vault-1' }),
+		});
+		assert.equal(res.statusCode, 400);
+		assert.equal(created, false);
+		assert.ok(JSON.parse(res.body).error.includes('Vault notes must be saved encrypted'));
+	});
+});
+
+test('PUT /api/web/notes/:id rejects plaintext update into vault', async () => {
+	let updated = false;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Draft', body: 'plain body', parentId: 'f1', createdTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updated = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/api/web/notes/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ title: 'Draft', body: 'plain body', parentId: 'vault-1' }),
+		});
+		assert.equal(res.statusCode, 400);
+		assert.equal(updated, false);
+		assert.ok(JSON.parse(res.body).error.includes('Vault notes must be saved encrypted'));
+	});
+});
+
 // --- htmx fragment tests ---
 
 test('GET /fragments/nav returns HTML folder-note tree', async () => {
@@ -404,6 +453,34 @@ test('PUT /fragments/editor/:id can create copy on conflict', async () => {
 		// Nav lazy-loads notes; folder is present but individual note items are fetched on demand
 		assert.ok(res.body.includes('Folder 1'));
 		assert.ok(res.body.includes('hx-put="/fragments/editor/n-copy"'));
+	});
+});
+
+test('PUT /fragments/editor/:id rejects plaintext create copy inside vault', async () => {
+	let createdArgs = null;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Remote', body: 'Remote body', parentId: 'vault-1', createdTime: 1000, updatedTime: 2000 }),
+			noteHeadersByFolder: async () => [],
+		},
+		itemWriteService: {
+			createNote: async (_sid, note) => { createdArgs = note; return { id: 'n-copy' }; },
+			updateNote: async () => { throw new Error('should not update'); },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Updated+Title&body=Updated+body&parentId=vault-1&baseUpdatedTime=1000&createCopy=1',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.equal(createdArgs, null);
+		assert.ok(res.body.includes('Vault notes must be saved encrypted'));
 	});
 });
 
@@ -1257,6 +1334,58 @@ test('GET /fragments/search shows Load more when exactly 50 results returned', a
 	});
 });
 
+test('PUT /fragments/editor rejects plaintext save for note already inside vault', async () => {
+	let updateCalled = false;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: 'plain body', parentId: 'vault-1', updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updateCalled = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Secret&body=plain%20body&parentId=vault-1&currentFolderId=vault-1&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.ok(res.body.includes('Vault notes must be saved encrypted'));
+		assert.equal(updateCalled, false);
+	});
+});
+
+test('PUT /fragments/editor rejects plaintext save when moving note into vault', async () => {
+	let updateCalled = false;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Draft', body: 'plain body', parentId: 'f1', updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updateCalled = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Draft&body=plain%20body&parentId=vault-1&currentFolderId=f1&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.ok(res.body.includes('Vault notes must be saved encrypted'));
+		assert.equal(updateCalled, false);
+	});
+});
+
 test('GET /fragments/search passes offset to searchNotes', async () => {
 	let receivedOffset;
 	await withServer({
@@ -1730,7 +1859,24 @@ const makeAdminMocks = (overrides = {}) => ({
 });
 
 test('GET /settings shows admin tab for admin user', async () => {
-	await withServer(makeAdminMocks(), async port => {
+	const queries = [];
+	await withServer(makeAdminMocks({
+		database: {
+			query: async (sql, params = []) => {
+				queries.push({ sql, params });
+				if (sql.includes("current_setting('default_toast_compression')")) return { rows: [{ current: 'pglz', available: ['pglz', 'lz4'] }] };
+				if (sql.includes('pg_column_compression(content)')) {
+					return {
+						rows: [
+							{ kind: 'notes', compression: 'pglz', row_count: '7', total_bytes: '4096' },
+							{ kind: 'attachments', compression: 'none', row_count: '2', total_bytes: '8192' },
+						],
+					};
+				}
+				return { rows: [] };
+			},
+		},
+	}), async port => {
 		const res = await request(port, {
 			path: '/settings',
 			headers: { Cookie: 'sessionId=admin-session' },
@@ -1739,6 +1885,12 @@ test('GET /settings shows admin tab for admin user', async () => {
 		assert.ok(res.body.includes('tab-admin'), 'should include admin tab panel');
 		assert.ok(res.body.includes('Create New User'), 'should include create user form');
 		assert.ok(res.body.includes('Allowed attempts per 15 minutes'));
+		assert.ok(res.body.includes('Database Compression'));
+		assert.ok(res.body.includes('Notes'));
+		assert.ok(res.body.includes('Attachments'));
+		assert.ok(res.body.includes('<code>pglz</code>'));
+		assert.ok(res.body.includes('<code>none</code>'));
+		assert.ok(queries.some(q => q.sql.includes('pg_column_compression(content)')));
 	});
 });
 
@@ -1764,6 +1916,54 @@ test('POST /admin/security saves auth rate limit setting', async () => {
 		assert.equal(res.statusCode, 302);
 		assert.ok(res.headers.location.includes('saved=1'));
 		assert.deepEqual(saved, { authRateLimitAttempts: 35 });
+	});
+});
+
+test('POST /admin/db-compression updates default toast compression', async () => {
+	const queries = [];
+	await withServer(makeAdminMocks({
+		database: {
+			query: async (sql, params = []) => {
+				queries.push({ sql, params });
+				if (sql.includes('SELECT enumvals FROM pg_settings')) return { rows: [{ enumvals: ['pglz', 'lz4'] }] };
+				if (sql.includes('SELECT pg_reload_conf()')) return { rows: [{ pg_reload_conf: true }] };
+				return { rows: [] };
+			},
+		},
+	}), async port => {
+		const res = await request(port, {
+			path: '/admin/db-compression',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=admin-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'defaultToastCompression=lz4',
+		});
+		assert.equal(res.statusCode, 302);
+		assert.ok(res.headers.location.includes('Database%20compression%20set%20to%20lz4%20for%20new%20items'));
+		assert.ok(queries.some(q => q.sql.includes("ALTER SYSTEM SET default_toast_compression = 'lz4'")));
+		assert.ok(queries.some(q => q.sql.includes('SELECT pg_reload_conf()')));
+	});
+});
+
+test('POST /admin/db-compression rejects unsupported mode', async () => {
+	const queries = [];
+	await withServer(makeAdminMocks({
+		database: {
+			query: async (sql, params = []) => {
+				queries.push({ sql, params });
+				if (sql.includes('SELECT enumvals FROM pg_settings')) return { rows: [{ enumvals: ['pglz', 'lz4'] }] };
+				return { rows: [] };
+			},
+		},
+	}), async port => {
+		const res = await request(port, {
+			path: '/admin/db-compression',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=admin-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'defaultToastCompression=snappy',
+		});
+		assert.equal(res.statusCode, 302);
+		assert.ok(res.headers.location.includes('Unsupported%20compression%20mode'));
+		assert.ok(!queries.some(q => q.sql.includes('ALTER SYSTEM SET default_toast_compression')));
 	});
 });
 
@@ -2586,6 +2786,37 @@ test('GET /fragments/history-snapshot/:id returns 404 for missing snapshot', asy
 	await withServer({}, async port => {
 		const res = await request(port, { path: '/fragments/history-snapshot/missing' });
 		assert.equal(res.statusCode, 404);
+	});
+});
+
+test('POST /fragments/history/:noteId/restore/:snapshotId rejects plaintext restore inside vault', async () => {
+	let updated = false;
+	await withServer({
+		historyService: {
+			saveSnapshot: async () => {},
+			listSnapshots: async () => [],
+			getSnapshot: async id => id === 's1' ? { id: 's1', noteId: 'n1', title: 'Secret', body: 'plain snapshot body' } : null,
+		},
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: 'cipher', parentId: 'vault-1', createdTime: 1000, updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updated = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/history/n1/restore/s1',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'currentFolderId=vault-1',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.equal(updated, false);
+		assert.ok(res.body.includes('Vault notes must be saved encrypted'));
 	});
 });
 

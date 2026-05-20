@@ -12,6 +12,33 @@ const {
 
 const ASSET_VERSION = '20260519pwa1';
 
+const formatBytes = value => {
+	const bytes = Number(value || 0);
+	if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+	let amount = bytes;
+	let index = 0;
+	while (amount >= 1024 && index < units.length - 1) {
+		amount /= 1024;
+		index += 1;
+	}
+	const digits = amount >= 10 || index === 0 ? 0 : 1;
+	return `${amount.toFixed(digits)} ${units[index]}`;
+};
+
+const compressionUsageRows = usage => {
+	const rows = usage && Array.isArray(usage.rows) ? usage.rows.filter(row => row.rowCount > 0) : [];
+	if (!rows.length) return '<p class="settings-section-sub">No rows found.</p>';
+	return `<div class="admin-table-wrap"><table class="admin-table">
+		<thead><tr><th>Compression</th><th>Rows</th><th>Content bytes</th></tr></thead>
+		<tbody>${rows.map(row => `<tr>
+			<td><code>${escapeHtml(row.compression || 'none')}</code></td>
+			<td>${escapeHtml(String(row.rowCount || 0))}</td>
+			<td>${escapeHtml(formatBytes(row.totalBytes || 0))}</td>
+		</tr>`).join('')}</tbody>
+	</table></div>`;
+};
+
 const adminUserRow = (u, currentUserId) => {
 	const enabled = u.enabled !== false;
 	const isSelf = u.id === currentUserId;
@@ -95,7 +122,7 @@ const adminUserRow = (u, currentUserId) => {
 };
 
 const settingsPage = (options = {}) => {
-	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', flash = '', flashError = '', activeTab = 'appearance' } = options;
+	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', dbCompression = null, flash = '', flashError = '', activeTab = 'appearance', hasExplicitTab = false } = options;
 	const validTabs = ['appearance', 'profile', 'security'];
 	if (isAdmin) validTabs.push('admin');
 	const tab = validTabs.includes(activeTab) ? activeTab : 'appearance';
@@ -388,6 +415,34 @@ const settingsPage = (options = {}) => {
 					</table></div>` : '<p class="settings-section-sub">No users found.</p>'}
 				</section>
 				<section class="settings-section">
+					<h2 class="settings-section-title">Database Compression</h2>
+					<p class="settings-section-sub">Live Postgres compression usage from the database. Changing the default affects new rows only.</p>
+					<section class="settings-security-card" style="margin-bottom:16px">
+						<p class="settings-mfa-status"><span class="badge badge-off">Default for new rows</span> <code>${escapeHtml(dbCompression && dbCompression.current ? dbCompression.current : 'unknown')}</code></p>
+						<form method="POST" action="/admin/db-compression" class="settings-form" style="margin-top:12px">
+							<div class="settings-grid">
+								<label class="settings-field">
+									<span>Default compression</span>
+									<select class="login-input" name="defaultToastCompression" required>
+										${(dbCompression && Array.isArray(dbCompression.available) ? dbCompression.available : []).map(mode => `<option value="${escapeHtml(mode)}"${dbCompression && dbCompression.current === mode ? ' selected' : ''}>${escapeHtml(mode)}</option>`).join('')}
+									</select>
+								</label>
+							</div>
+							<div class="settings-actions"><button type="submit" class="btn btn-primary">Apply for new items</button></div>
+						</form>
+					</section>
+					<section class="settings-security-card" style="margin-bottom:16px">
+						<h3 class="settings-section-title" style="font-size:15px">Notes</h3>
+						<p class="settings-mfa-status"><span class="badge badge-off">Current usage</span> <code>${escapeHtml(dbCompression && dbCompression.usage && dbCompression.usage.notes ? dbCompression.usage.notes.current : 'unknown')}</code></p>
+						${compressionUsageRows(dbCompression && dbCompression.usage ? dbCompression.usage.notes : null)}
+					</section>
+					<section class="settings-security-card" style="margin-bottom:16px">
+						<h3 class="settings-section-title" style="font-size:15px">Attachments</h3>
+						<p class="settings-mfa-status"><span class="badge badge-off">Current usage</span> <code>${escapeHtml(dbCompression && dbCompression.usage && dbCompression.usage.attachments ? dbCompression.usage.attachments.current : 'unknown')}</code></p>
+						${compressionUsageRows(dbCompression && dbCompression.usage ? dbCompression.usage.attachments : null)}
+					</section>
+				</section>
+				<section class="settings-section">
 					<h2 class="settings-section-title">Backup &amp; Restore</h2>
 					<p class="settings-section-sub">Create and restore full Postgres backups for Joplin and Joplock.</p>
 					${backupEnabled ? `
@@ -459,7 +514,7 @@ const settingsPage = (options = {}) => {
 			document.querySelectorAll('.settings-tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='tab-'+name)});
 			try{localStorage.setItem('joplock-settings-tab',name)}catch(e){}
 		};
-		(function(){var saved=null;try{saved=localStorage.getItem('joplock-settings-tab')}catch(e){}var initial='${escapeHtml(tab)}';if(saved&&saved!==initial)switchTab(saved)})();
+		(function(){var saved=null;try{saved=localStorage.getItem('joplock-settings-tab')}catch(e){}var initial='${escapeHtml(tab)}';var hasExplicitTab=${hasExplicitTab ? 'true' : 'false'};if(!hasExplicitTab&&saved&&saved!==initial)switchTab(saved)})();
 		(function(){
 			var key='joplock-backup-compression-mode';
 			document.querySelectorAll('[data-backup-form]').forEach(function(form){
@@ -491,7 +546,7 @@ const settingsPage = (options = {}) => {
 			try{render(JSON.parse(panel.getAttribute('data-initial')||'{}'))}catch(e){}
 			setInterval(function(){fetch('/admin/status',{headers:{'Accept':'application/json'}}).then(function(r){return r.ok?r.json():null}).then(function(data){if(data&&data.job)render(data.job)}).catch(function(){})},1500)
 		})();
-		document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!e.target.closest('dialog[open]')){window.location.href='/'}});
+		document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;if(e.defaultPrevented)return;if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable))return;if(document.querySelector('dialog[open]'))return;window.location.href='/'});
 	})();
 	</script>
 </body>

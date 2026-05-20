@@ -1,6 +1,6 @@
 'use strict';
 
-const { sendJson, parseBody, normalizeStoredFolderId } = require('./_helpers');
+const { sendJson, parseBody, normalizeStoredFolderId, assertVaultNoteBodyEncrypted } = require('./_helpers');
 const templates = require('../templates');
 
 const notesForFolder = async (itemService, userId, folderId) => {
@@ -140,6 +140,7 @@ const handle = async (url, request, response, ctx) => {
 				const body = await parseBody(request);
 				const parentId = `${body.parentId || ''}`;
 				if (!parentId) { sendJson(response, 400, { error: 'Note parentId is required' }); return true; }
+				await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, '', parentId, body.body);
 				const created = await itemWriteService.createNote(auth.user.sessionId, {
 					title: plainNoteTitle(body.title),
 					body: `${body.body || ''}`,
@@ -175,6 +176,7 @@ const handle = async (url, request, response, ctx) => {
 				const existing = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
 				if (!existing) { sendJson(response, 404, { error: 'Note not found' }); return true; }
 				const body = await parseBody(request);
+				await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, body.parentId !== undefined ? body.parentId : existing.parentId, body.body);
 				const updated = await itemWriteService.updateNote(auth.user.sessionId, existing, {
 					title: plainNoteTitle(body.title), body: body.body, parentId: body.parentId,
 				}, upstreamRequestContext(request));

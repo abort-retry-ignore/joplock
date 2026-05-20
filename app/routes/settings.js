@@ -4,6 +4,20 @@ const { generateSeed, otpauthUri, qrCodeDataUrl, verifyWithSeed } = require('../
 const { redirect, parseBody } = require('./_helpers');
 const templates = require('../templates');
 
+const summarizeCompressionUsage = rows => {
+	const usageRows = Array.isArray(rows) ? rows.map(row => ({
+		compression: row.compression || 'none',
+		rowCount: Number(row.row_count || 0),
+		totalBytes: Number(row.total_bytes || 0),
+	})) : [];
+	const activeRows = usageRows.filter(row => row.rowCount > 0);
+	const compressionNames = new Set(activeRows.map(row => row.compression));
+	return {
+		current: !activeRows.length ? 'none' : (compressionNames.size === 1 ? activeRows[0].compression : 'mixed'),
+		rows: usageRows,
+	};
+};
+
 const handle = async (url, request, response, ctx) => {
 	const { sendHtml, authenticatedUser, settingsService, adminService, database, isJoplockAdmin, backupService, maintenance } = ctx;
 
@@ -14,6 +28,7 @@ const handle = async (url, request, response, ctx) => {
 		const settings = await settingsService.settingsByUserId(auth.user.id);
 		const isAdmin = isJoplockAdmin(auth.user);
 		const appSettings = isAdmin ? await settingsService.appSettings() : null;
+		let dbCompression = null;
 		let adminUsers = null;
 		let backups = [];
 		if (isAdmin) {
@@ -31,6 +46,38 @@ const handle = async (url, request, response, ctx) => {
 			} catch {}
 			try {
 				if (backupService && backupService.isConfigured()) backups = await backupService.listBackups();
+			} catch {}
+			try {
+				const [settingsResult, usageResult] = await Promise.all([
+					database.query(`
+					SELECT current_setting('default_toast_compression') AS current,
+						(SELECT enumvals FROM pg_settings WHERE name = 'default_toast_compression') AS available
+					`),
+					database.query(`
+						SELECT
+							CASE
+								WHEN jop_type = 1 THEN 'notes'
+								WHEN name LIKE '.resource/%' THEN 'attachments'
+							END AS kind,
+							COALESCE(pg_column_compression(content), 'none') AS compression,
+							COUNT(*) AS row_count,
+							COALESCE(SUM(octet_length(content)), 0) AS total_bytes
+						FROM items
+						WHERE jop_type = 1 OR name LIKE '.resource/%'
+						GROUP BY 1, 2
+						ORDER BY 1, 2
+					`),
+				]);
+				const row = settingsResult.rows[0] || {};
+				const usageRows = Array.isArray(usageResult.rows) ? usageResult.rows : [];
+				dbCompression = {
+					current: row.current || '',
+					available: Array.isArray(row.available) ? row.available : [],
+					usage: {
+						notes: summarizeCompressionUsage(usageRows.filter(entry => entry.kind === 'notes')),
+						attachments: summarizeCompressionUsage(usageRows.filter(entry => entry.kind === 'attachments')),
+					},
+				};
 			} catch {}
 		}
 		const userTotpSeed = await settingsService.getTotpSeed(auth.user.id);
@@ -53,10 +100,12 @@ const handle = async (url, request, response, ctx) => {
 			backupBusy: !!(backupService && backupService.isBusy && backupService.isBusy()),
 			maintenanceMode: maintenance && maintenance.isEnabled ? maintenance.isEnabled() : false,
 			activeOperation: maintenance && maintenance.reason ? maintenance.reason() : '',
+			dbCompression,
 			appSettings,
 			flash: savedParam === '1' ? 'Settings saved.' : (savedParam || (url.searchParams.get('mfaEnabled') === '1' ? 'MFA enabled successfully.' : '')),
 			flashError: url.searchParams.get('error') || '',
 			activeTab: url.searchParams.get('tab') || 'appearance',
+			hasExplicitTab: url.searchParams.has('tab'),
 		}));
 		return true;
 	}

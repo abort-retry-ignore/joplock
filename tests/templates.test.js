@@ -95,9 +95,24 @@ test('app script enforces single-screen mobile invariant via state machine', () 
 
 test('navigationFragment shows trash folder empty action', () => {
 	const html = navigationFragment([{ id: 'de1e7ede1e7ede1e7ede1e7ede1e7ede', title: 'Trash', parentId: '' }], [], '', '');
-	assert.ok(html.includes('hx-post="/fragments/trash/empty"'));
-	assert.ok(html.includes('Empty trash permanently?'));
+	assert.ok(html.includes('class="trash-folder-empty btn-icon-sm"'));
+	assert.ok(html.includes('openEmptyTrashModal()'));
+	assert.ok(html.includes('id="empty-trash-modal"'));
+	assert.ok(html.includes('Empty Trash'));
+	assert.ok(html.includes('This will permanently delete every note in Trash.'));
+	assert.ok(html.includes('onclick="closeEmptyTrashModal()"'));
+	assert.ok(html.includes('onsubmit="submitEmptyTrash(event)"'));
 	assert.ok(html.includes('&#128465;'));
+});
+
+test('app script exports empty trash modal handlers for inline actions', () => {
+	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+	assert.ok(appJs.includes('function openEmptyTrashModal()'));
+	assert.ok(appJs.includes('function closeEmptyTrashModal()'));
+	assert.ok(appJs.includes('function submitEmptyTrash(event)'));
+	assert.ok(appJs.includes('window.openEmptyTrashModal=openEmptyTrashModal;'));
+	assert.ok(appJs.includes('window.closeEmptyTrashModal=closeEmptyTrashModal;'));
+	assert.ok(appJs.includes('window.submitEmptyTrash=submitEmptyTrash;'));
 });
 
 test('navigationFragment shows virtual all notes without notebook actions', () => {
@@ -330,10 +345,28 @@ test('settings page renders backup section for admin', () => {
 		settings: {},
 		isAdmin: true,
 		adminUsers: [],
+		dbCompression: {
+			current: 'pglz',
+			available: ['pglz', 'lz4'],
+			usage: {
+				notes: { current: 'pglz', rows: [{ compression: 'pglz', rowCount: 12, totalBytes: 8192 }] },
+				attachments: { current: 'none', rows: [{ compression: 'none', rowCount: 3, totalBytes: 1048576 }] },
+			},
+		},
 		backupEnabled: true,
 		backups: [{ name: 'joplock-backup-2026.dump', createdTime: Date.UTC(2026, 4, 18, 14, 22, 31), size: 1234 }],
 	});
 	assert.ok(html.includes('Backup &amp; Restore'));
+	assert.ok(html.includes('Database Compression'));
+	assert.ok(html.includes('/admin/db-compression'));
+	assert.ok(html.includes('Live Postgres compression usage from the database'));
+	assert.ok(html.includes('<code>pglz</code>'));
+	assert.ok(html.includes('<option value="lz4">lz4</option>'));
+	assert.ok(html.includes('Notes'));
+	assert.ok(html.includes('Attachments'));
+	assert.ok(html.includes('Current usage'));
+	assert.ok(html.includes('<td>12</td>'));
+	assert.ok(html.includes('1.0 MB'));
 	assert.ok(html.includes('/admin/backups'));
 	assert.ok(html.includes('/admin/restore'));
 	assert.ok(html.includes('/admin/status'));
@@ -342,6 +375,29 @@ test('settings page renders backup section for admin', () => {
 	assert.ok(html.includes('Fast (gzip:1)'));
 	assert.ok(html.includes('Balanced (zstd:3)'));
 	assert.ok(html.includes('Smallest (deployment default)'));
+});
+
+test('settings page renders database compression section without backups configured', () => {
+	const html = settingsPage({
+		user: { id: 'admin-1', email: 'admin@example.com' },
+		settings: {},
+		isAdmin: true,
+		adminUsers: [],
+		dbCompression: {
+			current: 'lz4',
+			available: ['pglz', 'lz4'],
+			usage: {
+				notes: { current: 'mixed', rows: [{ compression: 'pglz', rowCount: 5, totalBytes: 2048 }, { compression: 'lz4', rowCount: 2, totalBytes: 1024 }] },
+				attachments: { current: 'none', rows: [] },
+			},
+		},
+		backupEnabled: false,
+	});
+	assert.ok(html.includes('Database Compression'));
+	assert.ok(html.includes('/admin/db-compression'));
+	assert.ok(html.includes('<code>mixed</code>'));
+	assert.ok(html.includes('No rows found.'));
+	assert.ok(html.includes('Backups are not configured.'));
 });
 
 test('stripMarkdownForTitle removes common markdown markers from titles', () => {

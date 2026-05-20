@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseBody, TRASH_FOLDER_ID, selectedFolderForNav, navPanelOob } = require('./_helpers');
+const { parseBody, TRASH_FOLDER_ID, selectedFolderForNav, navPanelOob, assertVaultNoteBodyEncrypted } = require('./_helpers');
 const templates = require('../templates');
 
 const handle = async (url, request, response, ctx) => {
@@ -50,6 +50,7 @@ const handle = async (url, request, response, ctx) => {
 			const currentFolderId = `${body.currentFolderId || ''}`;
 			const existing = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
 			if (!existing) { sendHtml(response, 404, '<span class="autosave-error">Note not found</span>'); return true; }
+			await assertVaultNoteBodyEncrypted(ctx.vaultService, auth.user.id, existing.parentId, existing.parentId, snapshot.body);
 			await itemWriteService.updateNote(auth.user.sessionId, existing, {
 				title: snapshot.title,
 				body: snapshot.body,

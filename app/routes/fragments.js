@@ -3,7 +3,7 @@
 const { NOTE_PAGE_SIZE, VIRTUAL_ALL_NOTES_ID, VIRTUAL_TRASH_ID } = require('../items/itemService');
 const {
 	parseBody, TRASH_FOLDER_ID, ALL_NOTES_FOLDER_ID, selectedFolderForNav,
-	mapNavNotes, nextConflictCopyTitle, navPanelOob, rebuildNavOob,
+	mapNavNotes, nextConflictCopyTitle, navPanelOob, rebuildNavOob, assertVaultNoteBodyEncrypted,
 } = require('./_helpers');
 const templates = require('../templates');
 
@@ -387,6 +387,7 @@ const handle = async (url, request, response, ctx) => {
 			const currentFolderId = `${body.currentFolderId || body.parentId || existing.parentId || ''}`;
 			if (createCopy) {
 				const parentFolderId = body.parentId || existing.parentId || '';
+				await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, parentFolderId, body.body);
 				const [{ folders, counts }, siblingNotes] = await Promise.all([
 					navData(auth.user.id),
 					itemService.noteHeadersByFolder(auth.user.id, parentFolderId || '__all__', 500, 0),
@@ -416,6 +417,8 @@ const handle = async (url, request, response, ctx) => {
 				sendHtml(response, 200, templates.autosaveConflictFragment(noteId));
 				return true;
 			}
+			const targetParentId = `${body.parentId || existing.parentId || ''}`;
+			await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, targetParentId, body.body);
 			await itemWriteService.updateNote(auth.user.sessionId, existing, {
 				title: plainNoteTitle(body.title),
 				body: body.body,
@@ -439,7 +442,7 @@ const handle = async (url, request, response, ctx) => {
 				`${templates.noteMetaFragment(refreshed || existing).replace('<span id="note-meta"', '<span id="note-meta" hx-swap-oob="outerHTML"')}`
 			);
 		} catch (error) {
-			sendHtml(response, error.statusCode || 500, '<span class="autosave-error">Save failed</span>');
+			sendHtml(response, error.statusCode || 500, `<span class="autosave-error">${templates.escapeHtml(error.message || 'Save failed')}</span>`);
 		}
 		return true;
 	}

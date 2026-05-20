@@ -287,6 +287,9 @@ function closeFolderContextMenu(){var menu=document.getElementById('folder-conte
 function openFolderContextMenu(event,id,title){if(event){event.preventDefault();event.stopPropagation()}var menu=document.getElementById('folder-context-menu');if(!menu)return false;_folderMenuState={id:id,title:title};menu.hidden=false;menu.style.left=(event.clientX||16)+'px';menu.style.top=(event.clientY||16)+'px';return false}
 function closeFolderModal(){var modal=document.getElementById('folder-modal');var backdrop=document.getElementById('folder-modal-backdrop');if(modal)modal.hidden=true;if(backdrop)backdrop.hidden=true}
 function openFolderModal(){var input=document.getElementById('folder-edit-title');var modal=document.getElementById('folder-modal');var backdrop=document.getElementById('folder-modal-backdrop');if(modal&&modal.parentNode!==document.body)document.body.appendChild(modal);if(backdrop&&backdrop.parentNode!==document.body)document.body.appendChild(backdrop);if(input)input.value=_folderMenuState.title||'';if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false;closeFolderContextMenu();if(input)input.focus()}
+function openEmptyTrashModal(){var modal=document.getElementById('empty-trash-modal');var backdrop=document.getElementById('empty-trash-modal-backdrop');if(modal&&modal.parentNode!==document.body)document.body.appendChild(modal);if(backdrop&&backdrop.parentNode!==document.body)document.body.appendChild(backdrop);if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false}
+function closeEmptyTrashModal(){var modal=document.getElementById('empty-trash-modal');var backdrop=document.getElementById('empty-trash-modal-backdrop');if(modal)modal.hidden=true;if(backdrop)backdrop.hidden=true}
+function submitEmptyTrash(event){if(event)event.preventDefault();closeEmptyTrashModal();htmx.ajax('POST','/fragments/trash/empty',{target:'#nav-panel',swap:'innerHTML'});return false}
 function editFolderFromMenu(){if(!_folderMenuState.id)return;openFolderModal()}
 function deleteFolderFromMenu(){if(!_folderMenuState.id)return;closeFolderContextMenu();if(confirm('Delete notebook "'+(_folderMenuState.title||'Untitled')+'"?')){htmx.ajax('DELETE','/fragments/folders/'+encodeURIComponent(_folderMenuState.id),{target:'#nav-panel',swap:'innerHTML'})}}
 function submitFolderEdit(event){if(event)event.preventDefault();var input=document.getElementById('folder-edit-title');var title=input?input.value.trim():'';if(!_folderMenuState.id||!title)return false;var folderId=_folderMenuState.id;closeFolderModal();if(window.isMobileShellMode&&window.isMobileShellMode()){fetch('/fragments/folders/'+encodeURIComponent(folderId),{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded','hx-request':'true'},body:'title='+encodeURIComponent(title)}).then(function(){htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});var notesTitle=document.getElementById('mobile-notes-title');if(notesTitle&&notesTitle.textContent===_folderMenuState.title)notesTitle.textContent=title})}else{htmx.ajax('PUT','/fragments/folders/'+encodeURIComponent(folderId),{target:'#nav-panel',swap:'innerHTML',values:{title:title}})}return false}
@@ -296,8 +299,17 @@ function toggleNavFolder(id,force){
 	var el=document.querySelector('.nav-folder[data-folder-id="'+id.replace(/"/g,'\\"')+'"]');
 	if(!el)return;
 	var collapsed=force===undefined?!el.classList.contains('collapsed'):!force;
+	var s=navFolderState();
+	if(!collapsed){
+		document.querySelectorAll('.nav-folder[data-folder-id]').forEach(function(other){
+			var otherId=other.getAttribute('data-folder-id');
+			if(!otherId||other===el)return;
+			other.classList.add('collapsed');
+			s[otherId]='0';
+		});
+	}
 	el.classList.toggle('collapsed',collapsed);
-	var s=navFolderState();s[id]=collapsed?'0':'1';saveNavFolderState(s);
+	s[id]=collapsed?'0':'1';saveNavFolderState(s);
 	// Lazy-load notes on first expand
 	if(!collapsed){
 		var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');
@@ -802,7 +814,7 @@ var _formHashExclude={baseUpdatedTime:true,forceSave:true,createCopy:true};funct
 var _savedHash=0;
 var _saveTimer=null;
 var _saveTitleTimer=null;
-function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
+function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal','empty-trash-modal'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
 function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
 function scheduleSaveTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(mobileTitle&&document.activeElement===mobileTitle)return;// Don't save while user is still editing title
 if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
@@ -946,7 +958,7 @@ window.addEventListener('load',function(){if(isMobileShellMode())return;initNavP
 window.addEventListener('resize',applyMobileTitleMode);
 document.addEventListener('keydown',function(e){var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoSnapshot()}});
 	function flushSave(callback){var form=activeEditorForm();if(!form){_log('flushSave skip (no form)');if(callback)callback(true);return}if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}if(_pvSyncTimer){clearTimeout(_pvSyncTimer);_pvSyncTimer=null;_syncPVInFlight=true;syncPV();_syncPVInFlight=false}else{var pv=getPV();if(pv)syncPV();else cmSyncToTA()}syncTitleToHidden({silent:true});var h=formHash(form);if(h===_savedHash){_log('flushSave skip (hash unchanged)',h);if(callback)callback(true);return}setSaveState('<span class="autosave-saving">Saving...</span>','Saving...');var restoreReq=function(){};buildFlushRequest(form).then(function(req){if(!req){if(callback)callback(true);return}restoreReq=req.restore||restoreReq;_log('flushSave',req.url);return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){restoreReq();_log('flushSave ok',html.slice(0,80));snapshotHash();window._mobileNewNoteId=null;setSaveState('<span class="autosave-ok">Saved</span>','Saved');if(callback)callback(true)})}).catch(function(err){restoreReq();_log('flushSave error',err);showOffline();if(callback)callback(false)})}
-	function shouldInterceptNavigationClick(target){var navTarget=target&&target.closest?target.closest('.notelist-item,.sidebar-item,.nav-folder-row,[hx-get],[hx-post],[hx-delete]'):null;if(!navTarget)return null;if(navTarget.closest&&navTarget.closest('#note-editor-form'))return null;if(navTarget.closest&&navTarget.closest('#folder-context-menu,#folder-modal,#link-modal,#history-modal,#code-modal,#new-folder-modal,#vault-modal'))return null;return navTarget}
+	function shouldInterceptNavigationClick(target){var navTarget=target&&target.closest?target.closest('.notelist-item,.sidebar-item,.nav-folder-row,[hx-get],[hx-post],[hx-delete]'):null;if(!navTarget)return null;if(navTarget.closest&&navTarget.closest('#note-editor-form'))return null;if(navTarget.closest&&navTarget.closest('#folder-context-menu,#folder-modal,#link-modal,#history-modal,#code-modal,#new-folder-modal,#vault-modal,#empty-trash-modal'))return null;return navTarget}
 document.addEventListener('click',function(e){var navTarget=shouldInterceptNavigationClick(e.target);if(!navTarget)return;var form=activeEditorForm();var status=queryActiveEditor('#autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty)return;_log('navigation click intercepted, flushing save',navTarget.className||navTarget.id||navTarget.tagName);e.preventDefault();e.stopImmediatePropagation();flushSave(function(saved){if(saved){_log('flushSave done, re-clicking navigation target');navTarget.click()}})},true);
 window.joplockLiveSearch=_cfg.liveSearch||false;
 (function(){var _navSearchSavedValue=null;function enableLiveSearch(){var el=document.getElementById('nav-search');if(!el||!window.joplockLiveSearch||el.dataset.liveSearch)return;el.dataset.liveSearch='1';el.setAttribute('hx-trigger','search-submit, input changed delay:300ms');el.addEventListener('htmx:beforeRequest',function(e){var v=el.value;if(v.length>0&&v.length<3){e.preventDefault();return}});htmx.process(el)}function restoreNavSearch(){if(_navSearchSavedValue===null)return;var el=document.getElementById('nav-search');if(!el){_navSearchSavedValue=null;return;}el.value=_navSearchSavedValue;el.selectionStart=el.selectionEnd=el.value.length;_navSearchSavedValue=null}enableLiveSearch();document.body.addEventListener('htmx:beforeSwap',function(e){var target=e.detail&&e.detail.target;if(target&&target.id==='nav-panel'){var el=document.getElementById('nav-search');if(el)_navSearchSavedValue=el.value}});document.body.addEventListener('htmx:afterSettle',function(){enableLiveSearch();restoreNavSearch()})})();
@@ -1728,9 +1740,7 @@ async function _doEncryptNoteInVault(noteId,folderId){
 		if(form){
 			form.dataset.encrypted='1';
 			form.dataset.vaultId=folderId;
-			var restoreBodyField=_setOneShotEncryptedBody(form,ciphertext);
-			htmx.trigger(form,'joplock:save');
-			setTimeout(restoreBodyField,0);
+			_triggerEncryptedSave(form,ciphertext);
 		}
 		_updateLockToggle(noteId,true);
 		_updateNoteLockIcon(noteId,true);
@@ -1919,6 +1929,31 @@ function _setOneShotEncryptedBody(form,ciphertext){
 	};
 }
 
+function _triggerEncryptedSave(form,ciphertext){
+	if(!form)return;
+	var restore=_setOneShotEncryptedBody(form,ciphertext);
+	var done=false;
+	var cleanupTimer=null;
+	var cleanup=function(){
+		if(done)return;
+		done=true;
+		if(cleanupTimer)clearTimeout(cleanupTimer);
+		form.removeEventListener('htmx:afterRequest',onDone);
+		form.removeEventListener('htmx:responseError',onDone);
+		form.removeEventListener('htmx:sendError',onDone);
+		restore();
+	};
+	var onDone=function(e){
+		if(e.target!==form)return;
+		setTimeout(cleanup,0);
+	};
+	form.addEventListener('htmx:afterRequest',onDone);
+	form.addEventListener('htmx:responseError',onDone);
+	form.addEventListener('htmx:sendError',onDone);
+	cleanupTimer=setTimeout(cleanup,30000);
+	htmx.trigger(form,'joplock:save');
+}
+
 function buildFlushRequest(form){
 	if(!form)return Promise.resolve(null);
 	var url=form.getAttribute('hx-put');
@@ -1976,9 +2011,7 @@ scheduleSave=function(){
 			var salt=getVaultSalt(vaultId);
 			var ciphertext=await encryptForVault(plaintext,vaultId,key,salt);
 			_log('encrypted save ciphertext ready',vaultId,{noteId:noteId,ciphertextLength:ciphertext.length,hasMarker:isEncryptedBody(ciphertext)});
-			var restoreBodyField=_setOneShotEncryptedBody(form,ciphertext);
-			htmx.trigger(form,'joplock:save');
-			setTimeout(restoreBodyField,0);
+			_triggerEncryptedSave(form,ciphertext);
 			touchVaultActivity(vaultId);
 		}catch(e){
 			_log('encrypted save error',e);
@@ -2101,33 +2134,30 @@ initEditorPanel=function(){
 		if(isEnc&&!newFolderIsVault){
 			// Moving encrypted note out of vault → decrypt it
 			if(!oldVaultId)return;
-			if(!isVaultUnlocked(oldVaultId)){
-				select.value=oldVaultId; // revert
-				_showVaultModal(oldVaultId,'unlock',function(ok){
-					if(ok){select.value=newFolderId;select.dispatchEvent(new Event('change',{bubbles:true}))}
-				});
-				return;
-			}
-			getVaultKey(oldVaultId).then(function(key){
-				if(!key){_log('no vault key to decrypt on move');return}
-				return _decryptWithKey(ta.value,key).then(function(pt){
-					ta.value=pt;
-					delete form.dataset.encrypted;
-					delete form.dataset.vaultId;
-					_updateLockToggle(noteId,false);
-					_updateNoteLockIcon(noteId,false);
-					htmx.trigger(form,'joplock:save');
-				});
-			}).catch(function(e){_log('decrypt on move failed',e)});
+			select.value=oldVaultId;
+			_showVaultModal(oldVaultId,'unlock',function(ok){
+				if(!ok)return;
+				select.value=newFolderId;
+				getVaultKey(oldVaultId).then(function(key){
+					if(!key){_log('no vault key to decrypt on move');return}
+					return _decryptWithKey(ta.value,key).then(function(pt){
+						ta.value=pt;
+						delete form.dataset.encrypted;
+						delete form.dataset.vaultId;
+						_updateLockToggle(noteId,false);
+						_updateNoteLockIcon(noteId,false);
+						htmx.trigger(form,'joplock:save');
+					});
+				}).catch(function(e){_log('decrypt on move failed',e)});
+			});
 		}else if(!isEnc&&newFolderIsVault){
 			// Moving plain note into vault → encrypt it
-			if(!isVaultUnlocked(newFolderId)){
-				_showVaultModal(newFolderId,'unlock',function(ok){
-					if(ok)_doEncryptNoteInVault(noteId,newFolderId);
-				});
-			}else{
+			select.value=form.dataset.vaultId||'';
+			_showVaultModal(newFolderId,'unlock',function(ok){
+				if(!ok)return;
+				select.value=newFolderId;
 				_doEncryptNoteInVault(noteId,newFolderId);
-			}
+			});
 		}else if(isEnc&&newFolderIsVault&&oldVaultId!==newFolderId){
 			// Moving between vaults → decrypt with old, re-encrypt with new
 			if(!oldVaultId)return;
@@ -2135,41 +2165,23 @@ initEditorPanel=function(){
 				getVaultKey(oldVaultId).then(function(oldKey){
 					if(!oldKey){_log('no old vault key');return}
 					return _decryptWithKey(ta.value,oldKey).then(function(pt){
-						if(!isVaultUnlocked(newFolderId)){
-							_showVaultModal(newFolderId,'unlock',function(ok){
-								if(!ok)return;
-								getVaultKey(newFolderId).then(function(newKey){
-									var salt=getVaultSalt(newFolderId);
-									return encryptForVault(pt,newFolderId,newKey,salt).then(function(ct){
-										form.dataset.vaultId=newFolderId;
-										var restoreBodyField=_setOneShotEncryptedBody(form,ct);
-										htmx.trigger(form,'joplock:save');
-										setTimeout(restoreBodyField,0);
-									});
-								}).catch(function(e){_log('re-encrypt failed',e)});
-							});
-						}else{
+						_showVaultModal(newFolderId,'unlock',function(ok){
+							if(!ok)return;
 							getVaultKey(newFolderId).then(function(newKey){
-							var salt=getVaultSalt(newFolderId);
-							return encryptForVault(pt,newFolderId,newKey,salt).then(function(ct){
-								form.dataset.vaultId=newFolderId;
-								var restoreBodyField=_setOneShotEncryptedBody(form,ct);
-								htmx.trigger(form,'joplock:save');
-								setTimeout(restoreBodyField,0);
-							});
-						}).catch(function(e){_log('re-encrypt failed',e)});
-						}
+								var salt=getVaultSalt(newFolderId);
+								return encryptForVault(pt,newFolderId,newKey,salt).then(function(ct){
+									form.dataset.vaultId=newFolderId;
+									_triggerEncryptedSave(form,ct);
+								});
+							}).catch(function(e){_log('re-encrypt failed',e)});
+						});
 					});
 				}).catch(function(e){_log('move between vaults failed',e)});
 			};
-			if(!isVaultUnlocked(oldVaultId)){
-				select.value=oldVaultId;
-				_showVaultModal(oldVaultId,'unlock',function(ok){
-					if(ok){select.value=newFolderId;doReencrypt()}
-				});
-			}else{
-				doReencrypt();
-			}
+			select.value=oldVaultId;
+			_showVaultModal(oldVaultId,'unlock',function(ok){
+				if(ok){select.value=newFolderId;doReencrypt()}
+			});
 		}
 	});
 })();
@@ -2339,6 +2351,9 @@ async function submitNewFolderModal(event){
 	window.deleteFolderFromMenu=deleteFolderFromMenu;
 	window.closeFolderModal=closeFolderModal;
 	window.submitFolderEdit=submitFolderEdit;
+	window.openEmptyTrashModal=openEmptyTrashModal;
+	window.closeEmptyTrashModal=closeEmptyTrashModal;
+	window.submitEmptyTrash=submitEmptyTrash;
 window.closeLinkModal=closeLinkModal;
 window.submitLink=submitLink;
 window.closeHistoryModal=closeHistoryModal;

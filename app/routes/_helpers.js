@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const { isEncryptedBody } = require('../items/itemService');
 
 // ─── Content types ────────────────────────────────────────────────────────────
 
@@ -212,6 +213,21 @@ const nextConflictCopyTitle = (title, existingTitles) => {
 	return `${base}-${maxSuffix + 1}`;
 };
 
+const assertVaultNoteBodyEncrypted = async (vaultService, userId, existingParentId, targetParentId, body) => {
+	if (!vaultService || !userId) return;
+	const currentFolderId = `${existingParentId || ''}`;
+	const nextFolderId = `${targetParentId !== undefined ? targetParentId : currentFolderId}`;
+	const [existingVault, targetVault] = await Promise.all([
+		currentFolderId ? vaultService.getVaultByFolderId(userId, currentFolderId).catch(() => null) : Promise.resolve(null),
+		nextFolderId && nextFolderId !== currentFolderId ? vaultService.getVaultByFolderId(userId, nextFolderId).catch(() => null) : Promise.resolve(null),
+	]);
+	if ((existingVault || targetVault) && !isEncryptedBody(`${body || ''}`)) {
+		const error = new Error('Vault notes must be saved encrypted');
+		error.statusCode = 400;
+		throw error;
+	}
+};
+
 module.exports = {
 	// response
 	send,
@@ -240,4 +256,5 @@ module.exports = {
 	nextConflictCopyTitle,
 	navPanelOob,
 	rebuildNavOob,
+	assertVaultNoteBodyEncrypted,
 };

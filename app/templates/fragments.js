@@ -177,19 +177,16 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 		const isVault = !!folder.isVault;
 		// Show vault lock icon if this folder is a vault (unlocked state is client-determined via JS)
 		const vaultIcon = isVault ? `<button type="button" class="vault-folder-lock btn-icon-sm" data-folder-id="${escapeHtml(folderId)}" title="Lock vault" onclick="event.stopPropagation();toggleVaultLock('${escapeHtml(folderId)}')">${svgLockClosed}</button>` : '';
+		const trashIcon = isTrash ? `<button type="button" class="trash-folder-empty btn-icon-sm" title="Empty trash" onclick="event.stopPropagation();openEmptyTrashModal()">&#10005;</button>` : '';
 		return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}${isVault ? ' nav-folder-vault' : ''}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folder.title || 'Untitled')}" data-selected="${isOpen ? '1' : ''}" data-note-count="${count}"${isAllNotes ? ' data-all-notes="1"' : ''}${isVault ? ' data-is-vault="1"' : ''}>
 			<div class="nav-folder-row"${isExpandable ? ` onclick="toggleNavFolder('${escapeHtml(folderId)}')"` : ''}${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folder.title || 'Untitled')}')"`}>
 				${isExpandable ? '<button type="button" class="nav-folder-toggle" tabindex="-1">&#9656;</button>' : '<span class="nav-folder-toggle nav-folder-toggle-placeholder"></span>'}
 				<span class="sidebar-item-icon">${isTrash ? '&#128465;' : (isAllNotes ? allNotesIcon : folderOutlineIcon)}</span>
 				<span class="nav-folder-title">${escapeHtml(folder.title || 'Untitled')}</span>
 				${vaultIcon}
+				${trashIcon}
 				<span class="sidebar-item-count">${count || ''}</span>
-				${isTrash ? `<button type="button" class="btn-icon-sm nav-folder-add" title="Empty trash"
-					hx-post="/fragments/trash/empty"
-					hx-target="#nav-panel"
-					hx-swap="innerHTML"
-					hx-confirm="Empty trash permanently?"
-					hx-on:click="event.stopPropagation()">&#10005;</button>` : (isAllNotes ? `<button type="button" class="btn-icon-sm nav-folder-add" title="New note in General"
+				${isTrash ? '' : (isAllNotes ? `<button type="button" class="btn-icon-sm nav-folder-add" title="New note in General"
 					hx-post="/fragments/notes/in-general"
 					hx-target="#nav-panel"
 					hx-swap="innerHTML"
@@ -205,7 +202,7 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 		</div>`;
 	}).join('');
 
-	return `<div class="nav-panel-header">
+	const html = `<div class="nav-panel-header">
 		<button type="button" class="nav-toggle-btn" title="Hide panel" onclick="toggleNav()">&#9776;</button>
 		<form class="nav-search-form" onsubmit="event.preventDefault();var inp=document.getElementById('nav-search');htmx.trigger(inp,'search-submit')">
 			<input type="text" class="notelist-search" id="nav-search" placeholder="Search..." value="${escapeHtml(query)}" name="q"
@@ -255,6 +252,18 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 			</div>
 			<div id="history-modal-inner"></div>
 		</div>
+	</div>`;
+	return `${html}
+	<div class="folder-modal-backdrop" id="empty-trash-modal-backdrop" hidden onclick="closeEmptyTrashModal()"></div>
+	<div class="folder-modal" id="empty-trash-modal" hidden>
+		<form class="folder-modal-card" id="empty-trash-form" onsubmit="submitEmptyTrash(event)">
+			<h3 class="folder-modal-title">Empty Trash</h3>
+			<p class="lock-modal-warning empty-trash-warning">This will permanently delete every note in Trash. This action cannot be undone.</p>
+			<div class="folder-modal-actions">
+				<button type="button" class="btn btn-sm btn-secondary" onclick="closeEmptyTrashModal()">Cancel</button>
+				<button type="submit" class="btn btn-sm btn-danger">Empty Trash</button>
+			</div>
+		</form>
 	</div>`;
 };
 

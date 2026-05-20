@@ -83,6 +83,13 @@ async function deleteNotebook(page, folderName) {
 	await expect(page.locator('.nav-folder-title', { hasText: folderName })).toHaveCount(0, { timeout: 15000 });
 }
 
+async function trashDesktopNote(page) {
+	const deleteBtn = page.locator('#editor-panel .btn-danger').first();
+	await expect(deleteBtn).toBeVisible();
+	await deleteBtn.click();
+	await expect(page.locator('.nav-folder[data-folder-id="de1e7ede1e7ede1e7ede1e7ede1e7ede"]')).toBeVisible();
+}
+
 async function createDesktopNote(page, folderName) {
 	const button = page.locator(`.nav-folder[data-folder-title="${folderName}"] .nav-folder-add`).first();
 	await expect(button).toBeVisible();
@@ -173,5 +180,6 @@ module.exports = {
 	setNoteTitle,
 	setUiMode,
 	slug,
+	trashDesktopNote,
 	waitForSaved,
 };

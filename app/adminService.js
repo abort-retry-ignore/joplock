@@ -71,7 +71,7 @@ const createAdminService = ({ database, joplinServerOrigin, joplinServerPublicUr
 	};
 
 	// ---------- Bootstrap: ensure admin user exists ----------
-	const ensureAdminUser = async ({ retryMs = 5000, timeoutMs = 120000 } = {}) => {
+	const ensureAdminUser = async ({ retryMs = 20000, timeoutMs = 120000 } = {}) => {
 		// Validate password strength first
 		if (!isStrongPassword(adminPassword)) {
 			process.stderr.write('[joplock] FATAL: JOPLOCK_ADMIN_PASSWORD is too weak. Must be ≥12 chars with letters, numbers, and at least 3 character categories.\n');

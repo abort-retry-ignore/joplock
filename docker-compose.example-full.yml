@@ -20,14 +20,14 @@
 
 services:
   db:
-    image: postgres:16
+    image: postgres:18
     restart: unless-stopped
     environment:
       POSTGRES_USER: joplin
       POSTGRES_PASSWORD: joplin
       POSTGRES_DB: joplin
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql
 
   server:
     image: joplin/server:latest

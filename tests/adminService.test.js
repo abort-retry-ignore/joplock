@@ -118,3 +118,47 @@ test('createUser fails when password update fails', async () => {
 		await new Promise(resolve => server.close(resolve));
 	}
 });
+
+test('ensureAdminUser retries until users table is ready', async () => {
+	let attempts = 0;
+	const database = {
+		query: async (sql) => {
+			if (sql.includes('SELECT id')) {
+				attempts++;
+				if (attempts < 3) throw new Error('relation "users" does not exist');
+				return { rows: [] }; // table ready, no existing user
+			}
+			if (sql.includes('INSERT INTO users')) return { rows: [] };
+			return { rows: [] };
+		},
+	};
+	const service = createAdminService({
+		database,
+		joplinServerOrigin: 'http://127.0.0.1:19999',
+		joplinServerPublicUrl: 'http://127.0.0.1:19999',
+		adminEmail: 'admin@example.com',
+		adminPassword: 'AdminPass123!',
+	});
+	await service.ensureAdminUser({ retryMs: 10, timeoutMs: 5000 });
+	assert.equal(attempts, 3, 'should have retried until table was ready');
+});
+
+test('ensureAdminUser gives up after timeout', async () => {
+	const messages = [];
+	const origStderr = process.stderr.write.bind(process.stderr);
+	process.stderr.write = (msg) => { messages.push(msg); return true; };
+	try {
+		const database = { query: async () => { throw new Error('relation "users" does not exist'); } };
+		const service = createAdminService({
+			database,
+			joplinServerOrigin: 'http://127.0.0.1:19999',
+			joplinServerPublicUrl: 'http://127.0.0.1:19999',
+			adminEmail: 'admin@example.com',
+			adminPassword: 'AdminPass123!',
+		});
+		await service.ensureAdminUser({ retryMs: 20, timeoutMs: 50 });
+		assert.ok(messages.some(m => m.includes('WARNING') && m.includes('admin bootstrap')), 'should log warning after timeout');
+	} finally {
+		process.stderr.write = origStderr;
+	}
+});

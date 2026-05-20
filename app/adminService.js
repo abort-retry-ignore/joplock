@@ -71,24 +71,32 @@ const createAdminService = ({ database, joplinServerOrigin, joplinServerPublicUr
 	};
 
 	// ---------- Bootstrap: ensure admin user exists ----------
-	const ensureAdminUser = async () => {
+	const ensureAdminUser = async ({ retryMs = 5000, timeoutMs = 120000 } = {}) => {
 		// Validate password strength first
 		if (!isStrongPassword(adminPassword)) {
 			process.stderr.write('[joplock] FATAL: JOPLOCK_ADMIN_PASSWORD is too weak. Must be ≥12 chars with letters, numbers, and at least 3 character categories.\n');
 			process.exit(1);
 		}
 
-		// Check if admin user exists in Joplin DB
+		// Wait for Joplin Server to finish its migrations (users table may not exist yet on fresh install)
+		const deadline = Date.now() + timeoutMs;
 		let rows;
-		try {
-			const result = await database.query(
-				'SELECT id, email, is_admin, enabled FROM users WHERE email = $1 LIMIT 1',
-				[adminEmail],
-			);
-			rows = result.rows;
-		} catch (err) {
-			process.stderr.write(`[joplock] WARNING: Could not query users table for admin bootstrap: ${err.message}\n`);
-			return;
+		for (;;) {
+			try {
+				const result = await database.query(
+					'SELECT id, email, is_admin, enabled FROM users WHERE email = $1 LIMIT 1',
+					[adminEmail],
+				);
+				rows = result.rows;
+				break;
+			} catch (err) {
+				if (Date.now() + retryMs > deadline) {
+					process.stderr.write(`[joplock] WARNING: Could not query users table for admin bootstrap after ${timeoutMs / 1000}s: ${err.message}\n`);
+					return;
+				}
+				process.stderr.write(`[joplock] Waiting for Joplin Server DB to be ready (${err.message})...\n`);
+				await new Promise(r => setTimeout(r, retryMs));
+			}
 		}
 
 		if (rows.length === 0) {

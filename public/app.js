@@ -1734,6 +1734,8 @@ async function _doEncryptNoteInVault(noteId,folderId){
 		var key=await getVaultKey(folderId);
 		if(!key){_log('vault key missing');return}
 		var salt=getVaultSalt(folderId);
+		if(!salt){_log('vault salt missing',folderId);alert('Vault key not available. Unlock the vault and try again.');return}
+		_log('_doEncryptNoteInVault encrypt',{noteId:noteId,folderId:folderId,plaintextLen:plaintext.length,keyType:key&&key.type,saltLen:salt&&salt.length});
 		var ciphertext=await encryptForVault(plaintext,folderId,key,salt);
 		touchVaultActivity(folderId);
 		var form=activeEditorForm();

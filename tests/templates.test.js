@@ -568,12 +568,15 @@ test('app script uses iOS-safe resource download helper', () => {
 	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 	assert.ok(appJs.includes('function _isIOSWebKit(){'));
 	assert.ok(appJs.includes('function _isStandalonePWA(){'));
+	assert.ok(appJs.includes('function _fetchResourceMeta(resourceId){'));
+	assert.ok(appJs.includes('function _canPreviewResourceMime(mime){'));
 	assert.ok(appJs.includes('function presentResourceActions(resourceId,anchorEl){'));
 	assert.ok(appJs.includes('function downloadResource(resourceId,anchorEl){'));
 	assert.ok(appJs.includes('function _shouldUseResourceActions(){return _isStandalonePWA()||isDesktopMode()}'));
 	assert.ok(appJs.includes('if(_shouldUseResourceActions()){presentResourceActions(id,anchorEl);return}'));
 	assert.ok(appJs.includes("if(_isIOSWebKit()&&!isDesktopMode()){window.location.assign(url);return}"));
 	assert.ok(appJs.includes('function _triggerResourceDownload(resourceId){'));
+	assert.ok(appJs.includes("fetch(url,{method:'HEAD',credentials:'same-origin'})"));
 	assert.ok(appJs.includes('downloadResource(resourceId,btn)'));
 	assert.ok(appJs.includes('function _fetchResourceBlob(resourceId){'));
 	assert.ok(appJs.includes('function _openResourceViewer(blob,mime,filename){'));

@@ -700,6 +700,22 @@ function _openResourceView(resourceId){
 	var url='/resources/'+encodeURIComponent(id)+(_isStandalonePWA()?'?viewer=1':'');
 	_openResourceInNewContext(url);
 }
+function _canPreviewResourceMime(mime){
+	var lower=(mime||'').toLowerCase();
+	if(_isStandalonePWA())return lower.indexOf('image/')===0||lower.indexOf('text/')===0||lower==='application/pdf';
+	return lower.indexOf('image/')===0||lower==='application/pdf'||lower==='text/plain';
+}
+function _fetchResourceMeta(resourceId){
+	var url='/resources/'+encodeURIComponent(resourceId);
+	return fetch(url,{method:'HEAD',credentials:'same-origin'}).then(function(r){
+		if(!r.ok)throw new Error('HTTP '+r.status);
+		return {
+			mime:r.headers.get('Content-Type')||'application/octet-stream',
+			filename:_resourceFilenameFromHeaders(r.headers)||resourceId,
+			disposition:r.headers.get('Content-Disposition')||''
+		}
+	})
+}
 function _triggerResourceDownload(resourceId){
 	var id=resourceId||'';if(!id)return;
 	var url='/resources/'+encodeURIComponent(id)+'?download=1';
@@ -797,14 +813,14 @@ function _closeResourceActions(){
 function presentResourceActions(resourceId,anchorEl){
 	if(!resourceId)return;
 	_closeResourceActions();
+	var metaRequest=_fetchResourceMeta(resourceId).catch(function(){return null});
 	try{if(document.activeElement&&document.activeElement.blur)document.activeElement.blur()}catch(_e){}
 	var backdrop=document.createElement('div');backdrop.id='resource-action-backdrop';backdrop.className='resource-action-backdrop';backdrop.addEventListener('click',_closeResourceActions);
 	var sheet=document.createElement('div');sheet.id='resource-action-sheet';sheet.className='resource-action-sheet';
 	var mkBtn=function(label,handler){var b=document.createElement('button');b.type='button';b.className='resource-action-btn';b.textContent=label;b.addEventListener('click',handler);return b};
-	var viewBtn=mkBtn('View',function(){_closeResourceActions();_openResourceView(resourceId)});
 	var saveBtn=mkBtn('Save',function(){_closeResourceActions();if(_isStandalonePWA()){_fetchResourceBlob(resourceId).then(function(r){return _shareBlob(r.blob,r.filename,r.mime).then(function(ok){if(!ok)_triggerBlobDownload(r.blob,r.filename)})}).catch(function(){alert('Failed to load resource')});return}_triggerResourceDownload(resourceId)});
 	var cancelBtn=mkBtn('Cancel',_closeResourceActions);cancelBtn.classList.add('resource-action-btn-cancel');
-	sheet.appendChild(viewBtn);sheet.appendChild(saveBtn);sheet.appendChild(cancelBtn);
+	sheet.appendChild(saveBtn);sheet.appendChild(cancelBtn);
 	document.body.appendChild(backdrop);document.body.appendChild(sheet);
 	_resourceActionViewportHandler=_positionResourceActions;
 	if(window.visualViewport){
@@ -812,6 +828,12 @@ function presentResourceActions(resourceId,anchorEl){
 		window.visualViewport.addEventListener('scroll',_resourceActionViewportHandler);
 	}
 	_positionResourceActions(anchorEl);
+	metaRequest.then(function(meta){
+		if(!meta||!document.body.contains(sheet)||!_canPreviewResourceMime(meta.mime))return;
+		var viewBtn=mkBtn('View',function(){_closeResourceActions();_openResourceView(resourceId)});
+		sheet.insertBefore(viewBtn,saveBtn);
+		_positionResourceActions(anchorEl);
+	});
 }
 function downloadResource(resourceId,anchorEl){var id=resourceId||'';if(!id)return;if(_shouldUseResourceActions()){presentResourceActions(id,anchorEl);return}_triggerResourceDownload(id)}
 function initResourceImageDownloadButtons(pv){if(!pv)return;pv.querySelectorAll('img.preview-img[data-resource-id]').forEach(function(img){var wrap=img.parentElement;if(!(wrap&&wrap.classList&&wrap.classList.contains('preview-img-download-wrap'))){wrap=document.createElement('span');wrap.className='preview-img-download-wrap';img.parentNode.insertBefore(wrap,img);wrap.appendChild(img)}if(wrap.querySelector('.preview-img-download-btn'))return;var btn=document.createElement('button');btn.type='button';btn.className='preview-img-download-btn';btn.title='Download image';btn.setAttribute('aria-label','Download image');btn.setAttribute('contenteditable','false');btn.textContent='⬇️';btn.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var resourceId=img.getAttribute('data-resource-id')||'';if(!resourceId)return;downloadResource(resourceId,btn)});wrap.appendChild(btn)})}

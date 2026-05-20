@@ -1458,6 +1458,20 @@ test('GET /resources/:id viewer renders html page with back control', async () =
 	});
 });
 
+test('HEAD /resources/:id returns resource headers without body', async () => {
+	await withServer({
+		itemService: {
+			resourceMetaByUserId: async (_uid, rid) => rid === 'abcdef01234567890abcdef012345678' ? { id: rid, mime: 'application/octet-stream', title: 'key.pub', filename: 'key.pub' } : null,
+		},
+	}, async port => {
+		const res = await request(port, { path: '/resources/abcdef01234567890abcdef012345678', method: 'HEAD' });
+		assert.equal(res.statusCode, 200);
+		assert.equal(res.headers['content-type'], 'application/octet-stream');
+		assert.equal(res.headers['content-disposition'], 'attachment; filename="key.pub"');
+		assert.equal(res.rawBody.length, 0);
+	});
+});
+
 test('GET /api/web/notes returns all notes for virtual all notes folder', async () => {
 	let receivedOptions = null;
 	await withServer({

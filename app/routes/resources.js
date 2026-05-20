@@ -12,8 +12,8 @@ const escapeHtml = value => `${value}`
 const handle = async (url, request, response, ctx) => {
 	const { authenticatedUser, itemService, itemWriteService, upstreamRequestContext } = ctx;
 
-	// GET /resources/:id
-	if (url.pathname.startsWith('/resources/') && request.method === 'GET') {
+	// GET|HEAD /resources/:id
+	if (url.pathname.startsWith('/resources/') && (request.method === 'GET' || request.method === 'HEAD')) {
 		try {
 			const auth = await authenticatedUser(request);
 			if (auth.error) { send(response, 401, 'Unauthorized', { 'Content-Type': 'text/plain' }); return true; }
@@ -24,15 +24,25 @@ const handle = async (url, request, response, ctx) => {
 				return true;
 			}
 
-			const [meta, blob] = await Promise.all([
-				itemService.resourceMetaByUserId(auth.user.id, resourceId),
-				itemService.resourceBlobByUserId(auth.user.id, resourceId),
-			]);
-
-			if (!blob) { send(response, 404, 'Resource not found', { 'Content-Type': 'text/plain' }); return true; }
-
+			const meta = await itemService.resourceMetaByUserId(auth.user.id, resourceId);
 			const mime = (meta && meta.mime) || 'application/octet-stream';
 			const filename = contentDispositionFilename((meta && (meta.filename || meta.title)) || `${resourceId}`);
+			const download = url.searchParams.get('download') === '1';
+			const disposition = `${download || !shouldInlineResource(mime) ? 'attachment' : 'inline'}; filename="${filename}"`;
+			if (request.method === 'HEAD') {
+				if (!meta) { send(response, 404, 'Resource not found', { 'Content-Type': 'text/plain' }); return true; }
+				response.writeHead(200, {
+					'Content-Type': mime,
+					'Cache-Control': 'no-store',
+					'Content-Disposition': disposition,
+				});
+				response.end();
+				return true;
+			}
+
+			const blob = await itemService.resourceBlobByUserId(auth.user.id, resourceId);
+			if (!blob) { send(response, 404, 'Resource not found', { 'Content-Type': 'text/plain' }); return true; }
+
 			const viewer = url.searchParams.get('viewer') === '1';
 			if (viewer) {
 				const title = escapeHtml(filename);
@@ -84,8 +94,6 @@ const handle = async (url, request, response, ctx) => {
 </html>`, { 'Cache-Control': 'no-store', 'Content-Type': 'text/html; charset=utf-8' });
 				return true;
 			}
-			const download = url.searchParams.get('download') === '1';
-			const disposition = `${download || !shouldInlineResource(mime) ? 'attachment' : 'inline'}; filename="${filename}"`;
 			response.writeHead(200, {
 				'Content-Type': mime,
 				'Content-Length': blob.length,

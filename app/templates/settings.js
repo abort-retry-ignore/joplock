@@ -470,8 +470,8 @@ const settingsPage = (options = {}) => {
 						<tbody>${backups.map(b => `<tr>
 							<td><code>${escapeHtml(b.name)}</code></td>
 							<td>${escapeHtml(new Date(b.createdTime).toISOString())}</td>
-							<td>${escapeHtml(`${b.size} bytes`)}</td>
-							<td class="admin-actions-cell"><a class="btn btn-sm btn-secondary" href="/admin/backups/${encodeURIComponent(b.name)}/download">Download</a> <form method="POST" action="/admin/backups/${encodeURIComponent(b.name)}/delete" style="display:inline" onsubmit="return confirm('Delete backup ${escapeJsString(b.name)}? This cannot be undone.')"><button type="submit" class="btn-icon-sm" title="Delete backup" aria-label="Delete backup ${escapeHtml(b.name)}">&#128465;</button></form></td>
+							<td>${escapeHtml(formatBytes(b.size))}</td>
+							<td class="admin-actions-cell"><div class="admin-backup-actions"><a class="btn btn-icon btn-icon-compact btn-secondary" href="/admin/backups/${encodeURIComponent(b.name)}/download" title="Download backup" aria-label="Download backup ${escapeHtml(b.name)}">&#8595;</a><form method="POST" action="/admin/backups/${encodeURIComponent(b.name)}/delete" class="admin-inline-form" onsubmit="return confirm('Delete backup ${escapeJsString(b.name)}? This cannot be undone.')"><button type="submit" class="btn btn-icon btn-icon-compact btn-danger-soft" title="Delete backup" aria-label="Delete backup ${escapeHtml(b.name)}">&#128465;</button></form></div></td>
 						</tr>`).join('')}</tbody>
 					</table></div>` : '<p class="settings-section-sub">No backups found yet.</p>'}
 					<form class="settings-form" method="POST" action="/admin/restore" style="margin-top:16px">

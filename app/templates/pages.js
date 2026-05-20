@@ -13,6 +13,20 @@ const { noteMetaFragment } = require('./fragments');
 
 const ASSET_VERSION = '20260519pwa1';
 
+const formatBytes = value => {
+	const bytes = Number(value || 0);
+	if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+	let amount = bytes;
+	let index = 0;
+	while (amount >= 1024 && index < units.length - 1) {
+		amount /= 1024;
+		index += 1;
+	}
+	const digits = amount >= 10 || index === 0 ? 0 : 1;
+	return `${amount.toFixed(digits)} ${units[index]}`;
+};
+
 // layoutPage: the main app shell (or login page when user is null)
 const layoutPage = (options = {}) => {
 	const { user, navContent, editorContent, loginError, debug = false, mobileStartup = null, mobileEditorContent = '' } = options;
@@ -420,7 +434,7 @@ const recoveryPage = (options = {}) => {
 					<tbody>${backups.map(b => `<tr>
 						<td><code>${escapeHtml(b.name)}</code></td>
 						<td>${escapeHtml(new Date(b.createdTime).toISOString())}</td>
-						<td>${escapeHtml(`${b.size} bytes`)}</td>
+						<td>${escapeHtml(formatBytes(b.size))}</td>
 						<td class="admin-actions-cell">
 							<a class="btn btn-sm btn-secondary" href="/recovery/backups/${encodeURIComponent(b.name)}/download">Download</a>
 						</td>

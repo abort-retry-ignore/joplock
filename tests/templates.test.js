@@ -375,6 +375,7 @@ test('settings page renders backup section for admin', () => {
 	assert.ok(html.includes('/admin/restore'));
 	assert.ok(html.includes('/admin/status'));
 	assert.ok(html.includes('joplock-backup-2026.dump'));
+	assert.ok(html.includes('1.2 KB'));
 	assert.ok(html.includes('Delete backup joplock-backup-2026.dump? This cannot be undone.'));
 	assert.ok(html.includes('/recovery'));
 	assert.ok(html.includes('Fast (gzip:1)'));
@@ -913,6 +914,7 @@ test('recoveryPage renders login and backup controls', () => {
 	assert.ok(loggedIn.includes('/recovery/backups/joplock-backup-2026.dump/download'));
 	assert.ok(loggedIn.includes('/recovery/status'));
 	assert.ok(loggedIn.includes('Type RESTORE'));
+	assert.ok(loggedIn.includes('1.2 KB'));
 	assert.ok(loggedIn.includes('Zstd (zstd:3)'));
 });
 

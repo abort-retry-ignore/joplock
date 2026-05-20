@@ -1644,6 +1644,9 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 #lock-toggle-btn { color: #FFC107; }
 #lock-toggle-btn:hover { color: #FFC107; }
 .btn-icon.active { color: var(--accent); background: var(--bg-active); }
+.btn-icon-compact { width: 24px; height: 24px; font-size: 13px; }
+.btn-danger-soft { color: var(--danger); }
+.btn-danger-soft:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
 .btn-danger:hover { color: var(--danger); }
 .mode-toggle-btn {
 	width: auto;
@@ -2639,6 +2642,8 @@ body.resizing .mobile-screen-right { transition: none !important; }
 .admin-table tr:last-child td { border-bottom: none; }
 .admin-table tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .admin-actions-cell { white-space: nowrap; }
+.admin-inline-form { display: inline; margin: 0; }
+.admin-backup-actions { display: inline-flex; align-items: center; gap: 6px; }
 
 /* --- Badges --- */
 .badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }

@@ -1942,10 +1942,16 @@ function _setOneShotEncryptedBody(form,ciphertext){
 
 function _triggerEncryptedSave(form,ciphertext){
 	if(!form)return;
+	// Cancel any pending plaintext autosave (e.g. from the change event that
+	// just triggered this encrypted save). Otherwise that timer would fire 2s
+	// later with name="body" back on the textarea (plaintext) and the server
+	// would reject the move with "Vault notes must be saved encrypted".
+	if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}
+	if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}
 	var restore=_setOneShotEncryptedBody(form,ciphertext);
 	var done=false;
 	var cleanupTimer=null;
-	var cleanup=function(){
+	var cleanup=function(success){
 		if(done)return;
 		done=true;
 		if(cleanupTimer)clearTimeout(cleanupTimer);
@@ -1953,15 +1959,19 @@ function _triggerEncryptedSave(form,ciphertext){
 		form.removeEventListener('htmx:responseError',onDone);
 		form.removeEventListener('htmx:sendError',onDone);
 		restore();
+		// Re-snapshot the form hash after the textarea regains its name attr,
+		// so a subsequent debounced scheduleSave compares apples to apples.
+		if(success)snapshotHash();
 	};
 	var onDone=function(e){
 		if(e.target!==form)return;
-		setTimeout(cleanup,0);
+		var ok=e.type==='htmx:afterRequest'&&e.detail&&e.detail.successful;
+		setTimeout(function(){cleanup(ok)},0);
 	};
 	form.addEventListener('htmx:afterRequest',onDone);
 	form.addEventListener('htmx:responseError',onDone);
 	form.addEventListener('htmx:sendError',onDone);
-	cleanupTimer=setTimeout(cleanup,30000);
+	cleanupTimer=setTimeout(function(){cleanup(false)},30000);
 	htmx.trigger(form,'joplock:save');
 }
 

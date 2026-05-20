@@ -35,7 +35,7 @@ function wrapCiphertext(jsonString){
 	return ENCRYPTED_WRAPPER_HEAD+ENCRYPTED_START+'\n'+jsonString+'\n'+ENCRYPTED_END+'\n';
 }
 
-function _b64Encode(buf){return btoa(String.fromCharCode.apply(null,new Uint8Array(buf)))}
+function _b64Encode(buf){var bytes=new Uint8Array(buf);var bin='';var chunk=0x8000;for(var i=0;i<bytes.length;i+=chunk){bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk))}return btoa(bin)}
 function _b64Decode(str){var bin=atob(str);var buf=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);return buf}
 
 async function deriveKey(password,salt){

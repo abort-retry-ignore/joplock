@@ -244,10 +244,13 @@ const createItemService = database => {
 				WHERE COALESCE((parsed->>'deleted_time')::bigint, 0) = 0
 					AND (
 						parsed->>'title' ILIKE $3
-						OR regexp_replace(
-							regexp_replace(parsed->>'body', '!?\[[^\]]*\]\(:/[a-f0-9]+\)', '', 'g'),
-							'data:image/[^;]+;base64,[A-Za-z0-9+/=]+', '', 'g'
-						) ILIKE $3
+						OR (
+							COALESCE(parsed->>'body', '') NOT LIKE '%<!--joplock-encrypted-start-->%'
+							AND regexp_replace(
+								regexp_replace(parsed->>'body', '!?\[[^\]]*\]\(:/[a-f0-9]+\)', '', 'g'),
+								'data:image/[^;]+;base64,[A-Za-z0-9+/=]+', '', 'g'
+							) ILIKE $3
+						)
 					)
 				ORDER BY jop_updated_time DESC, created_time DESC
 				LIMIT $4 OFFSET $5

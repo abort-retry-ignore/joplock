@@ -2131,11 +2131,17 @@ initEditorPanel=function(){
 
 		if(!isEnc&&!newFolderIsVault)return; // plain note to plain folder, nothing to do
 
+		// Helper: only show the unlock modal if the vault is not already unlocked
+		var _ensureUnlocked=function(vaultId,cb){
+			if(isVaultUnlocked(vaultId)){cb(true);return}
+			_showVaultModal(vaultId,'unlock',cb);
+		};
+
 		if(isEnc&&!newFolderIsVault){
 			// Moving encrypted note out of vault → decrypt it
 			if(!oldVaultId)return;
 			select.value=oldVaultId;
-			_showVaultModal(oldVaultId,'unlock',function(ok){
+			_ensureUnlocked(oldVaultId,function(ok){
 				if(!ok)return;
 				select.value=newFolderId;
 				getVaultKey(oldVaultId).then(function(key){
@@ -2153,7 +2159,7 @@ initEditorPanel=function(){
 		}else if(!isEnc&&newFolderIsVault){
 			// Moving plain note into vault → encrypt it
 			select.value=form.dataset.vaultId||'';
-			_showVaultModal(newFolderId,'unlock',function(ok){
+			_ensureUnlocked(newFolderId,function(ok){
 				if(!ok)return;
 				select.value=newFolderId;
 				_doEncryptNoteInVault(noteId,newFolderId);
@@ -2165,7 +2171,7 @@ initEditorPanel=function(){
 				getVaultKey(oldVaultId).then(function(oldKey){
 					if(!oldKey){_log('no old vault key');return}
 					return _decryptWithKey(ta.value,oldKey).then(function(pt){
-						_showVaultModal(newFolderId,'unlock',function(ok){
+						_ensureUnlocked(newFolderId,function(ok){
 							if(!ok)return;
 							getVaultKey(newFolderId).then(function(newKey){
 								var salt=getVaultSalt(newFolderId);
@@ -2179,7 +2185,7 @@ initEditorPanel=function(){
 				}).catch(function(e){_log('move between vaults failed',e)});
 			};
 			select.value=oldVaultId;
-			_showVaultModal(oldVaultId,'unlock',function(ok){
+			_ensureUnlocked(oldVaultId,function(ok){
 				if(ok){select.value=newFolderId;doReencrypt()}
 			});
 		}

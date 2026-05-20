@@ -2159,24 +2159,15 @@ initEditorPanel=function(){
 		};
 
 		if(isEnc&&!newFolderIsVault){
-			// Moving encrypted note out of vault → decrypt it
-			if(!oldVaultId)return;
-			select.value=oldVaultId;
-			_ensureUnlocked(oldVaultId,function(ok){
-				if(!ok)return;
-				select.value=newFolderId;
-				getVaultKey(oldVaultId).then(function(key){
-					if(!key){_log('no vault key to decrypt on move');return}
-					return _decryptWithKey(ta.value,key).then(function(pt){
-						ta.value=pt;
-						delete form.dataset.encrypted;
-						delete form.dataset.vaultId;
-						_updateLockToggle(noteId,false);
-						_updateNoteLockIcon(noteId,false);
-						htmx.trigger(form,'joplock:save');
-					});
-				}).catch(function(e){_log('decrypt on move failed',e)});
-			});
+			// Moving encrypted note out of vault → save as plaintext.
+			// ta.value is already plaintext (note is open and unlocked in editor).
+			if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}
+			delete form.dataset.encrypted;
+			delete form.dataset.vaultId;
+			delete form.dataset.vaultUnlocked;
+			_updateLockToggle(noteId,false);
+			_updateNoteLockIcon(noteId,false);
+			htmx.trigger(form,'joplock:save');
 		}else if(!isEnc&&newFolderIsVault){
 			// Moving plain note into vault → encrypt it
 			select.value=form.dataset.vaultId||'';
@@ -2186,28 +2177,25 @@ initEditorPanel=function(){
 				_doEncryptNoteInVault(noteId,newFolderId);
 			});
 		}else if(isEnc&&newFolderIsVault&&oldVaultId!==newFolderId){
-			// Moving between vaults → decrypt with old, re-encrypt with new
-			if(!oldVaultId)return;
-			var doReencrypt=function(){
-				getVaultKey(oldVaultId).then(function(oldKey){
-					if(!oldKey){_log('no old vault key');return}
-					return _decryptWithKey(ta.value,oldKey).then(function(pt){
-						_ensureUnlocked(newFolderId,function(ok){
-							if(!ok)return;
-							getVaultKey(newFolderId).then(function(newKey){
-								var salt=getVaultSalt(newFolderId);
-								return encryptForVault(pt,newFolderId,newKey,salt).then(function(ct){
-									form.dataset.vaultId=newFolderId;
-									_triggerEncryptedSave(form,ct);
-								});
-							}).catch(function(e){_log('re-encrypt failed',e)});
-						});
-					});
-				}).catch(function(e){_log('move between vaults failed',e)});
-			};
+			// Moving between vaults → re-encrypt with new vault key.
+			// ta.value is plaintext (note is open and unlocked); old vault key
+			// is irrelevant for the body content. We just need the new vault
+			// unlocked so we can encrypt with its key.
 			select.value=oldVaultId;
-			_ensureUnlocked(oldVaultId,function(ok){
-				if(ok){select.value=newFolderId;doReencrypt()}
+			_ensureUnlocked(newFolderId,function(ok){
+				if(!ok)return;
+				select.value=newFolderId;
+				if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}
+				getVaultKey(newFolderId).then(function(newKey){
+					if(!newKey){_log('new vault key missing',newFolderId);return}
+					var salt=getVaultSalt(newFolderId);
+					if(!salt){_log('new vault salt missing',newFolderId);return}
+					return encryptForVault(ta.value,newFolderId,newKey,salt).then(function(ct){
+						form.dataset.vaultId=newFolderId;
+						form.dataset.encrypted='1';
+						_triggerEncryptedSave(form,ct);
+					});
+				}).catch(function(e){_log('re-encrypt failed',e);alert('Re-encryption failed: '+e.message)});
 			});
 		}
 	});

@@ -320,6 +320,33 @@ function toggleNavFolder(id,force){
 		}
 	}
 }
+function openNavFolderAndFirstNote(id){
+	if(isMobileShellMode())return;
+	var el=document.querySelector('.nav-folder[data-folder-id="'+id.replace(/"/g,'\\"')+'"]');
+	if(!el)return;
+	var alreadyOpen=!el.classList.contains('collapsed');
+	toggleNavFolder(id,true);
+	// After notes are loaded, click the first one
+	function clickFirst(notesDiv){
+		var first=notesDiv.querySelector('.notelist-item');
+		if(first)first.click();
+	}
+	var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');
+	if(!notesDiv)return;
+	if(alreadyOpen&&notesDiv.getAttribute('data-loaded')){
+		// Notes already present — click immediately
+		clickFirst(notesDiv);
+	} else {
+		// Wait for htmx swap into this notesDiv to settle, then click first note
+		function onSettle(e){
+			if(e.detail&&e.detail.target===notesDiv){
+				document.body.removeEventListener('htmx:afterSettle',onSettle);
+				clickFirst(notesDiv);
+			}
+		}
+		document.body.addEventListener('htmx:afterSettle',onSettle);
+	}
+}
 function getTA(){return queryActiveEditor('#note-body')}
 function getPV(){var pv=queryActiveEditor('#note-preview');return pv&&pv.style.display!=='none'?pv:null}
 function isMarkdownVisible(){var host=queryActiveEditor('#cm-host');return !!(host&&host.style.display!=='none')}
@@ -829,7 +856,9 @@ function searchNavSetActive(idx){_searchMarks.forEach(function(m,i){m.classList.
 function searchNavStep(dir){if(_editorMode==='markdown'&&_cmSearchMatches.length){setCodeMirrorSearchActive(_searchMarkIdx+dir);return}if(!_searchMarks.length)return;_searchMarkIdx=(_searchMarkIdx+dir+_searchMarks.length)%_searchMarks.length;searchNavSetActive(_searchMarkIdx);searchNavShow(_searchMarks.length,_searchMarkIdx)}
 function searchNavDismiss(){var bar=document.getElementById('search-nav-bar');var mobileCounter=document.getElementById('mobile-search-nav-counter');var mobilePrev=document.getElementById('mobile-search-prev-btn');var mobileNext=document.getElementById('mobile-search-next-btn');if(bar)bar.hidden=true;if(mobileCounter)mobileCounter.hidden=true;if(mobilePrev)mobilePrev.hidden=true;if(mobileNext)mobileNext.hidden=true;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);_searchMarks=[];_searchMarkIdx=0;clearCodeMirrorSearch()}
 function highlightInPreview(pv,term){if(!pv||!term)return;_searchMarks=[];_searchMarkIdx=0;var walker=document.createTreeWalker(pv,NodeFilter.SHOW_TEXT,{acceptNode:function(n){return n.parentElement&&n.parentElement.closest('script,style,mark')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}},false);var nodes=[];var node;while((node=walker.nextNode()))nodes.push(node);var re=new RegExp(escapeRegex(term),'gi');nodes.forEach(function(n){var matches=[];var m;re.lastIndex=0;while((m=re.exec(n.textContent))!==null)matches.push({start:m.index,end:m.index+m[0].length});if(!matches.length)return;var frag=document.createDocumentFragment();var last=0;matches.forEach(function(r){if(r.start>last)frag.appendChild(document.createTextNode(n.textContent.slice(last,r.start)));var mark=document.createElement('mark');mark.className='search-highlight';mark.textContent=n.textContent.slice(r.start,r.end);_searchMarks.push(mark);frag.appendChild(mark);last=r.end});if(last<n.textContent.length)frag.appendChild(document.createTextNode(n.textContent.slice(last)));n.parentNode.replaceChild(frag,n)});if(_searchMarks.length){searchNavSetActive(0);searchNavShow(_searchMarks.length,0)}else{searchNavShow(0,0)}}
-function initNavPanel(){_log('initNavPanel');var state=navFolderState();var selectedEl=document.querySelector('.nav-folder[data-selected="1"]');var hasSelected=!!selectedEl;var selectedId=selectedEl?selectedEl.getAttribute('data-folder-id'):'';document.querySelectorAll('.nav-folder').forEach(function(el){var id=el.getAttribute('data-folder-id');var selected=el.getAttribute('data-selected')==='1';var isAllNotes=el.getAttribute('data-all-notes')==='1';var open=state[id]===true||state[id]==='1'||state[id]===1;if(state[id]===undefined)open=!hasSelected&&isAllNotes;if(isAllNotes&&selectedId&&selectedId!==id)open=false;if(selected)open=true;el.classList.toggle('collapsed',!open);// Lazy-load if expanded and not yet loaded
+function initNavPanel(){_log('initNavPanel');var state=navFolderState();var selectedEl=document.querySelector('.nav-folder[data-selected="1"]');var hasSelected=!!selectedEl;var selectedId=selectedEl?selectedEl.getAttribute('data-folder-id'):'';document.querySelectorAll('.nav-folder').forEach(function(el){var id=el.getAttribute('data-folder-id');var selected=el.getAttribute('data-selected')==='1';var isAllNotes=el.getAttribute('data-all-notes')==='1';var open=state[id]===true||state[id]==='1'||state[id]===1;if(state[id]===undefined){// No explicit state: use heuristics
+	if(isAllNotes)open=!hasSelected||(selectedId===id);else if(selected)open=true;else open=false;}// Always trust explicit localStorage state — do not override with data-selected or all-notes heuristics
+	el.classList.toggle('collapsed',!open);// Lazy-load if expanded and not yet loaded
 	if(open){var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');if(notesDiv&&!notesDiv.getAttribute('data-loaded')){notesDiv.setAttribute('data-loaded','1');var folderId=notesDiv.getAttribute('data-folder-id');htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'})}}})}
 var _folderSelectValue=null;var _folderSelectNoteId=null;
 document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');if(sel){_folderSelectValue=sel.value;_folderSelectNoteId=form?form.getAttribute('hx-put'):''}});
@@ -2361,6 +2390,7 @@ async function submitNewFolderModal(event){
 	window.closeNav=closeNav;
 	window.toggleNav=toggleNav;
 	window.toggleNavFolder=toggleNavFolder;
+	window.openNavFolderAndFirstNote=openNavFolderAndFirstNote;
 	window.openFolderContextMenu=openFolderContextMenu;
 	window.editFolderFromMenu=editFolderFromMenu;
 	window.deleteFolderFromMenu=deleteFolderFromMenu;

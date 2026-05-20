@@ -179,10 +179,10 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 		const vaultIcon = isVault ? `<button type="button" class="vault-folder-lock btn-icon-sm" data-folder-id="${escapeHtml(folderId)}" title="Lock vault" onclick="event.stopPropagation();toggleVaultLock('${escapeHtml(folderId)}')">${svgLockClosed}</button>` : '';
 		const trashIcon = isTrash ? `<button type="button" class="trash-folder-empty btn-icon-sm" title="Empty trash" onclick="event.stopPropagation();openEmptyTrashModal()">&#10005;</button>` : '';
 		return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}${isVault ? ' nav-folder-vault' : ''}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folder.title || 'Untitled')}" data-selected="${isOpen ? '1' : ''}" data-note-count="${count}"${isAllNotes ? ' data-all-notes="1"' : ''}${isVault ? ' data-is-vault="1"' : ''}>
-			<div class="nav-folder-row"${isExpandable ? ` onclick="toggleNavFolder('${escapeHtml(folderId)}')"` : ''}${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folder.title || 'Untitled')}')"`}>
-				${isExpandable ? '<button type="button" class="nav-folder-toggle" tabindex="-1">&#9656;</button>' : '<span class="nav-folder-toggle nav-folder-toggle-placeholder"></span>'}
+			<div class="nav-folder-row"${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folder.title || 'Untitled')}')"`}>
+				${isExpandable ? `<button type="button" class="nav-folder-toggle" tabindex="-1" onclick="toggleNavFolder('${escapeHtml(folderId)}')">&#9656;</button>` : '<span class="nav-folder-toggle nav-folder-toggle-placeholder"></span>'}
 				<span class="sidebar-item-icon">${isTrash ? '&#128465;' : (isAllNotes ? allNotesIcon : folderOutlineIcon)}</span>
-				<span class="nav-folder-title">${escapeHtml(folder.title || 'Untitled')}</span>
+				<span class="nav-folder-title"${isExpandable ? ` onclick="${isAllNotes ? `toggleNavFolder('${escapeHtml(folderId)}')` : `openNavFolderAndFirstNote('${escapeHtml(folderId)}')`}" style="cursor:pointer"` : ''}>${escapeHtml(folder.title || 'Untitled')}</span>
 				${vaultIcon}
 				${trashIcon}
 				<span class="sidebar-item-count">${count || ''}</span>

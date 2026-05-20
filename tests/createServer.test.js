@@ -2499,6 +2499,7 @@ test('GET /settings shows backup section for admin when configured', async () =>
 			listBackups: async () => [{ name: 'joplock-backup-2026.dump', createdTime: 0, size: 12 }],
 			startBackupJob: async () => ({}),
 			backupPath: async () => ({ path: __filename, size: 1, name: 'joplock-backup-2026.dump', createdTime: 0 }),
+			deleteBackup: async () => ({}),
 			startRestoreJob: async () => ({}),
 			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
 			waitForIdle: async () => ({ state: 'idle' }),
@@ -2521,15 +2522,43 @@ test('POST /admin/backups creates backup and redirects', async () => {
 			listBackups: async () => [],
 			startBackupJob: async options => { created = options; return {}; },
 			backupPath: async () => ({ path: __filename, size: 1, name: 'x.dump', createdTime: 0 }),
+			deleteBackup: async () => ({}),
 			startRestoreJob: async () => ({}),
 			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
 			waitForIdle: async () => ({ state: 'idle' }),
 		},
 	}), async port => {
-		const res = await request(port, { path: '/admin/backups', method: 'POST', headers: { Cookie: 'sessionId=admin-session', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'compressionMode=balanced' });
+		const res = await request(port, { path: '/admin/backups', method: 'POST', headers: { Cookie: 'sessionId=admin-session', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'compressionMode=zstd' });
 		assert.equal(res.statusCode, 302);
-		assert.deepEqual(created, { mode: 'balanced', useCompression: false });
+		assert.deepEqual(created, { mode: 'zstd' });
 		assert.ok(res.headers.location.includes('Backup+started'));
+	});
+});
+
+test('POST /admin/backups/:name/delete deletes backup and redirects', async () => {
+	let deleted = '';
+	await withServer(makeAdminMocks({
+		backupService: {
+			isConfigured: () => true,
+			isBusy: () => false,
+			activeOperation: () => '',
+			listBackups: async () => [],
+			startBackupJob: async () => ({}),
+			backupPath: async () => ({ path: __filename, size: 1, name: 'x.dump', createdTime: 0 }),
+			deleteBackup: async fileName => { deleted = fileName; return {}; },
+			startRestoreJob: async () => ({}),
+			currentStatus: () => ({ state: 'idle', type: '', message: '', error: '', stderrTail: '' }),
+			waitForIdle: async () => ({ state: 'idle' }),
+		},
+	}), async port => {
+		const res = await request(port, {
+			path: '/admin/backups/joplock-backup-2026.dump/delete',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=admin-session' },
+		});
+		assert.equal(res.statusCode, 302);
+		assert.equal(deleted, 'joplock-backup-2026.dump');
+		assert.ok(res.headers.location.includes('Backup+deleted'));
 	});
 });
 
@@ -2597,7 +2626,7 @@ test('recovery login and backup flow works without normal Joplin auth', async ()
 			body: 'compressionMode=fast',
 		});
 		assert.equal(res.statusCode, 302);
-		assert.deepEqual(created, { mode: 'fast', useCompression: false });
+		assert.deepEqual(created, { mode: 'fast' });
 		assert.equal(validatedToken, 'recovery-token');
 		assert.ok(res.headers.location.includes('Backup+started'));
 	});

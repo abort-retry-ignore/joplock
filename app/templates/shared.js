@@ -19,6 +19,13 @@ const escapeHtml = value => `${value}`
 	.replaceAll('"', '&quot;')
 	.replaceAll('\'', '&#39;');
 
+const escapeJsString = value => `${value || ''}`
+	.replaceAll('\\', '\\\\')
+	.replaceAll("'", "\\'")
+	.replaceAll('\r', '\\r')
+	.replaceAll('\n', '\\n')
+	.replaceAll('</', '<\\/');
+
 const appleSplashLinks = [
 	['1320x2868.png', 'screen and (device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'],
 	['2868x1320.png', 'screen and (device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)'],
@@ -137,6 +144,7 @@ const svgLockOpen = '<svg class="vault-svg-icon" viewBox="0 0 24 28" fill="none"
 
 module.exports = {
 	escapeHtml,
+	escapeJsString,
 	appleSplashLinks,
 	folderOutlineIcon,
 	allNotesIcon,

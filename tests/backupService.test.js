@@ -101,7 +101,7 @@ test('backup service uses explicit compression spec when provided', async () => 
 	assert.ok(spawnArgs.args.includes('--compress=gzip:1'));
 });
 
-test('backup service can disable extra compression per backup run', async () => {
+test('backup service can create uncompressed backups per run', async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'joplock-backups-'));
 	let spawnArgs = null;
 	const service = createBackupService({
@@ -113,8 +113,24 @@ test('backup service can disable extra compression per backup run', async () => 
 			return makeChild({ stdoutText: 'dump-bytes' });
 		},
 	});
-	await service.startBackupJob({ useCompression: false });
+	await service.startBackupJob({ mode: 'uncompressed' });
 	assert.ok(spawnArgs.args.includes('--compress=none'));
+});
+
+test('backup service supports explicit zstd compression mode', async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'joplock-backups-'));
+	let spawnArgs = null;
+	const service = createBackupService({
+		backupDir: dir,
+		compression: 'gzip:9',
+		postgresConfig: { database: 'joplin', host: 'db', port: 5432, user: 'joplin', password: 'secret' },
+		spawnImpl: (cmd, args, options) => {
+			spawnArgs = { cmd, args, options };
+			return makeChild({ stdoutText: 'dump-bytes' });
+		},
+	});
+	await service.startBackupJob({ mode: 'zstd' });
+	assert.ok(spawnArgs.args.includes('--compress=zstd:3'));
 });
 
 test('backup service supports balanced gzip compression mode', async () => {
@@ -168,4 +184,14 @@ test('backup service starts restore job via pg_restore and completes in backgrou
 	assert.ok(spawnArgs.args.includes('--single-transaction'));
 	assert.ok(spawnArgs.args.includes(path.join(dir, 'joplock-backup-2026.dump')));
 	assert.equal(service.currentStatus().state, 'completed');
+});
+
+test('backup service deletes an existing backup file', async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'joplock-backups-'));
+	const file = path.join(dir, 'joplock-backup-2026.dump');
+	fs.writeFileSync(file, 'x');
+	const service = createBackupService({ backupDir: dir, postgresConfig: {} });
+	const deleted = await service.deleteBackup('joplock-backup-2026.dump');
+	assert.equal(deleted.name, 'joplock-backup-2026.dump');
+	assert.equal(fs.existsSync(file), false);
 });

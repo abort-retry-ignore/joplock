@@ -43,9 +43,10 @@ const createBackupService = options => {
 	const normalizedCompressionLevel = Number.isFinite(Number(compressionLevel)) ? Math.max(0, Math.min(9, Number(compressionLevel))) : 9;
 	const compressionArg = (typeof compression === 'string' && compression.trim()) ? compression.trim() : `gzip:${normalizedCompressionLevel}`;
 	const backupCompressionArg = jobOptions => {
+		if (jobOptions && jobOptions.mode === 'zstd') return 'zstd:3';
 		if (jobOptions && jobOptions.mode === 'fast') return 'gzip:1';
 		if (jobOptions && jobOptions.mode === 'balanced') return 'zstd:3';
-		if (jobOptions && jobOptions.useCompression === false) return 'none';
+		if (jobOptions && jobOptions.mode === 'uncompressed') return 'none';
 		return compressionArg;
 	};
 
@@ -95,6 +96,14 @@ const createBackupService = options => {
 		const stat = await fsp.stat(fullPath).catch(() => null);
 		if (!stat || !stat.isFile()) throw new Error('Backup file not found');
 		return { path: fullPath, size: stat.size, name: fileName, createdTime: stat.mtimeMs };
+	};
+
+	const deleteBackup = async fileName => {
+		await ensureAvailable();
+		if (isBusy()) throw new Error(`Another backup operation is already running (${currentJob.type})`);
+		const selected = await backupPath(fileName);
+		await fsp.rm(selected.path);
+		return selected;
 	};
 
 	const progressSnapshot = job => ({
@@ -275,6 +284,7 @@ const createBackupService = options => {
 		activeOperation,
 		listBackups,
 		backupPath,
+		deleteBackup,
 		startBackupJob,
 		startRestoreJob,
 		currentStatus,

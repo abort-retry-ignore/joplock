@@ -146,7 +146,7 @@ const handle = async (url, request, response, ctx) => {
 	if (url.pathname === '/admin/backups' && request.method === 'POST') {
 		const body = await parseBody(request);
 		try {
-			await backupService.startBackupJob({ mode: body.compressionMode || '', useCompression: body.useCompression === '1' });
+			await backupService.startBackupJob({ mode: body.compressionMode || '' });
 			redirect(response, '/settings?saved=Backup+started&tab=admin');
 		} catch (error) {
 			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Backup failed')}&tab=admin`);
@@ -168,6 +168,18 @@ const handle = async (url, request, response, ctx) => {
 			fs.createReadStream(backup.path).pipe(response);
 		} catch (error) {
 			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Download failed')}&tab=admin`);
+		}
+		return true;
+	}
+
+	const deleteBackupMatch = url.pathname.match(/^\/admin\/backups\/([^/]+)\/delete$/);
+	if (deleteBackupMatch && request.method === 'POST') {
+		try {
+			const fileName = decodeURIComponent(deleteBackupMatch[1]);
+			await backupService.deleteBackup(fileName);
+			redirect(response, '/settings?saved=Backup+deleted&tab=admin');
+		} catch (error) {
+			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Delete failed')}&tab=admin`);
 		}
 		return true;
 	}

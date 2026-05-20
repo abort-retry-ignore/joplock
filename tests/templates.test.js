@@ -371,13 +371,15 @@ test('settings page renders backup section for admin', () => {
 	assert.ok(html.includes('<td>12</td>'));
 	assert.ok(html.includes('1.0 MB'));
 	assert.ok(html.includes('/admin/backups'));
+	assert.ok(html.includes('/admin/backups/joplock-backup-2026.dump/delete'));
 	assert.ok(html.includes('/admin/restore'));
 	assert.ok(html.includes('/admin/status'));
 	assert.ok(html.includes('joplock-backup-2026.dump'));
+	assert.ok(html.includes('Delete backup joplock-backup-2026.dump? This cannot be undone.'));
 	assert.ok(html.includes('/recovery'));
 	assert.ok(html.includes('Fast (gzip:1)'));
-	assert.ok(html.includes('Balanced (zstd:3)'));
-	assert.ok(html.includes('Smallest (deployment default)'));
+	assert.ok(html.includes('Zstd (zstd:3)'));
+	assert.ok(html.includes('Uncompressed'));
 });
 
 test('settings page renders database compression section without backups configured', () => {
@@ -911,7 +913,7 @@ test('recoveryPage renders login and backup controls', () => {
 	assert.ok(loggedIn.includes('/recovery/backups/joplock-backup-2026.dump/download'));
 	assert.ok(loggedIn.includes('/recovery/status'));
 	assert.ok(loggedIn.includes('Type RESTORE'));
-	assert.ok(loggedIn.includes('Balanced (zstd:3)'));
+	assert.ok(loggedIn.includes('Zstd (zstd:3)'));
 });
 
 test('backup polling only reloads after running job transitions to terminal state', () => {

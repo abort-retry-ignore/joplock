@@ -408,9 +408,9 @@ const recoveryPage = (options = {}) => {
 					<label class="settings-field" style="margin-bottom:12px;display:block">
 						<span>Compression</span>
 						<select class="login-input" name="compressionMode" data-backup-mode>
+							<option value="zstd" selected>Zstd (zstd:3)</option>
 							<option value="fast">Fast (gzip:1)</option>
-							<option value="balanced">Balanced (zstd:3)</option>
-							<option value="smallest" selected>Smallest (deployment default)</option>
+							<option value="uncompressed">Uncompressed</option>
 						</select>
 					</label>
 					<button type="submit" class="btn btn-primary"${activeOperation ? ' disabled' : ''}>Create backup</button>

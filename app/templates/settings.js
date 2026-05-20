@@ -3,6 +3,7 @@
 
 const {
 	escapeHtml,
+	escapeJsString,
 	appleSplashLinks,
 	themeOptions,
 	validDateFormats,
@@ -457,9 +458,9 @@ const settingsPage = (options = {}) => {
 						<label class="settings-field" style="margin-bottom:12px;display:block">
 							<span>Compression</span>
 							<select class="login-input" name="compressionMode" data-backup-mode>
+								<option value="zstd" selected>Zstd (zstd:3)</option>
 								<option value="fast">Fast (gzip:1)</option>
-								<option value="balanced">Balanced (zstd:3)</option>
-								<option value="smallest" selected>Smallest (deployment default)</option>
+								<option value="uncompressed">Uncompressed</option>
 							</select>
 						</label>
 						<button type="submit" class="btn btn-primary"${backupBusy ? ' disabled' : ''}>Create backup</button>
@@ -470,7 +471,7 @@ const settingsPage = (options = {}) => {
 							<td><code>${escapeHtml(b.name)}</code></td>
 							<td>${escapeHtml(new Date(b.createdTime).toISOString())}</td>
 							<td>${escapeHtml(`${b.size} bytes`)}</td>
-							<td class="admin-actions-cell"><a class="btn btn-sm btn-secondary" href="/admin/backups/${encodeURIComponent(b.name)}/download">Download</a></td>
+							<td class="admin-actions-cell"><a class="btn btn-sm btn-secondary" href="/admin/backups/${encodeURIComponent(b.name)}/download">Download</a> <form method="POST" action="/admin/backups/${encodeURIComponent(b.name)}/delete" style="display:inline" onsubmit="return confirm('Delete backup ${escapeJsString(b.name)}? This cannot be undone.')"><button type="submit" class="btn-icon-sm" title="Delete backup" aria-label="Delete backup ${escapeHtml(b.name)}">&#128465;</button></form></td>
 						</tr>`).join('')}</tbody>
 					</table></div>` : '<p class="settings-section-sub">No backups found yet.</p>'}
 					<form class="settings-form" method="POST" action="/admin/restore" style="margin-top:16px">

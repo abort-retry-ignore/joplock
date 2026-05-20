@@ -1841,9 +1841,18 @@ function _completeUnlock(noteId,plaintext,vaultId){
 		ta.style.display='';
 	}
 	if(form){
-		form.dataset.encrypted='1';
-		if(vaultId)form.dataset.vaultId=vaultId;
-		form.dataset.vaultUnlocked='1';
+		if(vaultId){
+			form.dataset.encrypted='1';
+			form.dataset.vaultId=vaultId;
+			form.dataset.vaultUnlocked='1';
+		}else{
+			// Orphan / v1 note: decrypted with embedded salt, no live vault key.
+			// Treat as plaintext so subsequent folder moves don't try to re-encrypt
+			// with a vault we have no key for.
+			delete form.dataset.encrypted;
+			delete form.dataset.vaultId;
+			delete form.dataset.vaultUnlocked;
+		}
 	}
 
 	if(lockedDiv)lockedDiv.style.display='none';

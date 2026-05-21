@@ -12,6 +12,8 @@ const {
 	allNotesFolder, trashFolder, selectedFolderForNav, normalizeStoredFolderId,
 } = require('./routes/_helpers');
 
+const { inspectAndGuard } = require('./proxy/vaultProxyGuard');
+
 const routeAuth = require('./routes/auth');
 const routeRecovery = require('./routes/recovery');
 const routeSettings = require('./routes/settings');
@@ -317,6 +319,43 @@ Code block example
 
 		// Joplin Server proxy
 		if (joplinPublicBasePath && (url.pathname === joplinPublicBasePath || url.pathname.startsWith(`${joplinPublicBasePath}/`))) {
+			// Vault enforcement: inspect note writes and deletes before proxying.
+			const strippedPathname = joplinPublicBasePath
+				? (url.pathname.replace(joplinPublicBasePath, '') || '/')
+				: url.pathname;
+			const guardResult = await inspectAndGuard(request, strippedPathname, {
+				vaultService,
+				itemService,
+				authenticatedUser,
+				log,
+			});
+
+			if (guardResult.action === 'reject') {
+				send(response, guardResult.status, guardResult.message, {
+					'Content-Type': 'text/plain; charset=utf-8',
+				});
+				return;
+			}
+
+			if (guardResult.action === 'allow' && guardResult.buffer !== null) {
+				// Body was buffered — replay it as a Readable so the proxy can
+				// pipe it to the upstream request.
+				const { Readable } = require('stream');
+				const fakeRequest = Object.assign(Readable.from(guardResult.buffer), {
+					headers: request.headers,
+					method: request.method,
+				});
+				proxyToJoplinServer(fakeRequest, response, url);
+				return;
+			}
+
+			if (guardResult.action === 'allow' && guardResult.buffer === null) {
+				// DELETE with no body — stream original request (no body consumed)
+				proxyToJoplinServer(request, response, url);
+				return;
+			}
+
+			// action === 'stream' (not inspected, or body over cap) — stream as-is
 			proxyToJoplinServer(request, response, url);
 			return;
 		}

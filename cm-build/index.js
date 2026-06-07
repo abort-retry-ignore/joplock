@@ -24,6 +24,9 @@ import { shell } from "@codemirror/legacy-modes/mode/shell";
 // Language description imports for codeLanguages mapping
 import { LanguageDescription } from "@codemirror/language";
 
+// Autocomplete support
+import { autocompletion, startCompletion } from "@codemirror/autocomplete";
+
 window.CM = {
   // Core (same as before)
   EditorView,
@@ -63,4 +66,8 @@ window.CM = {
   shell,
   StreamLanguage,
   LanguageDescription,
+
+  // Autocomplete support
+  autocompletion,
+  startCompletion,
 };

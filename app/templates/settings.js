@@ -10,8 +10,9 @@ const {
 	validDatetimeFormats,
 	passwordField,
 } = require('./shared');
+const { AI_PROVIDERS } = require('../settingsService');
 
-const ASSET_VERSION = '20260519pwa1';
+const ASSET_VERSION = '20260519pwa22';
 
 const formatBytes = value => {
 	const bytes = Number(value || 0);
@@ -124,7 +125,7 @@ const adminUserRow = (u, currentUserId) => {
 
 const settingsPage = (options = {}) => {
 	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', dbCompression = null, flash = '', flashError = '', activeTab = 'appearance', hasExplicitTab = false } = options;
-	const validTabs = ['appearance', 'profile', 'security'];
+	const validTabs = ['appearance', 'ai', 'expander', 'profile', 'security'];
 	if (isAdmin) validTabs.push('admin');
 	const tab = validTabs.includes(activeTab) ? activeTab : 'appearance';
 	const initialJob = JSON.stringify({
@@ -164,6 +165,8 @@ const settingsPage = (options = {}) => {
 			${maintenanceMode ? `<div class="settings-flash settings-flash-err">Maintenance mode is active${activeOperation ? ` (${escapeHtml(activeOperation)})` : ''}.</div>` : ''}
 			<div class="settings-tabs" role="tablist">
 				<button type="button" role="tab" class="settings-tab${tab === 'appearance' ? ' active' : ''}" data-tab="appearance" onclick="switchTab('appearance')">Appearance</button>
+				<button type="button" role="tab" class="settings-tab${tab === 'ai' ? ' active' : ''}" data-tab="ai" onclick="switchTab('ai')">AI</button>
+				<button type="button" role="tab" class="settings-tab${tab === 'expander' ? ' active' : ''}" data-tab="expander" onclick="switchTab('expander')">Expander</button>
 				<button type="button" role="tab" class="settings-tab${tab === 'profile' ? ' active' : ''}" data-tab="profile" onclick="switchTab('profile')">Profile</button>
 				<button type="button" role="tab" class="settings-tab${tab === 'security' ? ' active' : ''}" data-tab="security" onclick="switchTab('security')">Security</button>
 				${isAdmin ? `<button type="button" role="tab" class="settings-tab${tab === 'admin' ? ' active' : ''}" data-tab="admin" onclick="switchTab('admin')">Admin</button>` : ''}
@@ -236,6 +239,53 @@ const settingsPage = (options = {}) => {
 							</select>
 						</label>
 					</div>
+				</section>
+			</div>
+
+			<!-- Tab: AI -->
+			<div class="settings-tab-panel${tab === 'ai' ? ' active' : ''}" id="tab-ai">
+				<section class="settings-section">
+					<h2 class="settings-section-title">AI Autocomplete</h2>
+					<p class="settings-section-sub">Multi-provider AI prose and note suggestions — changes are saved automatically.</p>
+					<div class="settings-grid">
+					<div class="settings-field">
+							<span>Autocomplete triggers</span>
+							<span class="settings-field-hint">Configure AI autocomplete triggers in the Expander tab by setting an entry action to <strong>AI autocomplete</strong>.</span>
+						</div>
+					<label class="settings-field">
+							<span>Sentences to complete</span>
+							<input type="number" class="login-input" id="settings-prose-sentences" min="1" max="8" step="1" value="${escapeHtml(settings.proseAutocompleteSentenceCount || 1)}" onchange="saveSetting('proseAutocompleteSentenceCount',this.value)" />
+							<span class="settings-field-hint">Total complete sentences to produce from the cursor. If you are mid-sentence, finishing it counts as 1.</span>
+						</label>
+						<div class="settings-field">
+							<span>Note AI instructions</span>
+							<span class="settings-field-hint">Add note-local guidance on its own line with <code>#! mention dogs in each paragraph once.</code></span>
+						</div>
+					</div>
+				</section>
+				<section class="settings-section">
+					<h2 class="settings-section-title">AI Provider Profiles</h2>
+					<p class="settings-section-sub">Add one or more named profiles — use the same provider multiple times with different models. The active profile is used for autocomplete. Keys are stored server-side only.</p>
+					<div class="ai-profiles-bar">
+						<label class="ai-profiles-bar-label">Active:
+							<select id="ai-active-select" class="login-input ai-active-select" onchange="setActiveAiProfile(this.value)"></select>
+						</label>
+						<button type="button" class="btn btn-sm btn-secondary" onclick="addAiProfile()">+ Add Profile</button>
+						<button type="button" class="btn btn-sm btn-primary" onclick="saveAiProfiles()">Save</button>
+					</div>
+					<div class="ai-profiles" id="ai-profiles-list"></div>
+				</section>
+			</div>
+
+			<!-- Tab: Expander -->
+			<div class="settings-tab-panel${tab === 'expander' ? ' active' : ''}" id="tab-expander">
+				<section class="settings-section">
+					<h2 class="settings-section-title">Text Expander</h2>
+					<p class="settings-section-sub">Create plaintext triggers that expand while writing notes. Changes are saved automatically.</p>
+					<div class="ai-profiles-bar">
+						<button type="button" class="btn btn-sm btn-secondary" onclick="addTextExpander()">+ Add Entry</button>
+					</div>
+					<div class="ai-profiles" id="text-expanders-list"></div>
 				</section>
 			</div>
 
@@ -518,6 +568,57 @@ const settingsPage = (options = {}) => {
 			document.querySelectorAll('.settings-tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='tab-'+name)});
 			try{localStorage.setItem('joplock-settings-tab',name)}catch(e){}
 		};
+		(function(){
+			var _expanderProfiles=${JSON.stringify((Array.isArray(settings.aiProfiles) ? settings.aiProfiles : []).map(p => ({ id: p.id, name: p.name || p.model || p.providerId || 'AI profile', hasKey: !!p.apiKey })))};
+			var _expanders=${JSON.stringify(Array.isArray(settings.textExpanders) ? settings.textExpanders : [])};
+			function _escExp(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+			function _genExpId(){return'te-'+Math.random().toString(36).slice(2,9)+Date.now().toString(36)}
+			function _readExpanders(){var list=document.getElementById('text-expanders-list');if(!list)return _expanders.slice();var out=[];list.querySelectorAll('[data-expander-id]').forEach(function(card){var id=card.dataset.expanderId||_genExpId();var trigger=card.querySelector('[data-field="trigger"]');var action=card.querySelector('[data-field="action"]');var profileId=card.querySelector('[data-field="profileId"]');var text=card.querySelector('[data-field="text"]');out.push({id:id,trigger:trigger?trigger.value:'',action:action?action.value:'text',profileId:profileId?profileId.value:'',text:text?text.value:''})});return out}
+			function _profileOptions(selected){var opts='<option value="">Active AI profile</option>';opts+=_expanderProfiles.map(function(p){return'<option value="'+_escExp(p.id)+'"'+(selected===p.id?' selected':'')+'>'+_escExp(p.name)+(p.hasKey?'':' (no key)')+'</option>'}).join('');return opts}
+			function _renderExpander(entry){var action=entry.action==='ai'?'ai':'text';return'<div class="ai-profile-card" data-expander-id="'+_escExp(entry.id||_genExpId())+'"><div class="ai-profile-header"><input type="text" class="login-input ai-profile-name-input" data-field="trigger" value="'+_escExp(entry.trigger)+'" maxlength="15" placeholder="Trigger, e.g. ;sig" /><select class="login-input" data-field="action"><option value="text"'+(action==='text'?' selected':'')+'>Expand text</option><option value="ai"'+(action==='ai'?' selected':'')+'>AI autocomplete</option></select><button type="button" class="btn btn-sm btn-secondary" data-remove-expander>Remove</button></div><div class="ai-profile-body"><label class="ai-profile-field" data-expander-text-field style="grid-column:1/-1;display:'+(action==='ai'?'none':'block')+'"><span>Expand into</span><textarea class="login-input" data-field="text" rows="4" placeholder="Replacement text">'+_escExp(entry.text)+'</textarea></label><label class="ai-profile-field" data-expander-ai-field style="grid-column:1/-1;display:'+(action==='ai'?'block':'none')+'"><span>AI profile</span><select class="login-input" data-field="profileId">'+_profileOptions(entry.profileId||'')+'</select><span class="settings-field-hint">Runs prose autocomplete using this profile, or the active profile if blank.</span></label></div></div>'}
+			function _renderExpanders(){var list=document.getElementById('text-expanders-list');if(!list)return;list.innerHTML=_expanders.length===0?'<p class="settings-section-sub" style="margin-top:8px">No entries yet. Click <strong>+ Add Entry</strong> to create one.</p>':_expanders.map(_renderExpander).join('')}
+			var _expanderSaveTimer=null;
+			function _saveExpandersSoon(){clearTimeout(_expanderSaveTimer);_expanderSaveTimer=setTimeout(function(){_expanders=_readExpanders();saveSetting('textExpanders',JSON.stringify(_expanders))},250)}
+			window.addTextExpander=function(){_expanders=_readExpanders();_expanders.push({id:_genExpId(),trigger:'',text:''});_renderExpanders();_saveExpandersSoon()};
+			document.addEventListener('input',function(e){if(e.target&&e.target.closest&&e.target.closest('#text-expanders-list'))_saveExpandersSoon()});
+			document.addEventListener('change',function(e){var card=e.target&&e.target.closest?e.target.closest('[data-expander-id]'):null;if(!card)return;var action=card.querySelector('[data-field="action"]');var textField=card.querySelector('[data-expander-text-field]');var aiField=card.querySelector('[data-expander-ai-field]');var isAi=action&&action.value==='ai';if(textField)textField.style.display=isAi?'none':'block';if(aiField)aiField.style.display=isAi?'block':'none';_saveExpandersSoon()});
+			document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('[data-remove-expander]'):null;if(!btn)return;var card=btn.closest('[data-expander-id]');if(card)card.remove();_expanders=_readExpanders();_renderExpanders();_saveExpandersSoon()});
+			_renderExpanders();
+		})();
+		(function(){
+			var _providerList=${JSON.stringify(AI_PROVIDERS)};
+			var _providerMap={};_providerList.forEach(function(p){_providerMap[p.id]=p});
+			var _profiles=${JSON.stringify(Array.isArray(settings.aiProfiles) ? settings.aiProfiles : [])};
+			function _esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+			function _genId(){return'p-'+Math.random().toString(36).slice(2,9)+Date.now().toString(36)}
+			function _readProfiles(){var list=document.getElementById('ai-profiles-list');if(!list)return _profiles.slice();var updated=_profiles.map(function(p){return Object.assign({},p)});list.querySelectorAll('[data-pid][data-field]').forEach(function(el){var id=el.dataset.pid;var field=el.dataset.field;var entry=updated.find(function(p){return p.id===id});if(entry)entry[field]=el.value});return updated}
+			function _updateActiveSelect(){var sel=document.getElementById('ai-active-select');if(!sel)return;sel.innerHTML=_profiles.length===0?'<option value="">\u2014 no profiles \u2014</option>':_profiles.map(function(p){return'<option value="'+_esc(p.id)+'"'+(p.active?' selected':'')+'>'+_esc(p.name||'(unnamed)')+'</option>'}).join('')}
+			function _renderCard(p){var prov=_providerMap[p.providerId]||_providerMap['openrouter']||{};var isCustom=!prov.url;var temp=p.temperature!=null?p.temperature:0.7;return'<div class="ai-profile-card'+(p.active?' ai-profile-card-active':'')+'" id="ai-profile-card-'+_esc(p.id)+'"><div class="ai-profile-header"><input type="text" class="login-input ai-profile-name-input" data-pid="'+_esc(p.id)+'" data-field="name" value="'+_esc(p.name)+'" placeholder="Profile name" /><select class="login-input ai-profile-provider-select" data-pid="'+_esc(p.id)+'" data-field="providerId" onchange="onAiProviderChange()">'+_providerList.map(function(pv){return'<option value="'+_esc(pv.id)+'"'+(p.providerId===pv.id?' selected':'')+'>'+_esc(pv.name)+'</option>'}).join('')+'</select>'+(p.active?'<span class="badge badge-ok">Active</span>':'')+'<button type="button" class="btn btn-sm btn-secondary" data-remove-pid="'+_esc(p.id)+'">Remove</button></div><div class="ai-profile-body"><label class="ai-profile-field"><span>API Key</span><input type="text" class="login-input" data-pid="'+_esc(p.id)+'" data-field="apiKey" value="'+_esc(p.apiKey)+'" placeholder="API key" autocomplete="off" /></label><label class="ai-profile-field"><span>Model</span><input type="text" class="login-input" data-pid="'+_esc(p.id)+'" data-field="model" value="'+_esc(p.model)+'" placeholder="'+_esc(prov.defaultModel||'model slug')+'" /></label><label class="ai-profile-field"><span>Temperature</span><input type="number" class="login-input" data-pid="'+_esc(p.id)+'" data-field="temperature" value="'+_esc(temp)+'" min="0" max="2" step="0.1" /></label>'+(isCustom?'<label class="ai-profile-field"><span>API URL</span><input type="text" class="login-input" data-pid="'+_esc(p.id)+'" data-field="url" value="'+_esc(p.url)+'" placeholder="https://api.example.com/v1/chat/completions" /></label>':'<div class="ai-profile-field"><span>API URL</span><span class="settings-field-hint"><code>'+_esc(prov.url)+'</code></span></div>')+'<div class="ai-profile-actions"><button type="button" class="btn btn-sm btn-secondary" data-test-pid="'+_esc(p.id)+'">Test</button><span class="ai-test-result" id="ai-test-result-'+_esc(p.id)+'"></span></div></div></div>'}
+			function _render(){var list=document.getElementById('ai-profiles-list');if(!list)return;list.innerHTML=_profiles.length===0?'<p class="settings-section-sub" style="margin-top:8px">No profiles yet. Click <strong>+ Add Profile</strong> to create one.</p>':_profiles.map(_renderCard).join('');_updateActiveSelect()}
+			window.addAiProfile=function(){_profiles=_readProfiles();_profiles.push({id:_genId(),name:'',providerId:'openrouter',apiKey:'',model:'',url:'',temperature:0.7,active:_profiles.length===0});_render()};
+			window.removeAiProfile=function(profileId){_profiles=_readProfiles().filter(function(p){return p.id!==profileId});if(_profiles.length>0&&!_profiles.some(function(p){return p.active}))_profiles[0].active=true;_render()};
+			window.onAiProviderChange=function(){_profiles=_readProfiles();_render()};
+			window.setActiveAiProfile=function(profileId){_profiles=_readProfiles();_profiles.forEach(function(p){p.active=p.id===profileId});_render();saveSetting('aiProfiles',JSON.stringify(_profiles))};
+			window.saveAiProfiles=function(){_profiles=_readProfiles();saveSetting('aiProfiles',JSON.stringify(_profiles))};
+			window.testAiProfile=function(profileId){
+				_profiles=_readProfiles();
+				var el=document.getElementById('ai-test-result-'+profileId);
+				if(el){el.textContent='Saving\u2026';el.className='ai-test-result'}
+				var body='aiProfiles='+encodeURIComponent(JSON.stringify(_profiles));
+				fetch('/api/web/settings',{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
+					.then(function(){if(el)el.textContent='Testing\u2026';return fetch('/api/web/ai/test-profile',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'profileId='+encodeURIComponent(profileId)})})
+					.then(function(r){return r.json()})
+					.then(function(data){
+						if(data&&!data.ok)console.warn('[joplock] AI provider test failed',{status:data.providerStatus,response:data.response,providerError:data.providerError});
+						if(!el)return;
+						if(data.ok){el.textContent='\u2713 '+data.ms+'ms';el.className='ai-test-result ai-test-ok'}
+						else{el.textContent='\u2717 '+(data.response||data.error||'Failed');el.className='ai-test-result ai-test-fail'}
+					})
+					.catch(function(err){console.warn('[joplock] AI provider test request failed',err&&err.message?err.message:err);if(el){el.textContent='\u2717 Network error';el.className='ai-test-result ai-test-fail'}})
+			};
+			document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('[data-remove-pid],[data-test-pid]'):null;if(!btn)return;if(btn.dataset.removePid)removeAiProfile(btn.dataset.removePid);if(btn.dataset.testPid)testAiProfile(btn.dataset.testPid)});
+			_render();
+		})();
 		(function(){var saved=null;try{saved=localStorage.getItem('joplock-settings-tab')}catch(e){}var initial='${escapeHtml(tab)}';var hasExplicitTab=${hasExplicitTab ? 'true' : 'false'};if(!hasExplicitTab&&saved&&saved!==initial)switchTab(saved)})();
 		(function(){
 			var key='joplock-backup-compression-mode';

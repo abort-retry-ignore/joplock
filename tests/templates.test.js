@@ -335,8 +335,85 @@ test('settings page renders font controls and MFA details', () => {
 	assert.ok(html.includes('Reopen the last edited note on startup'));
 	assert.ok(html.includes('Expire session after inactivity'));
 	assert.ok(html.includes('name="autoLogoutMinutes"'));
+	assert.ok(html.includes('onclick="switchTab(\'ai\')"'));
+	assert.ok(html.includes('id="tab-ai"'));
+	assert.ok(html.includes('onclick="switchTab(\'expander\')"'));
+	assert.ok(html.includes('id="tab-expander"'));
+	assert.ok(html.includes('id="text-expanders-list"'));
+	assert.ok(html.includes('Changes are saved automatically'));
+	assert.ok(html.includes('_saveExpandersSoon'));
+	assert.ok(html.includes('AI autocomplete'));
+	assert.ok(html.includes('Active AI profile'));
+	assert.ok(!html.includes('saveTextExpanders'));
+	assert.ok(html.includes('Autocomplete triggers'));
+	assert.ok(html.includes('Configure AI autocomplete triggers in the Expander tab'));
+	assert.ok(!html.includes('id="settings-prose-manual-trigger"'));
+	assert.ok(html.includes('id="ai-profiles-list"'));
+	assert.ok(html.includes('id="ai-active-select"'));
+	assert.ok(!html.includes('id="settings-autocomplete-enabled"'));
+	assert.ok(!html.includes('id="settings-prose-delay"'));
+	assert.ok(html.includes('id="settings-prose-sentences"'));
+	const aiPanel = html.slice(html.indexOf('id="tab-ai"'), html.indexOf('<!-- Tab: Profile -->'));
+	assert.ok(aiPanel.includes('addAiProfile'));
+	assert.ok(aiPanel.includes('Note AI instructions'));
+	assert.ok(aiPanel.includes('AI Provider Profiles'));
+	assert.ok(aiPanel.includes('saveAiProfiles'));
+	assert.ok(html.includes('testAiProfile'));
+	assert.ok(html.includes('data-field="temperature"'));
+	assert.ok(html.includes('Temperature'));
+	assert.ok(html.includes('[joplock] AI provider test failed'));
 	assert.ok(html.includes('class="login-eye"'));
 	assert.ok(html.includes('saveSetting')); // auto-save function
+});
+
+test('editor fragment omits autocomplete toggle button', () => {
+	const html = editorFragment({ id: 'n1', title: 'Title', body: 'Body', parentId: 'f1' }, [{ id: 'f1', title: 'Folder' }]);
+	assert.ok(!html.includes('id="autocomplete-toggle"'));
+	assert.ok(!html.includes('&#129302;'));
+});
+
+test('logged in layout omits mobile autocomplete toggle button', () => {
+	const html = layoutPage({ user: { id: 'u1', email: 'a@example.com' }, navContent: '', editorContent: '', settings: {} });
+	assert.ok(!html.includes('id="mobile-autocomplete-toggle"'));
+	assert.ok(!html.includes('onclick="toggleAutocomplete()"'));
+	assert.ok(!html.includes('&#129302;'));
+	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+	assert.ok(appJs.includes("{key:'Ctrl-Space',run:function(){requestManualProseCompletion();return true}}"));
+	assert.ok(appJs.includes('[joplock] AI provider error'));
+	assert.ok(appJs.includes('[joplock] prose autocomplete request context'));
+	assert.ok(appJs.includes('[joplock] prose autocomplete provider context'));
+	assert.ok(appJs.includes('var _textExpanders=Array.isArray(_cfg.textExpanders)'));
+	assert.ok(appJs.includes("fetch('/api/web/client-log'"));
+	assert.ok(appJs.includes("_clientLog('expander.detect'"));
+	assert.ok(appJs.includes('function detectTextExpanderFromBuffer(buffer){'));
+	assert.ok(appJs.includes('function consumePendingTextExpansion(source){'));
+	assert.ok(appJs.includes('function runTextExpanderAction(entry,source){'));
+	assert.ok(appJs.includes('profileId=opts.profileId'));
+	assert.ok(appJs.includes('function maybeTriggerManualProseFromCM(cm, upd){'));
+	assert.ok(!appJs.includes('function getRenderManualProseTriggerState(){'));
+	assert.ok(!appJs.includes('function getActiveManualTriggerOption(){'));
+	assert.ok(!appJs.includes('function getMatchedManualTriggerSuffix(text){'));
+	assert.ok(!appJs.includes('[joplock] manual autocomplete trigger check'));
+	assert.ok(!appJs.includes('[joplock] manual autocomplete trigger detected'));
+	assert.ok(!appJs.includes('[joplock] manual autocomplete trigger blocked'));
+	assert.ok(!appJs.includes('function maybeTriggerManualProseFromPV(e){'));
+	assert.ok(!appJs.includes('function maybeTriggerManualProseFromCodeMirrorDom(){'));
+	assert.ok(!appJs.includes("_cmView.contentDOM.addEventListener('input',maybeTriggerManualProseFromCodeMirrorDom);"));
+	assert.ok(!appJs.includes('launchManualProseFromCM'));
+	assert.ok(!appJs.includes('function getSelectionTextPosition(){'));
+	assert.ok(!appJs.includes('function isCaretAfterSpace()'));
+	assert.ok(!appJs.includes('maybeTriggerManualProseFromPV'));
+	assert.ok(!appJs.includes("tx.isUserEvent('input.type')"));
+	assert.ok(appJs.includes('requestManualProseCompletion({allowWithoutCtrlSpace:true'));
+	assert.ok(!appJs.includes('proseAutocompleteManualTrigger'));
+	assert.ok(!appJs.includes('double-q'));
+	assert.ok(appJs.includes('function visualViewportBounds()'));
+	assert.ok(appJs.includes('function placeRenderAutocompletePopup(popup, coords)'));
+	assert.ok(appJs.includes('if (!coords || !Number.isFinite(coords.top)'));
+	assert.ok(appJs.includes('var viewportTop=vv.top+margin;'));
+	assert.ok(appJs.includes('popup.style.maxHeight=Math.max(80,vv.height-(margin*2))'));
+	assert.ok(appJs.includes('if(_prevRenderedScreen!==null&&_prevRenderedScreen!==_state.screen)hideRenderAutocompletePopup();'));
+	assert.ok(!appJs.includes('cm2.coordsAtPos(s.from)||cm2.dom.getBoundingClientRect()'));
 });
 
 test('settings page renders backup section for admin', () => {
@@ -512,6 +589,8 @@ test('logged in layout emits inline config script that parses', () => {
 	assert.ok(match[1].includes('window._joplockConfig'));
 	assert.ok(match[1].includes('noteOpenMode'));
 	assert.ok(match[1].includes('liveSearch'));
+	assert.ok(!match[1].includes('proseAutocompleteManualTrigger'));
+	assert.ok(!match[1].includes('proseAutocompleteManualTriggerOptions'));
 	// Functions are in app.js, not inline
 	assert.ok(!html.includes('function openFolderContextMenu(event,id,title)'));
 	assert.ok(html.includes('/app.js'));
@@ -537,6 +616,15 @@ test('styles define ordered list spacing and matrix note text token', () => {
 	assert.ok(css.includes('.settings-form {'));
 	assert.ok(css.includes('.settings-actions {'));
 	assert.ok(css.includes('.settings-qr {'));
+	assert.ok(css.includes('.ai-profiles-bar {'));
+	assert.ok(css.includes('.ai-profile-field .settings-field-hint,'));
+	assert.ok(css.includes('overflow-wrap: anywhere;'));
+	assert.ok(css.includes('@media (max-width: 768px) {'));
+	assert.ok(css.includes('.settings-tabs {\n\t\tdisplay: grid;'));
+	assert.ok(css.includes('grid-template-columns: 1fr;'));
+	assert.ok(css.includes('.ai-profiles-bar {\n\t\tdisplay: grid;'));
+	assert.ok(css.includes('.ai-profile-header {\n\t\tdisplay: grid;'));
+	assert.ok(css.includes('.settings-tab.active {\n\t\tborder-color: var(--accent);'));
 	assert.ok(css.includes('.btn.active {'));
 	assert.ok(css.includes('--font-size-note: 15px;'));
 	assert.ok(css.includes('--font-size-code: 12px;'));

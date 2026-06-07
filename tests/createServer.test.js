@@ -1200,6 +1200,30 @@ test('PUT /api/web/settings saves individual settings', async () => {
 	});
 });
 
+test('POST /api/web/client-log accepts authenticated client diagnostics', async () => {
+	const originalInfo = console.info;
+	let logged = null;
+	console.info = (...args) => { logged = args; };
+	try {
+		await withServer({}, async port => {
+			const res = await request(port, {
+				path: '/api/web/client-log',
+				method: 'POST',
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: 'event=expander.detect&data=' + encodeURIComponent(JSON.stringify({ trigger: ';sig', text: 'secret', ok: true })),
+			});
+			assert.equal(res.statusCode, 204);
+		});
+		assert.equal(logged[0], '[joplock client]');
+		assert.equal(logged[1], 'expander.detect');
+		assert.equal(logged[2].trigger, ';sig');
+		assert.equal(logged[2].ok, true);
+		assert.equal(logged[2].text, undefined);
+	} finally {
+		console.info = originalInfo;
+	}
+});
+
 test('PUT /api/web/settings accepts resumeLastNote preference', async () => {
 	let saved = null;
 	await withServer({
@@ -1488,6 +1512,606 @@ test('GET /api/web/notes returns all notes for virtual all notes folder', async 
 		const payload = JSON.parse(res.body);
 		assert.equal(payload.items.length, 1);
 		assert.equal(payload.items[0].id, 'n1');
+	});
+});
+
+test('GET /api/web/notes/headers returns minimal note headers', async () => {
+	await withServer({
+		itemService: {
+			noteHeadersByUserId: async (_uid) => {
+				return [
+					{ id: 'n1', parentId: 'f1', title: 'Note 1', isEncrypted: false, deletedTime: 0, updatedTime: 123456 },
+					{ id: 'n2', parentId: 'f1', title: 'Note 2', isEncrypted: true, deletedTime: 0, updatedTime: 123457 }
+				];
+			},
+		},
+	}, async port => {
+		const res = await request(port, { path: '/api/web/notes/headers' });
+		assert.equal(res.statusCode, 200);
+		const payload = JSON.parse(res.body);
+		assert.deepEqual(payload.items, [
+			{ id: 'n1', title: 'Note 1' },
+			{ id: 'n2', title: 'Note 2' }
+		]);
+	});
+});
+
+test('POST /api/web/ai/prose-complete returns OpenRouter prose text', async () => {
+	const originalFetch = global.fetch;
+	let receivedUrl = '';
+	let receivedBody = '';
+	global.fetch = async (url, options = {}) => {
+		receivedUrl = `${url}`;
+		receivedBody = `${options.body || ''}`;
+		return {
+			ok: true,
+			json: async () => ({ choices: [{ message: { content: 'the sky was a deep blue' } }] }),
+			text: async () => '',
+		};
+	};
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({
+					openRouterApiKey: 'sk-or-v1-test',
+					openRouterModel: 'openai/gpt-4o-mini',
+					proseAutocompleteSentenceCount: 3,
+					aiProfiles: [{ id: 'p-openrouter', name: 'OpenRouter', providerId: 'openrouter', apiKey: 'sk-or-v1-test', model: 'openai/gpt-4o-mini', temperature: 0.2, active: true }],
+				}),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=Write%20a%20calm%20opening',
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+			const payload = JSON.parse(res.body);
+			assert.equal(payload.text, 'the sky was a deep blue.');
+			assert.equal(typeof payload.contextChars, 'number');
+		});
+		assert.equal(receivedUrl, 'https://openrouter.ai/api/v1/chat/completions');
+		assert.ok(receivedBody.includes('openai/gpt-4o-mini'));
+		assert.ok(receivedBody.includes('"frequency_penalty":0.4'));
+		assert.ok(receivedBody.includes('"presence_penalty":0.2'));
+		assert.ok(receivedBody.includes('same kind of document already being written'));
+		assert.ok(receivedBody.includes('If the note reads like a story, continue the story'));
+		assert.ok(receivedBody.includes('Write exactly 3 complete sentences total'));
+		assert.ok(receivedBody.includes('count it as the first sentence'));
+		assert.ok(receivedBody.includes('Stop immediately after the sentences'));
+		assert.ok(receivedBody.includes('Return only the new text to append after the current final character'));
+		assert.equal(JSON.parse(receivedBody).max_tokens, 96);
+		assert.equal(JSON.parse(receivedBody).temperature, 0.2);
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete trims repeated prompt suffix from prose text', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: 'It is very popular among enthusiasts for its unique blend of historical charm.' } }] }),
+		text: async () => '',
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent('It is very popular'),
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+			assert.equal(JSON.parse(res.body).text, 'among enthusiasts for its unique blend of historical charm.');
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete trims repeated prompt suffix with smart punctuation', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: 'It’s also essential that we integrate robust security measures from the outset.' } }] }),
+		text: async () => '',
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent("It's also"),
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+			assert.equal(JSON.parse(res.body).text, 'essential that we integrate robust security measures from the outset.');
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete trims repeated prompt suffix when prompt ends with nbsp entity', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: 'EFS can also integrate with Docker workloads to provide scalable shared file storage that supports concurrent access from multiple containers across availability zones.' } }] }),
+		text: async () => '',
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent('Amazon EFS is shared storage for containers. EFS can also&nbsp;'),
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+			assert.equal(JSON.parse(res.body).text, 'integrate with Docker workloads to provide scalable shared file storage that supports concurrent access from multiple containers across availability zones.');
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete trims duplicated raw prompt prefix from prose text', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: 'You belong to me now. Her eyes widened with a potent mix of shock and dark excitement as my declaration hung heavy in the charged air.' } }] }),
+		text: async () => '',
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 2 }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent('You belong '),
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+			assert.equal(JSON.parse(res.body).text, 'to me now. Her eyes widened with a potent mix of shock and dark excitement as my declaration hung heavy in the charged air.');
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete trims incomplete trailing fragment to a complete sentence', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: 'to me now. Her eyes widened with a potent mix of shock and dark excitement as my declaration hung heavy in the charged air before' } }] }),
+		text: async () => '',
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 2 }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent('You belong '),
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+			assert.equal(JSON.parse(res.body).text, 'to me now.');
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete trims over-generated text to configured sentence count', async () => {
+	const originalFetch = global.fetch;
+	let receivedBody = '';
+	global.fetch = async (_url, options = {}) => {
+		receivedBody = `${options.body || ''}`;
+		return {
+			ok: true,
+			json: async () => ({ choices: [{ message: { content: 'It should use the smallest practical response. Extra details should not be included. This sentence should be trimmed.' } }] }),
+			text: async () => '',
+		};
+	};
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent('Please be concise.'),
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+			assert.equal(JSON.parse(res.body).text, 'It should use the smallest practical response.');
+		});
+		assert.equal(JSON.parse(receivedBody).max_tokens, 32);
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete reports empty provider output', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: '' }, finish_reason: 'stop' }] }),
+		text: async () => '',
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent('This note has enough context for autocomplete.'),
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 200);
+			const payload = JSON.parse(res.body);
+			assert.equal(payload.text, '');
+			assert.equal(payload.emptyReason, 'provider-empty');
+			assert.equal(payload.rawChars, 0);
+			assert.equal(payload.finishReason, 'stop');
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete reports repeated existing text output', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: 'This note has enough context for autocomplete.' }, finish_reason: 'stop' }] }),
+		text: async () => '',
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const prompt = 'This note has enough context for autocomplete.';
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent(prompt),
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 200);
+			const payload = JSON.parse(res.body);
+			assert.equal(payload.text, '');
+			assert.equal(payload.emptyReason, 'provider-repeated-existing-text');
+			assert.equal(payload.rawChars, prompt.length);
+			assert.equal(payload.suffixTrimmedChars, 0);
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete collapses adjacent repeated phrases', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: 'Her moaning became so loud that it echoed through the room, causing me to fear causing me to fear that the rest of the family might hear us from downstairs.' } }] }),
+		text: async () => '',
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent('Her moaning became so loud that it echoed through the room,'),
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+			assert.equal(JSON.parse(res.body).text, 'causing me to fear that the rest of the family might hear us from downstairs.');
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete uses hash-bang note instructions as the role block only', async () => {
+	const originalFetch = global.fetch;
+	let receivedBody = '';
+	global.fetch = async (_url, options = {}) => {
+		receivedBody = `${options.body || ''}`;
+		return {
+			ok: true,
+			json: async () => ({ choices: [{ message: { content: 'and unusually quiet.' } }] }),
+			text: async () => '',
+		};
+	};
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const prompt = 'AWS\n#! technical document\nS3 bucket versioning';
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent(prompt),
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+		});
+		const payload = JSON.parse(receivedBody);
+		const systemMessages = payload.messages.filter(message => message.role === 'system').map(message => message.content);
+		const userMessage = payload.messages.find(message => message.role === 'user').content;
+		assert.equal(systemMessages.length, 2);
+		assert.equal(systemMessages[0], 'technical document');
+		assert.ok(systemMessages[1].includes('Write exactly 1 complete sentence total'));
+		assert.ok(systemMessages[1].includes('Do not repeat words or phrases back-to-back'));
+		assert.ok(userMessage.includes('S3 bucket versioning'));
+		assert.ok(!userMessage.includes('#!'));
+		assert.ok(!userMessage.includes('technical document'));
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete preserves multiple hash-bang lines in the role block', async () => {
+	const originalFetch = global.fetch;
+	let receivedBody = '';
+	global.fetch = async (_url, options = {}) => {
+		receivedBody = `${options.body || ''}`;
+		return {
+			ok: true,
+			json: async () => ({ choices: [{ message: { content: 'Use Amazon EFS for shared file storage across tasks.' } }] }),
+			text: async () => '',
+		};
+	};
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const prompt = 'AWS\n#! You are a writer of technical documentation.\n#! You specialize in AWS.\nAmazon EFS';
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent(prompt),
+				headers: {
+					Cookie: 'sessionId=test-session',
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+			});
+			assert.equal(res.statusCode, 200);
+		});
+		const payload = JSON.parse(receivedBody);
+		const systemMessages = payload.messages.filter(message => message.role === 'system').map(message => message.content);
+		const userMessage = payload.messages.find(message => message.role === 'user').content;
+		assert.equal(systemMessages[0], 'You are a writer of technical documentation.\nYou specialize in AWS.');
+		assert.ok(userMessage.includes('Amazon EFS'));
+		assert.ok(!userMessage.includes('#!'));
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/prose-complete strips Joplin attachment references from note body', async () => {
+	const originalFetch = global.fetch;
+	let receivedBody = '';
+	global.fetch = async (url, opts) => {
+		receivedBody = opts && opts.body ? opts.body : '';
+		return {
+			ok: true,
+			json: async () => ({ choices: [{ message: { content: 'three.' } }] }),
+		};
+	};
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini', proseAutocompleteSentenceCount: 1 }),
+			},
+		}, async port => {
+			const prompt = 'Here is my diagram.\n![diagram.png](:/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4)\nAnd here is a PDF.\n[report.pdf](:/deadbeefdeadbeefdeadbeefdeadbeef)\nThe data shows a trend.';
+			const res = await request(port, {
+				path: '/api/web/ai/prose-complete',
+				method: 'POST',
+				body: 'prompt=' + encodeURIComponent(prompt),
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 200);
+		});
+		const payload = JSON.parse(receivedBody);
+		const userMessage = payload.messages.find(m => m.role === 'user').content;
+		assert.ok(!userMessage.includes(':/a1b2c3d4'), 'image resource id should be stripped');
+		assert.ok(!userMessage.includes(':/deadbeef'), 'attachment resource id should be stripped');
+		assert.ok(!userMessage.includes('diagram.png'), 'image reference should be stripped');
+		assert.ok(!userMessage.includes('report.pdf'), 'attachment reference should be stripped');
+		assert.ok(userMessage.includes('Here is my diagram.'), 'surrounding text should be preserved');
+		assert.ok(userMessage.includes('The data shows a trend.'), 'surrounding text should be preserved');
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/test-profile returns ok when provider responds with three', async () => {
+	const originalFetch = global.fetch;
+	let receivedBody = '';
+	global.fetch = async (url, opts) => {
+		receivedBody = opts && opts.body ? opts.body : '';
+		return {
+			ok: true,
+			json: async () => ({ choices: [{ message: { content: 'three' } }] }),
+		};
+	};
+	try {
+		const { aiProfiles } = require('../app/settingsService').defaultAiProfiles ? { aiProfiles: require('../app/settingsService').defaultAiProfiles.map((p, i) => ({ ...p, apiKey: i === 0 ? 'sk-or-v1-test' : '', active: i === 0 })) } : { aiProfiles: null };
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({
+					openRouterApiKey: 'sk-or-v1-test',
+					openRouterModel: 'openai/gpt-4o-mini',
+					aiProfiles,
+				}),
+				saveSettings: async (_userId, settings) => settings,
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/test-profile',
+				method: 'POST',
+				body: 'profileId=openrouter',
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 200);
+		const data = JSON.parse(res.body);
+		assert.equal(data.ok, true);
+		assert.ok(data.response.toLowerCase().includes('three'));
+		assert.ok(typeof data.ms === 'number');
+	});
+	const payload = JSON.parse(receivedBody);
+	assert.equal(payload.max_tokens, 16);
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/test-profile returns ok=false when provider does not respond with three', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: 'banana' } }] }),
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({
+					openRouterApiKey: 'sk-or-v1-test',
+					openRouterModel: 'openai/gpt-4o-mini',
+				}),
+				saveSettings: async (_userId, settings) => settings,
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/test-profile',
+				method: 'POST',
+				body: 'profileId=openrouter',
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 200);
+			const data = JSON.parse(res.body);
+			assert.equal(data.ok, false);
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/test-profile returns provider error details', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: false,
+		status: 400,
+		text: async () => JSON.stringify({ error: { message: 'No endpoints found matching your data policy' } }),
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({
+					openRouterApiKey: 'sk-or-v1-test',
+					openRouterModel: 'openai/gpt-5.4-mini',
+				}),
+				saveSettings: async (_userId, settings) => settings,
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/test-profile',
+				method: 'POST',
+				body: 'profileId=openrouter',
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 200);
+			const data = JSON.parse(res.body);
+			assert.equal(data.ok, false);
+			assert.equal(data.providerStatus, 400);
+			assert.equal(data.response, 'No endpoints found matching your data policy');
+			assert.ok(data.providerError.includes('No endpoints found'));
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/test-profile returns 400 when no API key configured', async () => {
+	await withServer({
+		settingsService: {
+			settingsByUserId: async () => ({ openRouterApiKey: '', openRouterModel: 'openai/gpt-4o-mini' }),
+			saveSettings: async (_userId, settings) => settings,
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/api/web/ai/test-profile',
+			method: 'POST',
+			body: 'profileId=openrouter',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+		});
+		assert.equal(res.statusCode, 400);
 	});
 });
 

@@ -8,10 +8,9 @@ const {
 	passwordField,
 	stripMarkdownForTitle,
 } = require('./shared');
-
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20260519pwa1';
+const ASSET_VERSION = '20260519pwa22';
 
 const formatBytes = value => {
 	const bytes = Number(value || 0);
@@ -283,7 +282,10 @@ const layoutPage = (options = {}) => {
 		liveSearch:${settings.liveSearch ? 'true' : 'false'},
 		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'},
 		encryptionAutoLockMinutes:${JSON.stringify(settings.encryptionAutoLockMinutes || 5)},
-		uiMode:${JSON.stringify(settings.uiMode || 'auto')}
+		uiMode:${JSON.stringify(settings.uiMode || 'auto')},
+		proseAutocompleteSentenceCount:${JSON.stringify(settings.proseAutocompleteSentenceCount || 1)},
+		textExpanders:${JSON.stringify(Array.isArray(settings.textExpanders) ? settings.textExpanders : [])},
+		openRouterEnabled:${(Array.isArray(settings.aiProfiles) ? settings.aiProfiles.some(p => p.apiKey) : !!settings.openRouterApiKey) ? 'true' : 'false'}
 	};
 	</script>
 </body>

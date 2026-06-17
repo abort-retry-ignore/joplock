@@ -1,7 +1,5 @@
 const { Pool } = require('pg');
 
-const defaultSessionTtlMs = 12 * 60 * 60 * 1000;
-
 const createPoolFromEnv = env => {
 	return new Pool({
 		host: env.POSTGRES_HOST || '127.0.0.1',
@@ -10,12 +8,6 @@ const createPoolFromEnv = env => {
 		password: env.POSTGRES_PASSWORD || 'joplin',
 		database: env.POSTGRES_DATABASE || 'joplin',
 	});
-};
-
-const isSessionExpired = (createdTime, now = Date.now()) => {
-	const numericCreatedTime = Number(createdTime || 0);
-	if (!numericCreatedTime) return true;
-	return now - numericCreatedTime >= defaultSessionTtlMs;
 };
 
 const createSessionService = database => {
@@ -69,7 +61,6 @@ const createSessionService = database => {
 
 			const row = result.rows[0];
 			if (!row) return null;
-			if (isSessionExpired(row.session_created_time)) return null;
 			if (!Number(row.enabled)) return null;
 
 			return {
@@ -139,6 +130,4 @@ const createSessionService = database => {
 module.exports = {
 	createPoolFromEnv,
 	createSessionService,
-	defaultSessionTtlMs,
-	isSessionExpired,
 };

@@ -404,6 +404,25 @@ function noteCompletionSource(context) {
 		};
 	});
 }
+function getTextBeforeCursorPV(pv){
+	var sel=window.getSelection();
+	if(!sel||!sel.rangeCount||!pv||!pv.contains(sel.anchorNode))return'';
+	var range=sel.getRangeAt(0);
+	if(!range.collapsed)return'';
+	var node=range.startContainer;
+	var offset=range.startOffset;
+	var walker=document.createTreeWalker(pv,NodeFilter.SHOW_TEXT,null,false);
+	var text='';
+	while(walker.nextNode()){
+		var n=walker.currentNode;
+		if(n===node){
+			text+=(n.textContent||'').slice(0,offset);
+			break;
+		}
+		text+=(n.textContent||'');
+	}
+	return text;
+}
 function requestProseCompletion(prompt,force,profileId){
 	if(!force||!_openRouterEnabled)return Promise.resolve('');
 	console.info('[joplock] prose autocomplete request context',{promptChars:String(prompt||'').length});
@@ -425,9 +444,9 @@ function requestManualProseCompletion(opts){
 	var stateOverride=null;
 	var cmRangeOverride=null;
 	var profileId=opts.profileId||'';
-	if(pv){syncPV();var ta=getTA();prompt=ta?ta.value:''}
-	else if(cm&&isMarkdownVisible()){prompt=cm.state.doc.toString()}
-	else{var ta2=getTA();prompt=ta2?ta2.value:''}
+	if(pv){syncPV();prompt=getTextBeforeCursorPV(pv)}
+	else if(cm&&isMarkdownVisible()){prompt=cm.state.sliceDoc(0,cm.state.selection.main.head)}
+	else{var ta2=getTA();prompt=ta2?ta2.value.slice(0,ta2.selectionStart||ta2.value.length):''}
 	if(opts.state)stateOverride=opts.state;
 	if(opts.cmRange)cmRangeOverride=opts.cmRange;
 	if(!prompt||prompt.trim().length<20){console.info('[joplock] manual prose autocomplete skipped: prompt too short',{length:prompt?prompt.trim().length:0});return}
@@ -764,7 +783,7 @@ function applyActiveAutocompleteSelection(entry){
 		var cm=getCM();
 		var state=_activeRenderPopupState||{};
 		var text=(entry.text||entry.label||'').trim();
-		if(cm&&text){var from=typeof state.from==='number'?state.from:cm.state.selection.main.from;var to=typeof state.to==='number'?state.to:cm.state.selection.main.to;var atBottom=to>=cm.state.doc.length;cm.dispatch({changes:{from:from,to:to,insert:text},selection:{anchor:from+text.length}});cm.focus();if(atBottom)scrollMarkdownToBottom()}
+		if(cm&&text){var from=typeof state.from==='number'?state.from:cm.state.selection.main.from;var to=typeof state.to==='number'?state.to:cm.state.selection.main.to;var docLen=cm.state.doc.length;from=Math.min(Math.max(from,0),docLen);to=Math.min(Math.max(to,from),docLen);var atBottom=to>=docLen;try{cm.dispatch({changes:{from:from,to:to,insert:text},selection:{anchor:from+text.length}});cm.focus();if(atBottom)scrollMarkdownToBottom()}catch(err){console.error('[joplock] autocomplete dispatch failed',err);var cur=cm.state.selection.main;cm.dispatch({changes:{from:cur.from,to:cur.to,insert:text},selection:{anchor:cur.from+text.length}});cm.focus();scrollMarkdownToBottom()}}
 	}else{
 		replaceRenderQueryWithLink(entry.id,entry.title);
 	}

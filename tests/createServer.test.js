@@ -973,6 +973,9 @@ test('POST /login creates starter content for user with no real folders', async 
 			});
 			assert.equal(res.statusCode, 302);
 			assert.equal(res.headers.location, '/');
+			const setCookie = Array.isArray(res.headers['set-cookie']) ? res.headers['set-cookie'].join('; ') : res.headers['set-cookie'];
+			assert.ok(setCookie.includes('sessionId=fresh-session'));
+			assert.ok(!setCookie.includes('Max-Age=43200'));
 			assert.equal(folderCreates, 1);
 			assert.equal(noteCreates, 1);
 		});

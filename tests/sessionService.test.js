@@ -1,31 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createSessionService, isSessionExpired, defaultSessionTtlMs } = require('../app/auth/sessionService');
-
-// --- isSessionExpired ---
-
-test('isSessionExpired returns true for zero/null created time', () => {
-	assert.ok(isSessionExpired(0));
-	assert.ok(isSessionExpired(null));
-	assert.ok(isSessionExpired(undefined));
-});
-
-test('isSessionExpired returns false for recent session', () => {
-	assert.ok(!isSessionExpired(Date.now() - 1000));
-});
-
-test('isSessionExpired returns true for old session', () => {
-	assert.ok(isSessionExpired(Date.now() - defaultSessionTtlMs - 1));
-});
-
-test('isSessionExpired returns false at exact boundary', () => {
-	const now = Date.now();
-	assert.ok(!isSessionExpired(now - defaultSessionTtlMs + 1, now));
-});
-
-test('defaultSessionTtlMs is 12 hours', () => {
-	assert.equal(defaultSessionTtlMs, 12 * 60 * 60 * 1000);
-});
+const { createSessionService } = require('../app/auth/sessionService');
 
 // --- createSessionService ---
 
@@ -41,19 +16,21 @@ test('userBySessionId returns null when no row found', async () => {
 	assert.equal(await service.userBySessionId('nonexistent'), null);
 });
 
-test('userBySessionId returns null for expired session', async () => {
+test('userBySessionId accepts old sessions when Joplin still has the row', async () => {
 	const db = {
 		query: async () => ({
 			rows: [{
 				session_id: 's1', id: 'u1', email: 'a@b.com', full_name: 'A',
 				is_admin: 0, can_upload: 1, email_confirmed: 1, account_type: 0,
 				created_time: Date.now(), updated_time: Date.now(), enabled: 1,
-				session_created_time: Date.now() - defaultSessionTtlMs - 1000,
+				session_created_time: Date.now() - (30 * 24 * 60 * 60 * 1000),
 			}],
 		}),
 	};
 	const service = createSessionService(db);
-	assert.equal(await service.userBySessionId('s1'), null);
+	const user = await service.userBySessionId('s1');
+	assert.equal(user.id, 'u1');
+	assert.equal(user.sessionId, 's1');
 });
 
 test('userBySessionId returns null for disabled user', async () => {

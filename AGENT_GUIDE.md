@@ -310,6 +310,43 @@ These screens are shown/hidden by inline JS in `layoutPage()` using class change
 - `autoLogout`
 - `autoLogoutMinutes`
 - `encryptionAutoLockMinutes`
+- `aiProfiles`
+- `proseAutocompleteSentenceCount`
+- `textExpanders`
+
+### Expander / AI Autocomplete
+
+- Expander entries live in per-user `textExpanders` settings and are configured in Settings -> Expander.
+- Expander triggers are always on; there is no global autocomplete enable/disable toggle.
+- Trigger strings are normalized in `app/settingsService.js`, must be non-empty, deduplicated, and are capped at 15 characters.
+- Expander entry shape is `{ id, trigger, action, profileId, text }`.
+- `action: 'text'` replaces the trigger with `text`; empty text entries are discarded during normalization.
+- `action: 'ai'` removes the trigger and launches prose autocomplete. `profileId` selects an AI profile, or falls back to the active profile when blank.
+- AI autocomplete triggers are not configured in the AI tab. The AI tab owns provider profiles and sentence count; the Expander tab owns trigger strings.
+- Legacy manual suffix triggers (`double-q`, `triple-space`, `ellipsis`) and robot toggle UI were removed. Do not reintroduce `proseAutocompleteManualTrigger`, `proseAutocompleteManualTriggerOptions`, or `autocompleteEnabled`.
+- `Ctrl-Space` / `Mod-Space` remains a keyboard shortcut path for manual prose completion, separate from Expander suffix triggers.
+- Note-link autocomplete (`[[...`) remains separate from AI prose autocomplete.
+
+### AI Provider Profiles
+
+- AI provider profiles live in `aiProfiles` and are normalized in `app/settingsService.js`.
+- Profiles are user-defined; `defaultAiProfiles` is intentionally empty.
+- Each profile can specify provider, API URL/model, API key, temperature, and active state.
+- Legacy `openRouterApiKey` / `openRouterModel` are still migrated into an OpenRouter profile for backward compatibility.
+- `/api/web/ai/prose-complete` accepts optional `profileId` and falls back to the active profile or first keyed profile.
+- Autocomplete provider requests include `reasoning: { enabled: false }` in the chat completion payload.
+- Server-side completion post-processing strips repeated prompt prefixes/suffixes, collapses adjacent repeated phrases, limits sentence count, and reports empty-completion diagnostics with `emptyReason`.
+- Empty completion reasons are `provider-empty`, `provider-repeated-existing-text`, and `trimmed-no-complete-sentence`.
+
+### Expander Runtime Notes
+
+- Expander runtime is in `public/app.js` and supports both rendered preview mode and CodeMirror markdown mode.
+- Preview mode is contenteditable and can split typed triggers across text nodes, especially on iOS Safari. Prefer robust text-position/range logic over assuming the trigger is in one text node.
+- Text expansion in preview mode must sync the preview back to the hidden textarea via `syncPV()` after DOM changes.
+- CodeMirror expansion should inspect the current document suffix rather than relying only on raw DOM input events.
+- The input ring buffer is only for detecting Expander suffix triggers; keep per-keystroke logging minimal.
+- Client diagnostic logging goes through `POST /api/web/client-log`; it redacts sensitive fields matching text/body/content/password/key/secret/token.
+- If iPhone behavior differs from desktop, use Docker-visible client logs and remember stale service worker/cache can hide client JS changes.
 
 ### Adding a new setting
 

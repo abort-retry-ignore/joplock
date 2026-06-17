@@ -94,7 +94,7 @@ const handle = async (url, request, response, ctx) => {
 			response.writeHead(302, {
 				'Cache-Control': 'no-store',
 				'Set-Cookie': [
-					`sessionId=${pendingSession}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`,
+					`sessionId=${pendingSession}; Path=/; HttpOnly; SameSite=Lax`,
 					'pendingSession=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
 				],
 				Location: '/',
@@ -224,7 +224,7 @@ const handle = async (url, request, response, ctx) => {
 			response.writeHead(302, {
 				'Cache-Control': 'no-store',
 				'Set-Cookie': [
-					`sessionId=${session.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`,
+					`sessionId=${session.id}; Path=/; HttpOnly; SameSite=Lax`,
 					'pendingSession=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
 				],
 				Location: '/',

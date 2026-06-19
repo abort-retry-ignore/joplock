@@ -125,6 +125,7 @@ const defaultMocks = (overrides = {}) => ({
 		endSession: () => {},
 	},
 	rateLimitService: overrides.rateLimitService,
+	sessionCookieMaxAge: overrides.sessionCookieMaxAge || 31536000,
 	vaultService: overrides.vaultService || null,
 	database: overrides.database || { query: async () => ({ rows: [] }) },
 });
@@ -975,9 +976,49 @@ test('POST /login creates starter content for user with no real folders', async 
 			assert.equal(res.headers.location, '/');
 			const setCookie = Array.isArray(res.headers['set-cookie']) ? res.headers['set-cookie'].join('; ') : res.headers['set-cookie'];
 			assert.ok(setCookie.includes('sessionId=fresh-session'));
-			assert.ok(!setCookie.includes('Max-Age=43200'));
+			assert.ok(setCookie.includes('Max-Age=31536000'));
 			assert.equal(folderCreates, 1);
 			assert.equal(noteCreates, 1);
+		});
+	} finally {
+		await new Promise(resolve => upstream.close(resolve));
+	}
+});
+
+test('POST /login sets sessionId cookie with custom Max-Age when sessionCookieMaxAge is provided', async () => {
+	const upstream = http.createServer((req, res) => {
+		if (req.method === 'POST' && req.url === '/api/sessions') {
+			res.writeHead(200, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ id: 'fresh-session' }));
+			return;
+		}
+		res.writeHead(404, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'not found' }));
+	});
+	await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+	const upstreamPort = upstream.address().port;
+	try {
+		await withServer({
+			joplinServerOrigin: `http://127.0.0.1:${upstreamPort}`,
+			joplinServerPublicUrl: `http://127.0.0.1:${upstreamPort}`,
+			sessionCookieMaxAge: 86400,
+			sessionService: {
+				userBySessionId: async sessionId => {
+					if (sessionId === 'fresh-session') return { id: 'user-1', email: 'user@example.com', sessionId };
+					return null;
+				},
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/login',
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: 'email=user%40example.com&password=test',
+			});
+			assert.equal(res.statusCode, 302);
+			const setCookie = Array.isArray(res.headers['set-cookie']) ? res.headers['set-cookie'].join('; ') : res.headers['set-cookie'];
+			assert.ok(setCookie.includes('sessionId=fresh-session'));
+			assert.ok(setCookie.includes('Max-Age=86400'));
 		});
 	} finally {
 		await new Promise(resolve => upstream.close(resolve));

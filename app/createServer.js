@@ -44,6 +44,7 @@ const createServer = options => {
 		backupService = null,
 		recoveryService = null,
 		rateLimitService = createRateLimitService(),
+		sessionCookieMaxAge = 31536000,
 		debug = false,
 	} = options;
 
@@ -291,6 +292,7 @@ Code block example
 			configuredPublicUrl,
 			ignoreAdminMfa,
 			adminEmail,
+			sessionCookieMaxAge,
 			debug,
 		};
 

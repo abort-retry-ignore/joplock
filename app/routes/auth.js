@@ -9,7 +9,7 @@ const templates = require('../templates');
 const handle = async (url, request, response, ctx) => {
 	const { sendHtml, sessionService, settingsService, itemWriteService, upstreamRequestContext,
 		joplinServerOrigin, configuredPublicUrl, ignoreAdminMfa, adminEmail,
-		ensureStarterContent, debug, rateLimitService } = ctx;
+		ensureStarterContent, debug, rateLimitService, sessionCookieMaxAge } = ctx;
 
 	const clientIp = rateLimitService.clientIpFromRequest(request);
 
@@ -94,7 +94,7 @@ const handle = async (url, request, response, ctx) => {
 			response.writeHead(302, {
 				'Cache-Control': 'no-store',
 				'Set-Cookie': [
-					`sessionId=${pendingSession}; Path=/; HttpOnly; SameSite=Lax`,
+					`sessionId=${pendingSession}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionCookieMaxAge}`,
 					'pendingSession=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
 				],
 				Location: '/',
@@ -224,7 +224,7 @@ const handle = async (url, request, response, ctx) => {
 			response.writeHead(302, {
 				'Cache-Control': 'no-store',
 				'Set-Cookie': [
-					`sessionId=${session.id}; Path=/; HttpOnly; SameSite=Lax`,
+					`sessionId=${session.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionCookieMaxAge}`,
 					'pendingSession=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
 				],
 				Location: '/',

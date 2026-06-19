@@ -30,6 +30,7 @@ const recoveryPassword = normalizeEnvValue(process.env.JOPLOCK_RECOVERY_PASSWORD
 const recoverySessionTtlMinutes = Number(process.env.JOPLOCK_RECOVERY_SESSION_TTL_MINUTES || '30');
 const backupCompression = process.env.JOPLOCK_BACKUP_COMPRESSION || 'zstd:19';
 const backupCompressionLevel = Number(process.env.JOPLOCK_BACKUP_COMPRESSION_LEVEL || '9');
+const sessionCookieMaxAge = Number(process.env.JOPLOCK_SESSION_COOKIE_MAX_AGE_SECONDS || '31536000');
 const loginRateLimitService = createRateLimitService();
 
 const databasePool = createPoolFromEnv(process.env);
@@ -99,6 +100,7 @@ const server = createServer({
 	backupService,
 	recoveryService,
 	rateLimitService: loginRateLimitService,
+	sessionCookieMaxAge,
 	debug: process.env.DEBUG === 'true' || process.env.DEBUG === '1',
 });
 

@@ -414,6 +414,11 @@ const handle = async (url, request, response, ctx) => {
 				return true;
 			}
 			if (!forceSave && baseUpdatedTime && Number(existing.updatedTime || 0) !== baseUpdatedTime) {
+				// Set a header so the client can distinguish a conflict from a real save success.
+				// The HTTP status stays 200 to keep htmx's swap into #autosave-status working
+				// (so the Overwrite / Create-copy buttons land in the DOM).
+				response.setHeader('X-Note-Conflict', '1');
+				response.setHeader('X-Note-Updated-Time', String(existing.updatedTime || 0));
 				sendHtml(response, 200, templates.autosaveConflictFragment(noteId));
 				return true;
 			}

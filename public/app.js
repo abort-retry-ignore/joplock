@@ -1524,8 +1524,12 @@ function showNoteOverlay(){var o=document.getElementById('note-loading-overlay')
 function hideNoteOverlay(){var o=document.getElementById('note-loading-overlay');if(o)o.classList.remove('active')}
 document.body.addEventListener('click',function(e){var btn=e.target.closest('.notelist-item');if(btn&&!e.defaultPrevented)showNoteOverlay()},true);
 document.body.addEventListener('htmx:beforeRequest',function(e){var elt=e.detail&&e.detail.elt;_log('htmx:beforeRequest',elt&&elt.id,elt&&elt.getAttribute&&elt.getAttribute('hx-get'),elt&&elt.getAttribute&&elt.getAttribute('hx-put'));});
-document.body.addEventListener('htmx:afterRequest',function(e){var xhr=e.detail&&e.detail.xhr;_log('htmx:afterRequest',e.detail&&e.detail.successful,xhr&&xhr.status,xhr&&typeof xhr.responseText==='string'?xhr.responseText.slice(0,120):'');var elt=e.detail&&e.detail.elt;if(e.detail&&e.detail.successful){invalidateNotesCache()}if(elt&&elt.classList&&elt.classList.contains('notelist-item')&&!e.detail.successful)hideNoteOverlay();if(elt&&elt.id==='note-editor-form'&&e.detail.successful){snapshotHash();pushSnapshot();setSaveState('<span class="autosave-ok">Saved</span>','Saved');_log('afterRequest snapshotHash after save')}if(e.detail&&e.detail.successful&&document.body.classList.contains('is-offline')){clearOffline()}});
-document.body.addEventListener('htmx:afterSwap',function(e){var target=e.detail&&e.detail.target;_log('htmx:afterSwap',target&&target.id);if(target&&target.id==='editor-panel'){hideNoteOverlay();if(_cmView){_cmView.destroy();_cmView=null}_searchMarks=[];_searchMarkIdx=0}});
+document.body.addEventListener('htmx:afterRequest',function(e){var xhr=e.detail&&e.detail.xhr;_log('htmx:afterRequest',e.detail&&e.detail.successful,xhr&&xhr.status,xhr&&typeof xhr.responseText==='string'?xhr.responseText.slice(0,120):'');var elt=e.detail&&e.detail.elt;if(e.detail&&e.detail.successful){invalidateNotesCache()}if(elt&&elt.classList&&elt.classList.contains('notelist-item')&&!e.detail.successful)hideNoteOverlay();if(elt&&elt.id==='note-editor-form'&&e.detail.successful){var conflict=xhr&&xhr.getResponseHeader&&xhr.getResponseHeader('X-Note-Conflict')==='1';if(conflict){// Server rejected the save because the row moved underneath us. Do NOT
+// snapshotHash (edits are still pending), do NOT overwrite the conflict UI
+// that just got swapped into #autosave-status, and surface the prominent
+// banner so the user can't miss it.
+_log('afterRequest detected save conflict');showRemoteUpdateBanner('changed')}else{snapshotHash();pushSnapshot();setSaveState('<span class="autosave-ok">Saved</span>','Saved');dismissRemoteUpdateBanner();_log('afterRequest snapshotHash after save')}}if(e.detail&&e.detail.successful&&document.body.classList.contains('is-offline')){clearOffline()}});
+document.body.addEventListener('htmx:afterSwap',function(e){var target=e.detail&&e.detail.target;_log('htmx:afterSwap',target&&target.id);if(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body')){hideNoteOverlay();dismissRemoteUpdateBanner();if(_cmView){_cmView.destroy();_cmView=null}_searchMarks=[];_searchMarkIdx=0}});
 function showOffline(){setSaveState('<span class="autosave-offline">Offline</span>','Offline');document.body.classList.add('is-offline');_log('offline indicator shown');showDisconnected()}
 function clearOffline(){document.body.classList.remove('is-offline');_log('offline indicator cleared')}
 document.body.addEventListener('htmx:sendError',function(e){var elt=e.detail&&e.detail.elt;_log('htmx:sendError',elt&&elt.id);if(elt&&elt.id==='note-editor-form')showOffline()});
@@ -1634,8 +1638,39 @@ function _dcOnFetchOk(){
 
 window.addEventListener('online',function(){_log('browser online event');if(_dcVisible){_dcPing().then(function(ok){if(ok)clearDisconnected()}).catch(function(){})}if(document.body.classList.contains('is-offline')){var s=document.getElementById('autosave-status');var dirty=s&&s.querySelector('.autosave-edited');if(dirty){scheduleSave()}else if(s){setSaveState('<span class="autosave-ok">Reconnected</span>','Saved')}clearOffline()}});
 window.addEventListener('offline',function(){_log('browser offline event');showDisconnected()});
-// Always-on connectivity ping (every 30s) — triggers disconnected overlay on failure
-(function(){var _cpMs=30000;function _connectivityPing(){_dcPing().then(function(ok){if(ok)_dcOnFetchOk();else _dcOnFetchFail()}).catch(function(){_dcOnFetchFail()})}var _cpInterval=setInterval(_connectivityPing,_cpMs);_connectivityPing()})();
+// --- Cross-browser note sync (passive freshness probe) ---
+// On each connectivity-ping tick (and on tab-visible), ask the server for the
+// current note's updatedTime. If it advanced past our baseUpdatedTime, the
+// note was edited in another browser/device. When the editor is clean, we
+// silently swap in the fresh fragment. When dirty, we surface a banner so the
+// user can choose to discard their edits or keep them (the existing Conflict
+// flow then handles the save).
+var _noteFreshnessBusy=false;
+function _activeEditorNoteId(){var form=activeEditorForm();if(!form)return '';var hx=form.getAttribute('hx-put')||'';var m=hx.match(/\/fragments\/editor\/([0-9a-zA-Z]{32})/);return m?m[1]:''}
+function _activeEditorCurrentFolderId(){var form=activeEditorForm();if(!form)return '';var el=form.querySelector('[name="currentFolderId"]');return el?el.value:''}
+function _activeEditorBaseUpdatedTime(){var form=activeEditorForm();if(!form)return 0;var el=form.querySelector('[name="baseUpdatedTime"]');return el?Number(el.value||0):0}
+// Dirty = there are user edits that differ from what we last saved/loaded.
+// Don't trust the transient autosave-status text (which flips to "Saved" after
+// each successful autosave even if the server has since moved past us). Use
+// the durable signals instead:
+//   - _previewDirty / _pvSyncTimer: preview-mode edits not yet flushed to textarea
+//   - title contenteditable: text differs from hidden input
+//   - formHash != _savedHash: textarea/folder/title fields differ from last save
+function _activeEditorIsDirty(){var form=activeEditorForm();if(!form)return false;if(_previewDirty)return true;if(typeof _pvSyncTimer!=='undefined'&&_pvSyncTimer)return true;var ti=form.querySelector('.editor-title');var hi=form.querySelector('.editor-title-hidden');if(ti&&hi){var raw=ti.textContent||'';if(typeof stripMdForTitle==='function'){if(stripMdForTitle(raw)!==(hi.value||''))return true}else if(raw!==(hi.value||''))return true}return formHash(form)!==_savedHash}
+function dismissRemoteUpdateBanner(){var bar=document.getElementById('remote-update-bar');if(bar)bar.hidden=true}
+function showRemoteUpdateBanner(kind){var bar=document.getElementById('remote-update-bar');if(!bar)return;var text=document.getElementById('remote-update-text');var useBtn=document.getElementById('remote-update-use-server-btn');var owBtn=document.getElementById('remote-update-overwrite-btn');if(kind==='deleted'){if(text)text.textContent='This note was deleted in another window.';if(useBtn)useBtn.hidden=true;if(owBtn)owBtn.hidden=true}else{if(text)text.textContent='A newer version of this note exists on the server.';if(useBtn)useBtn.hidden=false;if(owBtn)owBtn.hidden=false}bar.hidden=false}
+function reloadCurrentNoteFromServer(){var noteId=_activeEditorNoteId();if(!noteId)return;var folderId=_activeEditorCurrentFolderId();var targetSel=inMobileEditor()?'#mobile-editor-body':'#editor-panel';var target=document.querySelector(targetSel);if(!target)return;dismissRemoteUpdateBanner();var url='/fragments/editor/'+encodeURIComponent(noteId)+(folderId?'?currentFolderId='+encodeURIComponent(folderId):'');_log('reloadCurrentNoteFromServer',url);htmx.ajax('GET',url,{target:targetSel,swap:'innerHTML'}).catch(function(){})}
+function overwriteWithLocalEdits(){var form=activeEditorForm();if(!form)return;dismissRemoteUpdateBanner();// Sync preview/CM into the textarea so the body in the form is current
+var pv=getPV();if(pv)syncPV();else cmSyncToTA();syncTitleToHidden({silent:true});// Set forceSave=1 so the server skips the optimistic-concurrency guard
+var fs=form.querySelector('[name="forceSave"]');if(fs)fs.value='1';setSaveState('<span class="autosave-saving">Saving...</span>','Saving...');_log('overwriteWithLocalEdits forcing save');htmx.trigger(form,'joplock:save')}
+function checkNoteFreshness(){if(_noteFreshnessBusy)return;var noteId=_activeEditorNoteId();if(!noteId)return;if(document.hidden)return;if(_anyModalOpen())return;var form=activeEditorForm();if(!form||form.dataset.encrypted==='1')return;// Skip while a vault note is locked or unlock UI is showing
+if(form.dataset.unlocking==='1')return;var base=_activeEditorBaseUpdatedTime();if(!base)return;// Editor doesn't have a baseline yet (fresh new note); nothing to compare
+_noteFreshnessBusy=true;fetch('/api/web/notes/'+encodeURIComponent(noteId)+'/freshness',{credentials:'same-origin',cache:'no-store'}).then(function(r){if(r.status===404){showRemoteUpdateBanner('deleted');return null}if(!r.ok)return null;return r.json()}).then(function(data){if(!data)return;if(_activeEditorNoteId()!==noteId)return;var remote=Number(data.updatedTime||0);if(!remote||remote<=base)return;// Remote advanced past our baseline
+if(data.deletedTime&&data.deletedTime>0){showRemoteUpdateBanner('deleted');return}if(_activeEditorIsDirty()){showRemoteUpdateBanner('changed');return}// Clean editor: silently reload from server
+reloadCurrentNoteFromServer()}).catch(function(){}).then(function(){_noteFreshnessBusy=false})}
+// Always-on connectivity ping (every 30s) — triggers disconnected overlay on failure and probes note freshness
+(function(){var _cpMs=30000;function _connectivityPing(){_dcPing().then(function(ok){if(ok){_dcOnFetchOk();checkNoteFreshness()}else _dcOnFetchFail()}).catch(function(){_dcOnFetchFail()})}var _cpInterval=setInterval(_connectivityPing,_cpMs);_connectivityPing()})();
+document.addEventListener('visibilitychange',function(){if(!document.hidden)checkNoteFreshness()});
 window.addEventListener('load',function(){if(isMobileShellMode())return;initNavPanel();initEditorPanel()});
 window.addEventListener('resize',applyMobileTitleMode);
 document.addEventListener('keydown',function(e){var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoSnapshot()}});
@@ -3078,6 +3113,9 @@ window.handleDrop=handleDrop;
 window.undoSnapshot=undoSnapshot;
 window.searchNavStep=searchNavStep;
 window.searchNavDismiss=searchNavDismiss;
+window.dismissRemoteUpdateBanner=dismissRemoteUpdateBanner;
+window.reloadCurrentNoteFromServer=reloadCurrentNoteFromServer;
+window.overwriteWithLocalEdits=overwriteWithLocalEdits;
 window.syncPV=syncPV;
 window.getPV=getPV;
 window.setTheme=setTheme;

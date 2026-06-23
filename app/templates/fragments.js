@@ -364,6 +364,12 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 			<button type="button" class="search-nav-btn" title="Next match" onclick="searchNavStep(1)">&#8595;</button>
 			<button type="button" class="search-nav-btn search-nav-close" title="Dismiss" onclick="searchNavDismiss()">&#10005;</button>
 		</div>
+		<div class="search-nav-bar remote-update-bar" id="remote-update-bar" hidden>
+			<span class="remote-update-text" id="remote-update-text">A newer version of this note exists on the server.</span>
+			<button type="button" class="search-nav-btn" id="remote-update-use-server-btn" onclick="reloadCurrentNoteFromServer()" title="Discard your edits and load the server version">Use server version</button>
+			<button type="button" class="search-nav-btn" id="remote-update-overwrite-btn" onclick="overwriteWithLocalEdits()" title="Save your version, replacing the server version">Overwrite with mine</button>
+			<button type="button" class="search-nav-btn search-nav-close" title="Dismiss" onclick="dismissRemoteUpdateBanner()">&#10005;</button>
+		</div>
 		${lockedView}
 		<textarea name="body" class="editor-body" id="note-body"${bodyDisplay}>${escapeHtml(note.body || '')}</textarea>
 		<div class="cm-host" id="cm-host"${cmDisplay}

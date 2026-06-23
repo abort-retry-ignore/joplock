@@ -328,6 +328,26 @@ const handle = async (url, request, response, ctx) => {
 		return true;
 	}
 
+	// GET /api/web/notes/:id/freshness — cheap probe used by cross-browser
+	// sync polling. Returns {updatedTime, deletedTime} or 404 if the note no
+	// longer exists. Uses isHeartbeat:true so polling does not reset the
+	// session activity timer.
+	{
+		const freshnessMatch = url.pathname.match(/^\/api\/web\/notes\/([0-9a-zA-Z]{32})\/freshness$/);
+		if (freshnessMatch && request.method === 'GET') {
+			try {
+				const auth = await authenticatedUser(request, { isHeartbeat: true });
+				if (auth.error) { sendJson(response, 401, { error: auth.error }); return true; }
+				const freshness = await itemService.noteFreshnessByUserIdAndJopId(auth.user.id, freshnessMatch[1]);
+				if (!freshness) { sendJson(response, 404, { error: 'Not found' }); return true; }
+				sendJson(response, 200, freshness);
+			} catch (error) {
+				sendJson(response, 500, { error: error.message || `${error}` });
+			}
+			return true;
+		}
+	}
+
 	// POST /api/web/ai/prose-complete
 	if (url.pathname === '/api/web/ai/prose-complete' && request.method === 'POST') {
 		try {

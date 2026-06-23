@@ -3056,6 +3056,9 @@ mark.search-highlight {
 }
 .search-nav-btn:hover { border-color: #333; background: rgba(0,0,0,0.08); }
 .search-nav-close { margin-left: auto; }
+/* Remote-update bar reuses .search-nav-bar layout; this rule lets the message
+   take the remaining space so the action buttons pack to the right. */
+.remote-update-bar .remote-update-text { flex: 1; }
 mark.search-highlight-active {
 	background: #ff9800;
 	color: #111;

@@ -273,6 +273,26 @@ const createItemService = database => {
 			return mapNoteRow(row);
 		},
 
+		// Cheap freshness probe for cross-browser sync polling. Returns
+		// { updatedTime, deletedTime } without decoding the note body, or null if
+		// no row exists (which usually means hard-deleted).
+		async noteFreshnessByUserIdAndJopId(userId, noteId) {
+			const result = await database.query(`
+				SELECT jop_updated_time,
+					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time
+				FROM items
+				WHERE owner_id = $1 AND jop_type = $2 AND jop_id = $3
+				LIMIT 1
+			`, [userId, MODEL_TYPE_NOTE, noteId]);
+
+			const row = result.rows[0];
+			if (!row) return null;
+			return {
+				updatedTime: Number(row.jop_updated_time || 0),
+				deletedTime: Number(row.deleted_time || 0),
+			};
+		},
+
 		// Returns the binary content of a resource blob (.resource/<id>)
 		async resourceBlobByUserId(userId, resourceId) {
 			const blobName = `.resource/${resourceId}`;

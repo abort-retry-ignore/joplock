@@ -65,7 +65,7 @@ async function setNoteTitle(page, title) {
 }
 
 async function createNotebook(page, title) {
-	await page.getByRole('button', { name: '+ Notebook' }).click();
+	await page.locator('button[title="New notebook"]').click();
 	await expect(page.locator('#new-folder-modal')).toBeVisible();
 	await page.locator('#new-folder-title').fill(title);
 	await page.locator('#new-folder-modal-form').evaluate(form => form.requestSubmit());

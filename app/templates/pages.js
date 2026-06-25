@@ -280,6 +280,7 @@ const layoutPage = (options = {}) => {
 		dateFormat:${JSON.stringify(String(settings.dateFormat || 'MMM-DD-YY'))},
 		datetimeFormat:${JSON.stringify(String(settings.datetimeFormat || 'YYYY-MM-DD HH:mm'))},
 		liveSearch:${settings.liveSearch ? 'true' : 'false'},
+		highlightActiveLine:${settings.highlightActiveLine !== false ? 'true' : 'false'},
 		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'},
 		encryptionAutoLockMinutes:${JSON.stringify(settings.encryptionAutoLockMinutes || 5)},
 		uiMode:${JSON.stringify(settings.uiMode || 'auto')},

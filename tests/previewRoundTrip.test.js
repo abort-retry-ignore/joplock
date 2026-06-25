@@ -25,7 +25,7 @@ const previewRoundTrip = markdown => {
 		bulletListMarker: '-',
 		emDelimiter: '*',
 		strongDelimiter: '**',
-		br: '<br>',
+		br: '',
 	});
 	td.addRule('joplinImg', {
 		filter: node => node.nodeName === 'IMG',
@@ -148,7 +148,7 @@ const previewHtmlRoundTrip = html => {
 		bulletListMarker: '-',
 		emDelimiter: '*',
 		strongDelimiter: '**',
-		br: '<br>',
+		br: '',
 	});
 	td.addRule('joplinImg', {
 		filter: node => node.nodeName === 'IMG',
@@ -208,7 +208,7 @@ const previewRoundTripWithCopyButtons = markdown => {
 		bulletListMarker: '-',
 		emDelimiter: '*',
 		strongDelimiter: '**',
-		br: '<br>',
+		br: '',
 	});
 	let root = dom.window.document.getElementById('root').cloneNode(true);
 	root.querySelectorAll('.pre-copy-btn').forEach(btn => btn.remove());
@@ -329,6 +329,75 @@ test('preview round-trip preserves strikethrough', () => {
 
 test('preview round-trip preserves underline', () => {
 	assert.equal(previewRoundTrip('++underlined++'), '++underlined++');
+});
+
+test('preview round-trip preserves soft-break lines within a paragraph', () => {
+	// Single \n between lines = soft break. The renderer emits <br> for each.
+	// Turndown must convert <br> back to \n, not \n\n (which would create separate
+	// paragraphs in the markdown editor and look "double spaced").
+	const md = 'Line one\nLine two\nLine three';
+	assert.equal(previewRoundTrip(md), md);
+});
+
+test('preview round-trip preserves soft-break lines across multiple paragraphs', () => {
+	// Mirrors the real "New Note 1" note shape: paragraphs with soft breaks
+	// and a trailing list. (Heading blank-line normalisation is tested separately.)
+	const md = 'First line.\nSecond line.\nThird line.\n\nNew paragraph.\nAnother line.\n\n- item 1\n- item 2';
+	assert.equal(previewRoundTrip(md), md);
+});
+
+test('preview round-trip is stable after simulated render-mode text edit', () => {
+	// Verifies that adding text to an existing line does not change line spacing.
+	// The original note has soft-break lines; after one round-trip the result must
+	// equal the (modified) source so that a second round-trip produces no further change.
+	const before = 'Line one\nLine two\nLine three\n\nParagraph two.';
+	const after  = 'Line one extra text added\nLine two\nLine three\n\nParagraph two.';
+	assert.equal(previewRoundTrip(after), after);
+	// Also confirm the unmodified source round-trips cleanly.
+	assert.equal(previewRoundTrip(before), before);
+});
+
+test('preview round-trip does not add blank line after trailing code block', () => {
+	// ensureEditableAfterPre injects <p data-pv-trail><br></p> after the last
+	// <pre> in the DOM to give contenteditable a cursor target. htmlToMarkdown
+	// must strip those injected nodes before Turndown runs so they don't become
+	// extra blank lines in the saved markdown.
+	const { JSDOM } = require('jsdom');
+	const md = 'Some text.\n\n```js\nconst x = 1;\n```';
+	const html = renderMarkdown(md);
+	const dom = new JSDOM(`<div id="root">${html}</div>`);
+	const pv = dom.window.document.getElementById('root');
+
+	// Simulate ensureEditableAfterPre: inject a pv-trail paragraph after the trailing <pre>.
+	const pres = pv.querySelectorAll('pre');
+	pres.forEach(pre => {
+		if (!pre.nextElementSibling) {
+			const p = dom.window.document.createElement('p');
+			p.innerHTML = '<br>';
+			p.dataset.pvTrail = '1';
+			pv.appendChild(p);
+		}
+	});
+
+	// Run previewRoundTrip on the modified DOM's innerHTML.
+	const TurndownService = require('../vendor/turndown-lib/turndown.cjs.js');
+	const td = new TurndownService({ headingStyle: 'atx', hr: '---', codeBlockStyle: 'fenced', bulletListMarker: '-', emDelimiter: '*', strongDelimiter: '**', br: '' });
+	td.addRule('blankLine', { filter: n => n.nodeName === 'DIV' && n.classList.contains('md-blank-line') && !n.querySelector('img,a,pre,code,ul,ol,blockquote,table') && !n.textContent.trim(), replacement: () => '\x00BL\x00' });
+	td.addRule('emptyDiv', { filter: n => n.nodeName === 'DIV' && !n.classList.length && !n.querySelector('img,a,pre,code,ul,ol,blockquote,table') && (!n.textContent.trim() || n.innerHTML === '<br>'), replacement: () => '\x00BL\x00' });
+	td.addRule('emptyP', { filter: n => n.nodeName === 'P' && !n.querySelector('img') && (!n.textContent.trim() || n.innerHTML === '<br>'), replacement: () => '\x00BL\x00' });
+	const root = pv.cloneNode(true);
+	// Apply the data-pv-trail filter (mirrors htmlToMarkdown in app.js).
+	root.querySelectorAll('p[data-pv-trail]').forEach(p => p.remove());
+	const nl = '\n';
+	let result = td.turndown(root.innerHTML);
+	const headingGapRe = new RegExp(`^(#{1,6}[^${nl}]*)${nl}{2,}(?=\\S)`, 'gm');
+	result = result.replace(headingGapRe, `$1${nl}`);
+	result = result.replace(/\n*(?:\x00BL\x00\n*)+/g, m => {
+		const count = (m.match(/\x00BL\x00/g) || []).length;
+		return `${nl}${nl}${nl.repeat(count)}`;
+	});
+	assert.equal(result.trimEnd(), md.trimEnd(),
+		'trailing code block should not gain an extra blank line from injected pv-trail node');
 });
 
 test('logged in layout includes htmlToMarkdown normalization for preview save', () => {

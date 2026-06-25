@@ -1211,7 +1211,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	color: var(--text);
 	outline: none;
 }
-.editor-preview p { margin: 0.2em 0; }
+.editor-preview p { margin: 0.75em 0; }
 .editor-preview p:first-child { margin-top: 0; }
 .editor-preview .md-blank-line { height: 1em; }
 /* Match browser-inserted blank paragraphs to the canonical md-blank-line
@@ -2235,11 +2235,13 @@ select.login-input option {
 	.editor-toolbar::-webkit-scrollbar { height: 3px; }
 	.editor-toolbar .tb { min-width: 46px; height: 46px; padding: 0 12px; font-size: 18px; border-radius: 10px; flex: 0 0 auto; }
 	.editor-toolbar .tb-div { margin: 0 5px; height: 24px; flex: 0 0 auto; }
-	.cm-host .cm-content,
+	.cm-host .cm-content {
+		padding: 10px 12px;
+	}
 	.editor-preview {
 		padding: 10px 12px;
-		font-size: 14px;
-		line-height: 1.55;
+		font-size: var(--font-size-note-mobile, var(--font-size-note));
+		line-height: 1.7;
 	}
 	.editor-preview h1 { font-size: 1.45em; }
 	.editor-preview h2 { font-size: 1.28em; }

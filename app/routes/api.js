@@ -225,7 +225,7 @@ const handle = async (url, request, response, ctx) => {
 			const body = await parseBody(request);
 			const current = await settingsService.settingsByUserId(auth.user.id);
 			const updates = {};
-			const allowedKeys = ['theme', 'noteFontSize', 'mobileNoteFontSize', 'codeFontSize', 'noteMonospace', 'noteOpenMode', 'resumeLastNote', 'dateFormat', 'datetimeFormat', 'liveSearch', 'confirmTrash', 'encryptionAutoLockMinutes', 'uiMode', 'proseAutocompleteSentenceCount', 'openRouterApiKey', 'openRouterModel', 'aiProfiles', 'textExpanders'];
+			const allowedKeys = ['theme', 'noteFontSize', 'mobileNoteFontSize', 'codeFontSize', 'noteMonospace', 'noteOpenMode', 'resumeLastNote', 'dateFormat', 'datetimeFormat', 'liveSearch', 'highlightActiveLine', 'confirmTrash', 'encryptionAutoLockMinutes', 'uiMode', 'proseAutocompleteSentenceCount', 'openRouterApiKey', 'openRouterModel', 'aiProfiles', 'textExpanders'];
 			for (const key of allowedKeys) {
 				if (body[key] !== undefined) updates[key] = body[key];
 			}

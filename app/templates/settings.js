@@ -203,6 +203,10 @@ const settingsPage = (options = {}) => {
 							<span>Note body font</span>
 							<label><input type="checkbox" id="settings-note-monospace" onchange="saveSetting('noteMonospace',this.checked?'1':'0')"${settings.noteMonospace ? ' checked' : ''} /> Use monospace for note text</label>
 						</label>
+						<label class="settings-field settings-checkbox">
+							<span>Markdown editor</span>
+							<label><input type="checkbox" id="settings-highlight-active-line" onchange="saveSetting('highlightActiveLine',this.checked?'1':'0')"${settings.highlightActiveLine !== false ? ' checked' : ''} /> Highlight current line in editor</label>
+						</label>
 						<label class="settings-field">
 							<span>Open notes in</span>
 							<select id="settings-note-open-mode" class="login-input" onchange="saveSetting('noteOpenMode',this.value)">

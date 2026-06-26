@@ -1015,8 +1015,9 @@ function initCM(host,content){
 					C.keymap.of([{key:'Mod-Space',run:function(){requestManualProseCompletion();return true}},{key:'Ctrl-Space',run:function(){requestManualProseCompletion();return true}},...C.defaultKeymap,...C.historyKeymap,...C.searchKeymap.filter(function(b){var k=b.key||'';return k!=='Mod-f'&&k!=='F3'&&k!=='Mod-g'}),C.indentWithTab]),
 					C.placeholder('Start writing...'),
 			C.autocompletion({ override: [manualProseCompletionSource,noteCompletionSource] }),
-				onUpdate,
-				C.EditorView.lineWrapping
+			onUpdate,
+			C.EditorView.lineWrapping,
+			C.EditorView.domEventHandlers({click:function(e,view){if(!e.ctrlKey&&!e.metaKey)return false;var pos=view.posAtCoords({x:e.clientX,y:e.clientY});if(pos==null)return false;var line=view.state.doc.lineAt(pos);var text=line.text;var offset=pos-line.from;var m;var linkRe=/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;while((m=linkRe.exec(text))!==null){if(offset>=m.index&&offset<=m.index+m[0].length){window.open(m[2],'_blank','noopener');return true;}}var urlRe=/https?:\/\/[^\s)>\]]+/g;while((m=urlRe.exec(text))!==null){if(offset>=m.index&&offset<=m.index+m[0].length){window.open(m[0],'_blank','noopener');return true;}}return false;}})
 		]
 		}),
 		parent:host

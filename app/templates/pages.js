@@ -94,8 +94,7 @@ const layoutPage = (options = {}) => {
 	${appleSplashLinks}
 	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<script src="/htmx.min.js"></script>
-	<script src="/turndown.min.js"></script>
-	<script src="/codemirror.min.js"></script>
+	<script src="/tinymce/tinymce.min.js"></script>
 	<script src="/hljs.min.js"></script>
 	<script>window.joplockStripNoteTitle=${stripMarkdownForTitle.toString()};</script>
 	<script src="/app.js?v=${ASSET_VERSION}" defer></script>

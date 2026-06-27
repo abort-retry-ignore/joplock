@@ -27,7 +27,8 @@
 		"html-entities": "1.4.0",
 		"markdown-it": "^14.1.1",
 		"pg": "8.16.3",
-		"qr-image": "^3.2.0"
+		"qr-image": "^3.2.0",
+		"tinymce": "^8.6.0"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.59.1",

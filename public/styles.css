@@ -1213,19 +1213,17 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 }
 .editor-preview p { margin: 0.75em 0; }
 .editor-preview p:first-child { margin-top: 0; }
-.editor-preview .md-blank-line { height: 1em; }
+.editor-preview .md-blank-line { margin: 0.75em 0; }
+.editor-preview .md-blank-line br { line-height: 0; font-size: 0; display: block; }
 /* Match browser-inserted blank paragraphs to the canonical md-blank-line
-   height so contenteditable rendering doesn't drift from /fragments/preview
-   output. Without this, hitting Enter in rendered mode creates <p><br></p>
-   or <div><br></div> at full line-height (~25px), while the same source
-   re-rendered from markdown produces md-blank-line divs at 1em (~15px). */
+   spacing. Without this, hitting Enter in rendered mode creates <p><br></p>
+   or <div><br></div> at full line-height, while the same source re-rendered
+   from markdown produces md-blank-line divs at paragraph-margin scale. */
 .editor-preview p:empty,
 .editor-preview p:has(> br:only-child),
 .editor-preview div:not([class]):empty,
 .editor-preview div:not([class]):has(> br:only-child) {
-	height: 1em;
-	line-height: 1;
-	margin: 0;
+	margin: 0.75em 0;
 }
 .editor-preview[contenteditable="true"] {
 	cursor: text;

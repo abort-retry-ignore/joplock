@@ -965,7 +965,7 @@ function initCM(host,content){
 		{tag:C.tags.emphasis,fontStyle:'italic'},
 		{tag:C.tags.strikethrough,textDecoration:'line-through'},
 		{tag:C.tags.link,color:'var(--accent)',textDecoration:'underline'},
-		{tag:C.tags.url,color:'var(--accent)'},
+		{tag:C.tags.url,color:'var(--accent)',textDecoration:'underline'},
 		{tag:C.tags.processingInstruction,fontFamily:'"Cascadia Mono",monospace',color:'var(--accent)'},
 		{tag:C.tags.monospace,fontFamily:'"Cascadia Mono",monospace'},
 		{tag:C.tags.meta,color:'var(--text-dim)'},

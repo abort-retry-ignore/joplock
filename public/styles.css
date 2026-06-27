@@ -1157,6 +1157,11 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .cm-host .cm-editor.cm-focused {
 	outline: none;
 }
+/* Underline links in markdown mode */
+.cm-host .cm-link,
+.cm-host .cm-url {
+	text-decoration: underline;
+}
 .cm-host .cm-scroller {
 	scrollbar-color: var(--border) transparent;
 }

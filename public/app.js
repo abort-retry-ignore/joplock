@@ -682,7 +682,7 @@ function initPersistentTinyMCE(){
 		target:textarea,
 		license_key:'gpl',
 		menubar:false,
-		newline_behavior:document.body.dataset.newlineBehavior||'block',
+		newline_behavior:document.body.dataset.newlineBehavior||'linebreak',
 		toolbar:_tinyMCEToolbarSpec(),
 		toolbar_mode:'sliding',
 		height:'100%',

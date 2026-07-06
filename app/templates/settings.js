@@ -215,8 +215,8 @@ const settingsPage = (options = {}) => {
 						<label class="settings-field">
 							<span>Enter key behavior</span>
 							<select id="settings-newline-behavior" class="login-input" onchange="saveSetting('newlineBehavior',this.value)">
-								<option value="block"${!settings.newlineBehavior||settings.newlineBehavior==='block'?' selected':''}>Paragraphs (default)</option>
-								<option value="linebreak"${settings.newlineBehavior==='linebreak'?' selected':''}>Line breaks</option>
+								<option value="block"${settings.newlineBehavior==='block'?' selected':''}>Paragraphs</option>
+								<option value="linebreak"${!settings.newlineBehavior||settings.newlineBehavior==='linebreak'?' selected':''}>Line breaks (default)</option>
 								<option value="invert"${settings.newlineBehavior==='invert'?' selected':''}>Line breaks with list support</option>
 							</select>
 						</label>

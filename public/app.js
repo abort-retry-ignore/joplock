@@ -863,6 +863,43 @@ function initPersistentTinyMCE(){
 				});
 				onEdit();
 			});
+			// Resolve nearest PRE codeblock from an event target, or null.
+			function _resolveTinyMCEPre(target){
+				if(!target||!target.closest)return null;
+				var pre=target.closest('pre,code[class*="language-"]');
+				if(pre&&pre.nodeName==='CODE'&&pre.parentElement&&pre.parentElement.nodeName==='PRE')pre=pre.parentElement;
+				if(pre&&pre.nodeName!=='PRE')pre=pre.closest&&pre.closest('pre')?pre.closest('pre'):null;
+				return pre&&pre.nodeName==='PRE'?pre:null;
+			}
+			function _openTinyMCECodeBlock(pre){
+				normalizeTinyMCECodeSampleClasses(editor);
+				tinyMCEInsertCodeBlock(pre);
+			}
+			// Long-press state for touch devices. Tap/scroll must NOT open the
+			// code editor; only a sustained hold does.
+			var _lpTimer=null,_lpPre=null,_lpX=0,_lpY=0,_lpFired=false;
+			var LP_MS=500,LP_MOVE=10;
+			function _cancelLongPress(){if(_lpTimer){clearTimeout(_lpTimer);_lpTimer=null;}_lpPre=null;}
+			editor.on('touchstart',function(e){
+				_lpFired=false;
+				var t=e&&e.target?e.target:null;
+				if(t&&t.closest&&t.closest('.pre-copy-btn'))return;
+				var pre=_resolveTinyMCEPre(t);
+				if(!pre)return;
+				var pt=e.touches&&e.touches[0]?e.touches[0]:e;
+				_lpPre=pre;_lpX=pt.clientX;_lpY=pt.clientY;
+				_lpTimer=setTimeout(function(){
+					_lpTimer=null;_lpFired=true;
+					if(_lpPre)_openTinyMCECodeBlock(_lpPre);
+					_lpPre=null;
+				},LP_MS);
+			});
+			editor.on('touchmove',function(e){
+				if(!_lpTimer)return;
+				var pt=e.touches&&e.touches[0]?e.touches[0]:e;
+				if(Math.abs(pt.clientX-_lpX)>LP_MOVE||Math.abs(pt.clientY-_lpY)>LP_MOVE)_cancelLongPress();
+			});
+			editor.on('touchend touchcancel',_cancelLongPress);
 			editor.on('click',function(e){
 				var target=e&&e.target?e.target:null;
 				if(!target||!target.closest)return;
@@ -875,14 +912,15 @@ function initPersistentTinyMCE(){
 					onEdit();
 					return;
 				}
-				var pre=target.closest('pre,code[class*="language-"]');
-				if(pre&&pre.nodeName==='CODE'&&pre.parentElement&&pre.parentElement.nodeName==='PRE')pre=pre.parentElement;
-				if(pre&&pre.nodeName!=='PRE')pre=pre.closest&&pre.closest('pre')?pre.closest('pre'):null;
+				var pre=_resolveTinyMCEPre(target);
 				if(!pre)return;
-				normalizeTinyMCECodeSampleClasses(editor);
+				// Touch: long-press already handled (or was scroll/tap). Suppress
+				// the synthetic click so a tap never opens the editor.
+				if(_lpFired){_lpFired=false;e.preventDefault();e.stopPropagation();return;}
+				if(e.pointerType==='touch'||e.sourceCapabilities&&e.sourceCapabilities.firesTouchEvents){e.preventDefault();e.stopPropagation();return;}
 				e.preventDefault();
 				e.stopPropagation();
-				tinyMCEInsertCodeBlock(pre);
+				_openTinyMCECodeBlock(pre);
 			});
 			// Drag-and-drop file upload directly into the note (no modal).
 			// We handle ALL dropped files ourselves (images + other files) and stop

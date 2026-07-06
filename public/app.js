@@ -865,8 +865,8 @@ function initPersistentTinyMCE(){
 			});
 			editor.on('click',function(e){
 				var target=e&&e.target?e.target:null;
-				if(!target||!target.closest){console.log('tinymce click: no target or closest');return;}
-				if(target.closest('.pre-copy-btn')){console.log('tinymce click: pre-copy-btn, skip');return;}
+				if(!target||!target.closest)return;
+				if(target.closest('.pre-copy-btn'))return;
 				var cb=target.closest('.md-checkbox');
 				if(cb){
 					e.preventDefault();
@@ -876,10 +876,9 @@ function initPersistentTinyMCE(){
 					return;
 				}
 				var pre=target.closest('pre,code[class*="language-"]');
-				console.log('tinymce click: pre found?',!!pre,'nodeName:',pre&&pre.nodeName,'class:',pre&&pre.className);
 				if(pre&&pre.nodeName==='CODE'&&pre.parentElement&&pre.parentElement.nodeName==='PRE')pre=pre.parentElement;
 				if(pre&&pre.nodeName!=='PRE')pre=pre.closest&&pre.closest('pre')?pre.closest('pre'):null;
-				if(!pre){console.log('tinymce click: no pre element found');return;}
+				if(!pre)return;
 				normalizeTinyMCECodeSampleClasses(editor);
 				e.preventDefault();
 				e.stopPropagation();

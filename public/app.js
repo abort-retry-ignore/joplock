@@ -523,6 +523,8 @@ function initTinyMCECodeCopyButtons(editor){
 			pre.setAttribute('data-jop-code-edit-bound','1');
 			var _openCodeSample=function(e){
 				if(e.target&&e.target.closest&&e.target.closest('.pre-copy-btn')){return;}
+				// Read-only mode blocks opening the code editor modal.
+				if(_tinymceReadonly){return;}
 				e.preventDefault();
 				e.stopPropagation();
 				tinyMCEInsertCodeBlock(pre);
@@ -819,6 +821,9 @@ function initPersistentTinyMCE(){
 			editor.ui.registry.addToggleButton('jop_edit',{
 				tooltip:'Toggle edit mode',
 				icon:'jop_edit',
+				// Keep this button enabled in read-only mode so it can toggle back
+				// to editable (default TinyMCE buttons are disabled in readonly).
+				context:'any',
 				onAction:function(api){
 					_setTinyMCEReadonly(!_tinymceReadonly);
 					api.setActive(!_tinymceReadonly);
@@ -831,6 +836,7 @@ function initPersistentTinyMCE(){
 				}
 			});
 			editor.on('keydown',function(e){
+				if(_tinymceReadonly){e.preventDefault();return;}
 				if(e.key!=='Enter')return;
 				if(e.shiftKey)return;
 				var selNode=editor.selection&&editor.selection.getNode?editor.selection.getNode():null;
@@ -912,6 +918,8 @@ function initPersistentTinyMCE(){
 				return pre&&pre.nodeName==='PRE'?pre:null;
 			}
 			function _openTinyMCECodeBlock(pre){
+				// Read-only mode blocks opening the code editor modal.
+				if(_tinymceReadonly)return;
 				normalizeTinyMCECodeSampleClasses(editor);
 				tinyMCEInsertCodeBlock(pre);
 			}
@@ -922,6 +930,7 @@ function initPersistentTinyMCE(){
 			function _cancelLongPress(){if(_lpTimer){clearTimeout(_lpTimer);_lpTimer=null;}_lpPre=null;}
 			editor.on('touchstart',function(e){
 				_lpFired=false;
+				if(_tinymceReadonly)return;
 				var t=e&&e.target?e.target:null;
 				if(t&&t.closest&&t.closest('.pre-copy-btn'))return;
 				var pre=_resolveTinyMCEPre(t);
@@ -947,6 +956,8 @@ function initPersistentTinyMCE(){
 				var cb=target.closest('.md-checkbox');
 				if(cb){
 					e.preventDefault();
+					// Read-only mode blocks toggling checkboxes.
+					if(_tinymceReadonly)return;
 					var checked=!cb.classList.contains('checked');
 					cb.classList.toggle('checked',checked);
 					onEdit();
@@ -1010,6 +1021,7 @@ function initPersistentTinyMCE(){
 			});
 			function onEdit(){
 				if(_tinymceSuppressEdits)return;
+				if(_tinymceReadonly)return;
 				var form=activeEditorForm();
 				if(!form)return;
 				if(form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1')return;

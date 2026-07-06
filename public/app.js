@@ -12,7 +12,7 @@ if('serviceWorker' in navigator) navigator.serviceWorker.register('/service-work
 // If the browser restores this page from bfcache, force a reload so the server can validate the session
 window.addEventListener('pageshow',function(e){if(e.persisted){_log('bfcache restore detected, reloading');window.location.reload()}});
 function syncThemeColor(){var meta=document.querySelector('meta[name="theme-color"]');if(!meta)return;var color=getComputedStyle(document.body).getPropertyValue('--theme-color').trim();if(color)meta.setAttribute('content',color)}
-function setTheme(t){document.body.classList.forEach(function(c){if(c.startsWith('theme-'))document.body.classList.remove(c)});document.body.classList.add('theme-'+t);syncThemeColor();localStorage.setItem('joplock-theme',t);fetch('/api/web/theme',{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'theme='+encodeURIComponent(t)}).catch(function(){})}
+function setTheme(t){document.body.classList.forEach(function(c){if(c.startsWith('theme-'))document.body.classList.remove(c)});document.body.classList.add('theme-'+t);syncThemeColor();localStorage.setItem('joplock-theme',t);_syncTinyMCEThemeVars();fetch('/api/web/theme',{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'theme='+encodeURIComponent(t)}).catch(function(){})}
 
 // --- Encryption (vault-based client-side E2EE) ---
 var PBKDF2_ITERATIONS=210000;
@@ -237,6 +237,7 @@ function startAutoLockTimer(){
 						if(noteBodyVault===folderId){
 							var panel=form.closest('#editor-panel')||document.getElementById('editor-panel');
 							if(panel)panel.innerHTML='<div class="editor-empty">Select a note</div>';
+							hideTinyMCEHost();
 						}
 					}
 				}
@@ -379,11 +380,808 @@ function fetchNoteHeaders(){
 		});
 	return _notesCachePromise;
 }
+var _tinymceEditor=null;
 var _cmView=null;
 function getCM(){return _cmView}
-function cmVal(){return _cmView?_cmView.state.doc.toString():''}
-function cmSetVal(v){if(!_cmView)return;_cmView.dispatch({changes:{from:0,to:_cmView.state.doc.length,insert:v}})}
-function cmSyncToTA(){var ta=getTA();if(ta&&_cmView)ta.value=cmVal()}
+function cmSyncToTA(){var ta=getTA();if(ta&&_cmView){var md=_cmView.state.doc.toString();if(ta.value!==md){ta.value=md;return true}}return false}
+function cmSetVal(v){if(!_cmView)return;var cur=_cmView.state.doc.toString();if(cur===(v||''))return;_cmView.dispatch({changes:{from:0,to:cur.length,insert:v||''}})}
+function getTinyMCE(){return _tinymceEditor}
+function tinyMCEContent(){return _tinymceEditor?_tinymceEditor.getContent():''}
+function tinyMCESetContent(html){if(_tinymceEditor)_tinymceEditor.setContent(html)}
+function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
+function _isMarkdownModeActive(){return _editorMode==='markdown'||_editorMode==='md'}
+function _runMarkdownToolbarFormat(cmd){
+	if(cmd==='bold'){wrapSel('**','**');return true}
+	if(cmd==='italic'){wrapSel('*','*');return true}
+	if(cmd==='underline'){wrapSel('++','++');return true}
+	if(cmd==='strikethrough'){wrapSel('~~','~~');return true}
+	if(cmd==='code'){wrapSel('`','`');return true}
+	if(cmd==='InsertUnorderedList'){insertPfx('- ');return true}
+	if(cmd==='InsertOrderedList'){insertPfx('1. ');return true}
+	if(cmd==='InsertHorizontalRule'){insertTxt('\n---\n');return true}
+	if(cmd==='removeformat'||cmd==='RemoveFormat'){clearFormat();return true}
+	if(cmd==='codesample'||cmd==='mceCodeSample'){openCodeModal();return true}
+	if(cmd==='mceLink'||cmd==='link'){insertLink();return true}
+	if(cmd==='mceImage'||cmd==='image'){insertImg();return true}
+	return false;
+}
+function _runMarkdownToolbarBlock(tag){
+	if(tag==='h1'){insertPfx('# ');return true}
+	if(tag==='h2'){insertPfx('## ');return true}
+	if(tag==='h3'){insertPfx('### ');return true}
+	if(tag==='blockquote'){insertPfx('> ');return true}
+	return false;
+}
+function tinyMCEFormat(cmd){
+	if(_isMarkdownModeActive()&&_runMarkdownToolbarFormat(cmd))return;
+	var ed=getTinyMCE();
+	if(cmd==='codesample'||cmd==='mceCodeSample'){openCodeModal();return}
+	if(ed){if(cmd==='InsertUnorderedList'||cmd==='InsertOrderedList'||cmd==='InsertHorizontalRule'||cmd==='removeformat'||cmd==='RemoveFormat')ed.execCommand(cmd==='removeformat'?'RemoveFormat':cmd);else if(cmd==='mceLink'||cmd==='link')ed.execCommand('mceLink');else if(cmd==='mceImage'||cmd==='image')ed.execCommand('mceImage');else ed.formatter.toggle(cmd);ed.focus()}
+}
+function tinyMCEFormatBlock(tag){
+	if(_isMarkdownModeActive()&&_runMarkdownToolbarBlock(tag))return;
+	var ed=getTinyMCE();
+	if(ed){ed.formatter.toggle(tag);ed.focus()}
+}
+function tinyMCEInsertCheckbox(){if(_isMarkdownModeActive()){insertPfx('- [ ] ');return}var ed=getTinyMCE();if(ed){ed.execCommand('mceInsertContent',false,'<div class="md-checkbox">&nbsp;</div>');ed.focus()}}
+function tinyMCEInsertCodeBlock(editPre){
+	// Route rendered-mode code-block insert/edit through the custom themed CM6
+	// modal (openCodeModal), not TinyMCE's built-in unthemed codesample dialog.
+	openCodeModal(editPre||null);
+	return true;
+}
+function tinyMCEInsertDate(){if(_isMarkdownModeActive()){insertStamp('date');return}var ed=getTinyMCE();if(ed){var d=new Date();var s=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');ed.execCommand('mceInsertContent',false,s);ed.focus()}}
+function tinyMCEInsertDateTime(){if(_isMarkdownModeActive()){insertStamp('datetime');return}var ed=getTinyMCE();if(ed){var d=new Date();var s=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');ed.execCommand('mceInsertContent',false,s);ed.focus()}}
+function tinyMCEInsertLink(){if(_isMarkdownModeActive()){insertLink();return}var ed=getTinyMCE();if(ed){ed.execCommand('mceLink');ed.focus()}}
+function tinyMCEInsertImage(){if(_isMarkdownModeActive()){insertImg();return}var ed=getTinyMCE();if(ed){ed.execCommand('mceImage');ed.focus()}}
+function _copyTextToClipboard(text,onDone){
+	if(navigator.clipboard&&navigator.clipboard.writeText){
+		navigator.clipboard.writeText(text).then(function(){if(onDone)onDone(true)}).catch(function(){if(onDone)onDone(false)});
+		return;
+	}
+	try{
+		var ta=document.createElement('textarea');
+		ta.value=text;
+		ta.style.position='fixed';
+		ta.style.opacity='0';
+		document.body.appendChild(ta);
+		ta.select();
+		document.execCommand('copy');
+		document.body.removeChild(ta);
+		if(onDone)onDone(true);
+	}catch(_e){if(onDone)onDone(false)}
+}
+function ensureTinyMCEEditableAfterPre(editor){
+	if(!editor||!editor.getBody||!editor.getDoc)return;
+	var body=editor.getBody();
+	var doc=editor.getDoc();
+	if(!body||!doc)return;
+	body.querySelectorAll('pre').forEach(function(pre){
+		var next=pre.nextElementSibling;
+		if(next)return;
+		var p=doc.createElement('p');
+		p.innerHTML='<br data-mce-bogus="1">';
+		body.appendChild(p);
+	});
+}
+function highlightTinyMCECodeBlocks(editor){
+	if(!editor||!editor.getBody||!window.hljs)return;
+	var body=editor.getBody();
+	if(!body)return;
+	body.querySelectorAll('pre[class*="language-"]').forEach(function(pre){
+		var target=pre.querySelector('code');
+		if(!target)return;
+		if(target&&target.querySelector&&target.querySelector('[class*="hljs-"]'))return;
+		if(target&&target.dataset&&target.dataset.highlighted)delete target.dataset.highlighted;
+		try{window.hljs.highlightElement(target)}catch(_e){}
+	});
+}
+function normalizeTinyMCECodeSampleClasses(editor){
+	if(!editor||!editor.getBody)return;
+	var body=editor.getBody();
+	if(!body)return;
+	body.querySelectorAll('pre').forEach(function(pre){
+		if(pre.className&&pre.className.indexOf('language-')!==-1)return;
+		var code=pre.querySelector('code[class*="language-"]');
+		if(!code)return;
+		var m=(code.className||'').match(/language-[\w-]+/);
+		if(m)pre.classList.add(m[0]);
+	});
+}
+function normalizeTinyMCECodeSampleMarkup(editor){
+	if(!editor||!editor.getBody||!editor.getDoc)return;
+	var body=editor.getBody();
+	var doc=editor.getDoc();
+	if(!body||!doc)return;
+	body.querySelectorAll('pre').forEach(function(pre){
+		var code=pre.querySelector('code');
+		if(code)return;
+		// Skip pre already processed by codesample plugin (Prism spans, no <code> wrapper).
+		if(pre.hasAttribute('data-mce-highlighted'))return;
+		var btn=pre.querySelector('.pre-copy-btn');
+		if(btn&&btn.parentNode===pre)pre.removeChild(btn);
+		var text='';
+		Array.prototype.forEach.call(pre.childNodes,function(node){
+			if(node.nodeType===3)text+=node.nodeValue||'';
+			else if(node.nodeType===1)text+=node.textContent||'';
+		});
+		while(pre.firstChild)pre.removeChild(pre.firstChild);
+		code=doc.createElement('code');
+		code.textContent=text;
+		pre.appendChild(code);
+		if(btn)pre.insertBefore(btn,pre.firstChild);
+	});
+}
+function initTinyMCECodeCopyButtons(editor){
+	if(!editor||!editor.getBody)return;
+	var body=editor.getBody();
+	if(!body)return;
+	normalizeTinyMCECodeSampleClasses(editor);
+	ensureTinyMCEEditableAfterPre(editor);
+	body.querySelectorAll('pre').forEach(function(pre){
+		if(!pre.getAttribute('data-jop-code-edit-bound')){
+			pre.setAttribute('data-jop-code-edit-bound','1');
+			var _openCodeSample=function(e){
+				if(e.target&&e.target.closest&&e.target.closest('.pre-copy-btn')){return;}
+				e.preventDefault();
+				e.stopPropagation();
+				tinyMCEInsertCodeBlock(pre);
+			};
+			pre.addEventListener('click',_openCodeSample);
+			pre.addEventListener('touchend',_openCodeSample,{passive:false});
+		}
+		if(pre.querySelector('.pre-copy-btn'))return;
+		var btn=editor.getDoc().createElement('button');
+		btn.type='button';
+		btn.className='pre-copy-btn';
+		btn.title='Copy code';
+		btn.setAttribute('aria-label','Copy code');
+		btn.textContent='';
+		btn.setAttribute('contenteditable','false');
+		btn.setAttribute('data-mce-bogus','all');
+		btn.addEventListener('click',function(e){
+			e.preventDefault();
+			e.stopPropagation();
+			var code=pre.querySelector('code');
+			var text=code?code.textContent:(pre.textContent||'');
+			_copyTextToClipboard(text,function(ok){
+				btn.classList.toggle('is-copied',!!ok);
+				btn.classList.toggle('is-failed',!ok);
+				setTimeout(function(){btn.classList.remove('is-copied');btn.classList.remove('is-failed')},1200);
+			});
+		});
+		pre.insertBefore(btn,pre.firstChild);
+	});
+}
+// Persistent TinyMCE lifecycle: init once on page load, reuse across note swaps.
+// The editor lives in #tinymce-host (outside #editor-panel so htmx swaps don't
+// destroy the iframe). Positioning tracks #tinymce-slot inside the swapped
+// editor fragment so the editor visually sits where the fragment expects it.
+var _tinymceInitStarted=false;
+var _tinymceInitPromise=null;
+// When true, TinyMCE input/change events are ignored (used to suppress spurious
+// save-triggers when we call setContent programmatically on note switch / unlock).
+var _tinymceSuppressEdits=false;
+var _tinymceShowRequested=false;
+function _setTinyMCEContent(html){
+	if(!_tinymceEditor)return;
+	_tinymceSuppressEdits=true;
+	try{
+		_tinymceEditor.setContent(html||'');
+		if(_tinymceEditor.undoManager)_tinymceEditor.undoManager.clear();
+	}finally{
+		setTimeout(function(){
+			_tinymceSuppressEdits=false;
+			// Run after all sync SetContent handlers (codesample plugin) have finished.
+			ensureTinyMCEEditableAfterPre(_tinymceEditor);
+			initTinyMCECodeCopyButtons(_tinymceEditor);
+			_applyTinyMCESpellcheck(_tinymceEditor);
+		},0);
+	}
+}
+function _tinyMCEContentFontStyle(){
+	var rs=getComputedStyle(document.body);
+	var fontFamily=rs.getPropertyValue('--font-family-note').trim();
+	if(!fontFamily)fontFamily=rs.fontFamily||'-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif';
+	var fontSize=rs.getPropertyValue(isMobileShellMode()?'--font-size-note-mobile':'--font-size-note').trim()||'15px';
+	var fontSizeCode=rs.getPropertyValue('--font-size-code').trim()||'13px';
+	return ''
+		+'body{font-family:'+fontFamily+';font-size:'+fontSize+';line-height:1.7;color:var(--text);background:var(--bg)}'
+		+'h1,h2,h3,h4,h5,h6{color:var(--text-heading)}'
+		+'strong{color:var(--text-heading)}'
+		+'a{color:var(--accent)}'
+		+'code{background:var(--bg-hover);padding:2px 5px;border-radius:3px;font-family:"Cascadia Mono",monospace;font-size:'+fontSizeCode+'}'
+		+'pre{position:relative;background:#000;color:#e6edf3;border:1px solid #343a40;padding:12px;border-radius:6px;font-family:"Cascadia Mono",monospace;font-size:'+fontSizeCode+'}'
+		+'pre[class*="language-"]{background:#000!important;color:#e6edf3!important;text-shadow:none!important;font-family:"Cascadia Mono",monospace!important}'
+		+'pre code{background:transparent;padding:0}'
+		+'pre[class*="language-"] .token.comment,pre[class*="language-"] .token.prolog,pre[class*="language-"] .token.doctype,pre[class*="language-"] .token.cdata{color:#5c6370;font-style:italic}'
+		+'pre[class*="language-"] .token.punctuation{color:#abb2bf}'
+		+'pre[class*="language-"] .token.property,pre[class*="language-"] .token.tag,pre[class*="language-"] .token.boolean,pre[class*="language-"] .token.number,pre[class*="language-"] .token.constant,pre[class*="language-"] .token.symbol,pre[class*="language-"] .token.deleted{color:#d19a66}'
+		+'pre[class*="language-"] .token.selector,pre[class*="language-"] .token.attr-name,pre[class*="language-"] .token.string,pre[class*="language-"] .token.char,pre[class*="language-"] .token.builtin,pre[class*="language-"] .token.inserted{color:#98c379}'
+		+'pre[class*="language-"] .token.operator,pre[class*="language-"] .token.entity,pre[class*="language-"] .token.url{color:#56b6c2}'
+		+'pre[class*="language-"] .token.atrule,pre[class*="language-"] .token.attr-value,pre[class*="language-"] .token.keyword{color:#c678dd}'
+		+'pre[class*="language-"] .token.function,pre[class*="language-"] .token.class-name{color:#61afef}'
+		+'pre[class*="language-"] .token.regex,pre[class*="language-"] .token.important,pre[class*="language-"] .token.variable{color:#e06c75}'
+		+'pre>.pre-copy-btn{position:absolute!important;top:6px!important;right:8px!important;left:auto!important;float:none!important;margin:0!important;z-index:2;display:none;padding:2px 8px;font-size:11px;line-height:1.5;border:1px solid var(--border);border-radius:4px;background:var(--bg-elevated);color:var(--text-dim);opacity:0;pointer-events:none;transition:opacity .15s ease,color .15s ease,border-color .15s ease}'
+		+'pre:hover>.pre-copy-btn{display:inline-block;opacity:1;pointer-events:auto}'
+		+'.pre-copy-btn::after{content:"Copy"}'
+		+'.pre-copy-btn:hover{color:var(--accent);border-color:var(--accent)}'
+		+'blockquote{border-left:3px solid var(--accent);color:var(--text-dim)}'
+		+'hr{border-color:var(--border)}'
+		+'img{max-width:100%;height:auto;border-radius:6px}'
+		+'.md-checkbox{display:flex;align-items:baseline;gap:0.35em;margin:0.25em 0;padding-left:24px}'
+		+'.md-checkbox::before{content:"";display:inline-block;width:16px;height:16px;border:1.5px solid var(--accent);border-radius:3px;flex-shrink:0;background:transparent;box-sizing:border-box}'
+		+'.md-checkbox.checked::before{background:var(--accent);border-color:var(--accent);content:"\\2713";color:var(--bg);font-size:11px;font-weight:bold;line-height:16px;text-align:center}';
+}
+function _syncTinyMCEThemeVars(){
+	if(!_tinymceEditor||!_tinymceEditor.getDoc)return;
+	try{
+		var iframeDoc=_tinymceEditor.getDoc();
+		if(!iframeDoc||!iframeDoc.documentElement)return;
+		var rs=getComputedStyle(document.body);
+		var vars=['--bg','--text','--text-dim','--text-heading','--accent','--border','--bg-hover','--toolbar-bg'];
+		for(var i=0;i<vars.length;i++){
+			var val=rs.getPropertyValue(vars[i]).trim();
+			if(val)iframeDoc.documentElement.style.setProperty(vars[i],val);
+		}
+	}catch(_e){}
+}
+function _tinyMCEToolbarSpec(){
+	return 'bold italic underline strikethrough | blocks | bullist numlist jop_checkbox | code jop_code blockquote hr | jop_date jop_datetime | removeformat | link image jop_upload | jop_spellcheck jop_history';
+}
+// Spellcheck state (client-only, persisted in localStorage). Default off so
+// shared browsers don't leak note text to remote spellcheck services.
+function _spellcheckEnabled(){
+	try{return localStorage.getItem('_joplockSpellcheck')==='1'}catch(_e){return false}
+}
+function _setSpellcheckEnabled(on){
+	try{localStorage.setItem('_joplockSpellcheck',on?'1':'0')}catch(_e){}
+}
+// Apply the current spellcheck state to the live TinyMCE iframe body.
+function _applyTinyMCESpellcheck(editor){
+	if(!editor)return;
+	var on=_spellcheckEnabled();
+	try{
+		var body=editor.getBody&&editor.getBody();
+		if(body){body.spellcheck=on;body.setAttribute('spellcheck',on?'true':'false')}
+	}catch(_e){}
+}
+function initPersistentTinyMCE(){
+	if(_tinymceInitStarted||!window.tinymce)return _tinymceInitPromise;
+	var textarea=document.getElementById('tinymce-editor');
+	if(!textarea)return null;
+	_tinymceInitStarted=true;
+	// Suppress edit events during initial render (TinyMCE fires input/change while
+	// populating the iframe from the textarea's initial value). Cleared after init.
+	_tinymceSuppressEdits=true;
+	_tinymceInitPromise=window.tinymce.init({
+		target:textarea,
+		license_key:'gpl',
+		menubar:false,
+		newline_behavior:document.body.dataset.newlineBehavior||'block',
+		toolbar:_tinyMCEToolbarSpec(),
+		toolbar_mode:'sliding',
+		height:'100%',
+		resize:false,
+		skin:'oxide-dark',
+		highlight_on_focus:false,
+		plugins:'autolink advlist lists link image code codesample table',
+		link_default_target:'_blank',
+		// Native browser spellcheck. Toggled at runtime via the jop_spellcheck
+		// toolbar button; browser_spellcheck must be true so TinyMCE does not
+		// force spellcheck="false" on the iframe body.
+		browser_spellcheck:true,
+		codesample_languages:[
+			{text:'Plain text',value:''},
+			{text:'Bash',value:'bash'},
+			{text:'BASIC',value:'basic'},
+			{text:'C',value:'c'},
+			{text:'C++',value:'cpp'},
+			{text:'CSS',value:'css'},
+			{text:'Go',value:'go'},
+			{text:'HTML/XML',value:'markup'},
+			{text:'JavaScript',value:'javascript'},
+			{text:'JSON',value:'json'},
+			{text:'Python',value:'python'},
+			{text:'SQL',value:'sql'},
+			{text:'TypeScript',value:'typescript'},
+			{text:'YAML',value:'yaml'}
+		],
+		valid_elements:'*[*]',
+		extended_valid_elements:'div[class|data-*],span[class|style],img[src|alt|class|width|height|data-resource-id]',
+		content_css:'dark',
+		content_style:_tinyMCEContentFontStyle(),
+		mobile:{
+			menubar:false,
+			toolbar_mode:'sliding',
+			toolbar_persist:true,
+			toolbar:_tinyMCEToolbarSpec()
+		},
+		images_upload_handler:function(blobInfo){
+			return new Promise(function(resolve,reject){
+				var formData=new FormData();
+				formData.append('file',blobInfo.blob(),blobInfo.filename());
+				fetch('/fragments/upload',{method:'POST',body:formData,credentials:'same-origin'}).then(function(r){return r.json()}).then(function(data){if(data&&data.error){reject(data.error);return}resolve('/resources/'+data.resourceId)}).catch(reject);
+			});
+		},
+		// Upload pasted/dropped images automatically through images_upload_handler
+		// so they become Joplin resources instead of inline data: URIs.
+		automatic_uploads:true,
+		paste_data_images:true,
+		// Browse button in the Image/Media dialogs -> upload through /fragments/upload.
+		file_picker_types:'image media file',
+		file_picker_callback:function(callback,value,meta){
+			var input=document.createElement('input');
+			input.type='file';
+			if(meta&&meta.filetype==='image')input.accept='image/*';
+			input.onchange=function(){
+				var file=input.files&&input.files[0];
+				if(!file)return;
+				var fd=new FormData();
+				fd.append('file',file);
+				fetch('/fragments/upload',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json()}).then(function(data){
+					if(data&&data.error){alert(data.error);return}
+					callback('/resources/'+data.resourceId,{alt:file.name,title:file.name});
+				}).catch(function(){alert('Upload failed')});
+			};
+			input.click();
+		},
+		setup:function(editor){
+			// Custom app buttons used by the TinyMCE built-in toolbar.
+			editor.ui.registry.addIcon('jop_checkbox','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="5.5" y="5.5" width="13" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>');
+			editor.ui.registry.addIcon('jop_date','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4.5" y="5.5" width="15" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 4.5v3M16 4.5v3M4.5 9.5h15" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>');
+			editor.ui.registry.addIcon('jop_datetime','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="3.5" y="5.5" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 4.5v3M12.5 4.5v3M3.5 9.5h12" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/><circle cx="17.5" cy="16.5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M17.5 14.8v2.1l1.5.9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+			editor.ui.registry.addIcon('jop_upload','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M8.2 12.8l5.3-5.3a3 3 0 114.3 4.3l-6.4 6.4a4.5 4.5 0 01-6.4-6.4l6.4-6.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+			editor.ui.registry.addIcon('jop_history','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 12a8 8 0 108-8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4 5v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8.5V12l2.5 1.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+			editor.ui.registry.addButton('jop_checkbox',{
+				tooltip:'Checkbox',
+				icon:'jop_checkbox',
+				onAction:function(){tinyMCEInsertCheckbox();}
+			});
+			editor.ui.registry.addButton('jop_date',{
+				tooltip:'Insert date',
+				icon:'jop_date',
+				onAction:function(){tinyMCEInsertDate();}
+			});
+			editor.ui.registry.addButton('jop_datetime',{
+				tooltip:'Insert date & time',
+				icon:'jop_datetime',
+				onAction:function(){tinyMCEInsertDateTime();}
+			});
+			editor.ui.registry.addButton('jop_upload',{
+				tooltip:'Upload file',
+				icon:'jop_upload',
+				onAction:function(){openUploadModal();}
+			});
+			editor.ui.registry.addButton('jop_history',{
+				tooltip:'Note history',
+				icon:'jop_history',
+				onAction:function(){
+					var form=activeEditorForm();
+					var noteId=form?form.dataset.noteId:'';
+					if(noteId)openHistoryModal(noteId);
+				}
+			});
+			// Custom code button opens our themed full-screen CM6 code modal
+			// instead of TinyMCE's built-in (unthemed, non-highlighting)
+			// codesample dialog. Uses a distinct name so it doesn't depend on
+			// button-registration ordering vs the codesample plugin.
+			editor.ui.registry.addButton('jop_code',{
+				tooltip:'Code sample',
+				icon:'code-sample',
+				onAction:function(){openCodeModal();}
+			});
+			// Spellcheck toggle. Uses native browser spellcheck on the iframe body;
+			// no external plugin/service. State persisted client-side.
+			editor.ui.registry.addIcon('jop_spellcheck','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 17l4-10 4 10M5.2 14h5.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.5 15.5l2 2 3.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+			editor.ui.registry.addToggleButton('jop_spellcheck',{
+				tooltip:'Toggle spellcheck',
+				icon:'jop_spellcheck',
+				onAction:function(api){
+					var on=!_spellcheckEnabled();
+					_setSpellcheckEnabled(on);
+					api.setActive(on);
+					_applyTinyMCESpellcheck(editor);
+					// Re-focus so the browser re-scans the current content.
+					try{editor.focus()}catch(_e){}
+				},
+				onSetup:function(api){
+					api.setActive(_spellcheckEnabled());
+					return function(){};
+				}
+			});
+			editor.on('keydown',function(e){
+				if(e.key!=='Enter')return;
+				if(e.shiftKey)return;
+				var selNode=editor.selection&&editor.selection.getNode?editor.selection.getNode():null;
+				var body=editor.getBody?editor.getBody():null;
+				// Handle Enter inside list items — newline_behavior block conflicts with lists plugin
+				var li=selNode;
+				while(li&&li!==body&&li.nodeName!=='LI')li=li.parentNode;
+				if(li&&li!==body){
+					e.preventDefault();
+					editor.undoManager.transact(function(){
+						var doc=editor.getDoc();
+						var rng=editor.selection.getRng();
+						var text=li.textContent||'';
+						var ulol=li.parentNode;
+						var empty=!text.replace(/[\u00a0\u200b]/g,'').trim();
+						if(empty||rng.collapsed&&rng.startOffset===0&&!text.trim()){
+							// Empty li or caret at start of empty li — exit list
+							var p=doc.createElement('p');
+							p.innerHTML='<br data-mce-bogus="1">';
+							ulol.parentNode.insertBefore(p,ulol.nextSibling);
+							li.parentNode.removeChild(li);
+							if(!ulol.children.length)ulol.parentNode.removeChild(ulol);
+							editor.selection.setCursorLocation(p,0);
+						}else if(rng.collapsed){
+							// Split li at caret
+							var neo=doc.createElement('li');
+							var frag=rng.extractContents();
+							if(frag.childNodes.length||frag.textContent){
+								while(frag.firstChild)neo.appendChild(frag.firstChild);
+							}else{
+								neo.innerHTML='<br data-mce-bogus="1">';
+							}
+							// Clean trailing br in current li
+							if(!(li.textContent||'').replace(/[\u00a0\u200b]/g,'').trim()){
+								var nb=doc.createElement('br');
+								nb.setAttribute('data-mce-bogus','1');
+								li.appendChild(nb);
+							}
+							ulol.insertBefore(neo,li.nextSibling);
+							editor.selection.setCursorLocation(neo,0);
+						}
+					});
+					onEdit();
+					return;
+				}
+				var cb=selNode;
+				while(cb&&cb!==body&&!(cb.nodeType===1&&cb.classList&&cb.classList.contains('md-checkbox')))cb=cb.parentNode;
+				if(!cb||cb===body)return;
+				e.preventDefault();
+				editor.undoManager.transact(function(){
+					var doc=editor.getDoc();
+					var label=(cb.textContent||'').replace(/^[\u2610\u2611][\u00a0 ]*/,'').replace(/\u00a0/g,' ').trim();
+					if(!label){
+						var p=doc.createElement('p');
+						p.innerHTML='<br data-mce-bogus="1">';
+						cb.parentNode.replaceChild(p,cb);
+						editor.selection.setCursorLocation(p,0);
+						return;
+					}
+					var neo=doc.createElement('div');
+					neo.className='md-checkbox';
+					var tn=doc.createTextNode('\u00a0');
+					neo.appendChild(tn);
+					if(cb.nextSibling)cb.parentNode.insertBefore(neo,cb.nextSibling);
+					else cb.parentNode.appendChild(neo);
+					var range=doc.createRange();
+					range.setStart(tn,1);
+					range.collapse(true);
+					editor.selection.setRng(range);
+				});
+				onEdit();
+			});
+			editor.on('click',function(e){
+				var target=e&&e.target?e.target:null;
+				if(!target||!target.closest){console.log('tinymce click: no target or closest');return;}
+				if(target.closest('.pre-copy-btn')){console.log('tinymce click: pre-copy-btn, skip');return;}
+				var cb=target.closest('.md-checkbox');
+				if(cb){
+					e.preventDefault();
+					var checked=!cb.classList.contains('checked');
+					cb.classList.toggle('checked',checked);
+					onEdit();
+					return;
+				}
+				var pre=target.closest('pre,code[class*="language-"]');
+				console.log('tinymce click: pre found?',!!pre,'nodeName:',pre&&pre.nodeName,'class:',pre&&pre.className);
+				if(pre&&pre.nodeName==='CODE'&&pre.parentElement&&pre.parentElement.nodeName==='PRE')pre=pre.parentElement;
+				if(pre&&pre.nodeName!=='PRE')pre=pre.closest&&pre.closest('pre')?pre.closest('pre'):null;
+				if(!pre){console.log('tinymce click: no pre element found');return;}
+				normalizeTinyMCECodeSampleClasses(editor);
+				e.preventDefault();
+				e.stopPropagation();
+				tinyMCEInsertCodeBlock(pre);
+			});
+			// Drag-and-drop file upload directly into the note (no modal).
+			// We handle ALL dropped files ourselves (images + other files) and stop
+			// TinyMCE's default handling so images don't get inlined as base64.
+			editor.on('dragover',function(e){
+				if(e.dataTransfer){try{e.dataTransfer.dropEffect='copy'}catch(_){}}
+				e.preventDefault();
+				e.stopPropagation();
+			});
+			editor.on('drop',function(e){
+				var files=e.dataTransfer&&e.dataTransfer.files;
+				if(!files||!files.length)return; // let TinyMCE handle text/html drops
+				e.preventDefault();
+				e.stopPropagation();
+				if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+				var doc=editor.getDoc();
+				var range=null;
+				if(doc.caretRangeFromPoint){
+					range=doc.caretRangeFromPoint(e.clientX,e.clientY);
+				}else if(doc.caretPositionFromPoint){
+					var pos=doc.caretPositionFromPoint(e.clientX,e.clientY);
+					if(pos){range=doc.createRange();range.setStart(pos.offsetNode,pos.offset);range.collapse(true)}
+				}
+				if(range)editor.selection.setRng(range);
+				var arr=Array.prototype.slice.call(files);
+				arr.reduce(function(p,file){return p.then(function(){return _uploadFileToTinyMCE(file,editor)})},Promise.resolve()).then(function(){markEdited();scheduleSave()}).catch(function(err){console.error('Drop upload failed:',err)});
+				return false;
+			});
+			// Clipboard paste of non-image files (e.g. PDFs). Pasted images are handled by
+			// TinyMCE's built-in paste_data_images + images_upload_handler pipeline, so we
+			// only intercept non-image file items here to avoid double insertion.
+			editor.on('paste',function(e){
+				var cd=e.clipboardData||(window.clipboardData);
+				if(!cd)return;
+				var items=cd.items;
+				if(!items||!items.length)return;
+				var fileItems=[];
+				for(var i=0;i<items.length;i++){
+					if(items[i].kind==='file'&&items[i].type&&items[i].type.indexOf('image/')!==0){
+						var f=items[i].getAsFile();
+						if(f)fileItems.push(f);
+					}
+				}
+				if(!fileItems.length)return;
+			e.preventDefault();
+			fileItems.reduce(function(p,file){return p.then(function(){return _uploadFileToTinyMCE(file,editor)})},Promise.resolve()).then(function(){markEdited();scheduleSave()}).catch(function(err){console.error('Paste upload failed:',err)});
+			});
+			function onEdit(){
+				if(_tinymceSuppressEdits)return;
+				var form=activeEditorForm();
+				if(!form)return;
+				if(form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1')return;
+				// Skip if editor host is hidden (locked note, empty state).
+				var host=document.getElementById('tinymce-host');
+				if(!host||!host.classList.contains('tinymce-host-visible'))return;
+				var ta=getTA();
+				if(ta){
+					var html=editor.getContent();
+					var md=tinymceToMarkdown(html);
+					if(ta.value!==md){
+						ta.value=md;
+						ta.dispatchEvent(new Event('input',{bubbles:true}));
+					}
+				}
+				markEdited();
+				scheduleSave();
+			}
+			editor.on('input',onEdit);
+			editor.on('change',onEdit);
+			// Text-expander: after text is committed to the iframe DOM, check the
+			// caret suffix for a trigger and expand. Runs on keyup so the just-typed
+			// character is present. Guarded to rendered mode + text triggers only.
+			editor.on('keyup',function(e){
+				if(_tinymceSuppressEdits)return;
+				if(e&&(e.ctrlKey||e.metaKey||e.altKey))return;
+				if(!_textExpanders.length)return;
+				try{maybeExpandTextFromTinyMCE(editor)}catch(err){_clientLog('expander.tinymce.error',{message:String(err&&err.message||err)})}
+			});
+			// Ctrl/Cmd-Space: manual AI prose completion inside the rendered editor.
+			// The global document keydown handler cannot see keystrokes inside the
+			// TinyMCE iframe, so wire it on the editor directly.
+			editor.on('keydown',function(e){
+				if(!e)return;
+				// When the AI completion popup is open, its keys (Enter/Tab/Esc/arrows)
+				// must be handled here — iframe key events never reach the outer document.
+				if(_activeRenderPopup&&_activeRenderPopupKind==='tinymce-prose'){
+					if(handleRenderPopupKey(e))return;
+					// Any other key (typing, backspace, etc.) dismisses the stale suggestion.
+					if(!e.ctrlKey&&!e.metaKey&&!e.altKey)hideRenderAutocompletePopup();
+				}
+				if(e.altKey)return;
+				if((e.ctrlKey||e.metaKey)&&(e.code==='Space'||e.key===' '||e.keyCode===32)){
+					e.preventDefault();
+					try{requestTinyMCEProseCompletion({editor:editor})}catch(err){_clientLog('expander.tinymce.error',{message:String(err&&err.message||err)})}
+				}
+			});
+			// Code block init is deferred to _setTinyMCEContent so it runs after
+			// TinyMCE's codesample plugin has finished processing the content.
+			editor.on('focus',function(){
+				document.body.dispatchEvent(new CustomEvent('joplock:editor-focus',{detail:{source:'tinymce'}}));
+			});
+			editor.on('blur',function(){
+				document.body.dispatchEvent(new CustomEvent('joplock:editor-blur',{detail:{source:'tinymce'}}));
+			});
+			editor.on('init',function(){
+				_tinymceEditor=editor;
+				ensureTinyMCEEditableAfterPre(editor);
+				initTinyMCECodeCopyButtons(editor);
+				try{
+					var iframeDoc=editor.getDoc();
+					if(iframeDoc){
+						if(iframeDoc.documentElement){
+							iframeDoc.documentElement.style.overscrollBehavior='none';
+						}
+						if(iframeDoc.body){
+							iframeDoc.body.style.overscrollBehavior='none';
+							iframeDoc.body.style.webkitOverflowScrolling='touch';
+						}
+					}
+				}catch(e){}
+				// Wire drop handlers on the host div (chrome area outside iframe)
+				var host=document.getElementById('tinymce-host');
+				if(host&&!host._jopDropWired){
+					host._jopDropWired=true;
+					host.addEventListener('dragover',function(ev){ev.preventDefault()});
+				host.addEventListener('drop',function(ev){
+					var files=ev.dataTransfer&&ev.dataTransfer.files;
+					if(!files||!files.length)return;
+					ev.preventDefault();
+					var arr=Array.prototype.slice.call(files);
+					arr.reduce(function(p,file){return p.then(function(){return _uploadFileToTinyMCE(file,_tinymceEditor)})},Promise.resolve()).then(function(){markEdited();scheduleSave()}).catch(function(err){console.error('Drop upload failed:',err)});
+				});
+				}
+				_syncTinyMCEThemeVars();
+				_tinymceSuppressEdits=false;
+				_applyTinyMCESpellcheck(editor);
+				refreshTinyMCEForActiveNote();
+			});
+		}
+	}).then(function(editors){
+		if(editors&&editors[0])_tinymceEditor=editors[0];
+	});
+	return _tinymceInitPromise;
+}
+function positionTinyMCEHost(){
+	var host=document.getElementById('tinymce-host');
+	if(!host)return;
+	var slot=queryActiveEditor('#tinymce-slot');
+	if(!slot||slot.offsetParent===null){
+		host.classList.remove('tinymce-host-visible');
+		return;
+	}
+	var vv=window.visualViewport;
+	var vpH=vv?vv.height:window.innerHeight;
+	var top,left,width;
+	if(isMobileShellMode()){
+		// On mobile the slot lives inside a rubber-bandable container so
+		// getBoundingClientRect().top drifts during over-scroll.  Instead,
+		// anchor the host to the bottom of the last stable fixed header element
+		// (mobile editor header, then toolbar if visible) — these are in normal
+		// flow inside position:fixed .mobile-app and don't bounce.
+		var editorScreen=document.getElementById('mobile-editor-screen');
+		var anchorEl=null;
+		// Walk fixed headers in order: search header (if visible), main header, toolbar.
+		['mobile-editor-search-header','mobile-editor-header'].forEach(function(id){
+			var el=document.getElementById(id);
+			if(el&&getComputedStyle(el).display!=='none')anchorEl=el;
+		});
+		var tb=document.getElementById('mobile-editor-body')&&
+		        document.getElementById('mobile-editor-body').querySelector('#editor-toolbar');
+		if(tb&&getComputedStyle(tb).display!=='none')anchorEl=tb;
+		if(anchorEl){
+			var ar=anchorEl.getBoundingClientRect();
+			top=ar.bottom;
+		}else{
+			// Fallback: use slot rect (no rubber-band active yet)
+			top=slot.getBoundingClientRect().top;
+		}
+		var mobileApp=document.getElementById('mobile-app');
+		var mar=mobileApp?mobileApp.getBoundingClientRect():{left:0,width:window.innerWidth};
+		left=mar.left;
+		width=mar.width;
+		// Keep the host locked to the visible viewport while the keyboard is open,
+		// otherwise iOS may pan the outer page (dual-scroll effect).
+		// When keyboard is closed, prefer innerHeight to avoid rubber-band gaps.
+		if(vv&&window.innerHeight-vv.height>80){
+			vpH=vv.height+vv.offsetTop;
+		}else{
+			vpH=window.innerHeight;
+		}
+	}else{
+		var rect=slot.getBoundingClientRect();
+		if(rect.width===0||rect.height===0){
+			host.classList.remove('tinymce-host-visible');
+			return;
+		}
+		top=rect.top;left=rect.left;width=rect.width;
+		host.style.height=Math.max(0,rect.height)+'px';
+		host.style.top=top+'px';
+		host.style.left=left+'px';
+		host.style.width=width+'px';
+		return;
+	}
+	host.style.top=top+'px';
+	host.style.left=left+'px';
+	host.style.width=width+'px';
+	host.style.height=Math.max(0,vpH-top)+'px';
+}
+function hideTinyMCEHost(){
+	_tinymceShowRequested=false;
+	var host=document.getElementById('tinymce-host');
+	if(host)host.classList.remove('tinymce-host-visible');
+}
+function stabilizeTinyMCEHostPosition(){
+	if(!isMobileShellMode())return;
+	positionTinyMCEHost();
+	requestAnimationFrame(positionTinyMCEHost);
+	setTimeout(positionTinyMCEHost,60);
+	setTimeout(positionTinyMCEHost,180);
+	try{
+		if(_tinymceEditor&&_tinymceEditor.hasFocus&&_tinymceEditor.hasFocus()&&_tinymceEditor.selection&&_tinymceEditor.selection.scrollIntoView){
+			_tinymceEditor.selection.scrollIntoView();
+		}
+	}catch(_e){}
+}
+function showTinyMCEHost(){
+	_tinymceShowRequested=true;
+	var host=document.getElementById('tinymce-host');
+	if(!host)return;
+	// Reveal on next frame so theme CSS overrides settle before first paint.
+	requestAnimationFrame(function(){
+		if(!_tinymceShowRequested)return;
+		host.classList.add('tinymce-host-visible');
+		positionTinyMCEHost();
+		requestAnimationFrame(function(){
+			positionTinyMCEHost();
+			setTimeout(positionTinyMCEHost,60);
+			setTimeout(positionTinyMCEHost,180);
+		});
+		if(isMobileShellMode()){
+			try{
+				if(_tinymceEditor&&_tinymceEditor.hasFocus&&_tinymceEditor.hasFocus()&&_tinymceEditor.selection&&_tinymceEditor.selection.scrollIntoView){
+					_tinymceEditor.selection.scrollIntoView();
+				}
+			}catch(_e){}
+		}
+	});
+}
+function refreshTinyMCEForActiveNote(){
+	if(!_tinymceEditor)return;
+	var form=activeEditorForm();
+	if(!form){hideTinyMCEHost();return}
+	// Locked encrypted note: keep TinyMCE hidden, do not populate content.
+	if(form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1'){
+		hideTinyMCEHost();
+		return;
+	}
+	// Mode toggle: markdown mode shows the raw textarea, not TinyMCE.
+	if(_editorMode==='markdown'||_editorMode==='md'){
+		hideTinyMCEHost();
+		return;
+	}
+	var slot=queryActiveEditor('#tinymce-slot');
+	if(!slot){hideTinyMCEHost();return}
+	// Use the server-rendered HTML from the slot's data attribute when available;
+	// fall back to /fragments/preview if the note body was set client-side (e.g.
+	// after unlock decrypts ciphertext into #note-body).
+	var ta=getTA();
+	var mdVal=ta?ta.value:'';
+	var renderedFromServer=slot.dataset.renderedBody||'';
+	if(renderedFromServer&&!(form.dataset.encrypted==='1')){
+		_setTinyMCEContent(renderedFromServer);
+		showTinyMCEHost();
+		return;
+	}
+	// Encrypted-and-now-unlocked: server sent no useful HTML. Re-render from plaintext.
+	fetch('/fragments/preview',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'body='+encodeURIComponent(mdVal)}).then(function(r){return r.text()}).then(function(h){
+		if(!_tinymceEditor)return;
+		_setTinyMCEContent(h);
+		showTinyMCEHost();
+	});
+}
+// Reposition on resize / scroll / htmx swaps.
+window.addEventListener('resize',positionTinyMCEHost);
+document.addEventListener('scroll',positionTinyMCEHost,true);
+// Back-compat shim: legacy code paths call initTinyMCE(textarea,content).
+// Now they just refresh the persistent editor.
+function initTinyMCE(_textarea,content){
+	if(!_tinymceEditor){
+		initPersistentTinyMCE();
+		// When init completes it will refresh from the active note.
+		return;
+	}
+	if(typeof content==='string'){
+		_setTinyMCEContent(content);
+		showTinyMCEHost();
+	}
+}
 function noteCompletionSource(context) {
 	var before = context.matchBefore(/\[\[[^\]]*/);
 	if (!before) return null;
@@ -573,6 +1371,225 @@ function removeCMTriggerForAction(entry){
 	var from=s.from-entry.trigger.length;if(from<0)return null;
 	if(cm.state.sliceDoc(from,s.from)!==entry.trigger)return null;
 	cm.dispatch({changes:{from:from,to:s.from,insert:''},selection:{anchor:from}});cm.focus();return {from:from,to:from,trigger:entry.trigger};
+}
+
+// TinyMCE (rendered-mode) text expander. Inspects the text before the caret in
+// the TinyMCE iframe selection; if it ends with a trigger, replaces the trigger
+// with the expansion text. Text triggers only; AI triggers are skipped in
+// rendered mode (the AI prose-completion path is not wired into the iframe).
+function replaceTinyMCETextExpansion(entry,editor){
+	var ed=editor||getTinyMCE();
+	if(!ed||!entry||!entry.trigger)return false;
+	var sel=ed.selection;if(!sel)return false;
+	var rng=sel.getRng&&sel.getRng();if(!rng||!rng.collapsed)return false;
+	var node=rng.startContainer;
+	// Only act inside a text node; bail inside code/pre.
+	var el=node&&node.nodeType===1?node:(node&&node.parentElement?node.parentElement:null);
+	if(el&&el.closest&&el.closest('pre,code'))return false;
+	if(!node||node.nodeType!==3)return false;
+	var text=node.textContent||'';
+	var caret=rng.startOffset;
+	if(text.slice(0,caret).slice(-entry.trigger.length)!==entry.trigger)return false;
+	var start=caret-entry.trigger.length;if(start<0)return false;
+	var doc=ed.getDoc();
+	var newRange=doc.createRange();
+	newRange.setStart(node,start);
+	newRange.setEnd(node,caret);
+	newRange.deleteContents();
+	// Insert expansion text; multi-line becomes <br>-separated for the rendered editor.
+	var parts=String(entry.text).split('\n');
+	var frag=doc.createDocumentFragment();
+	var lastNode=null;
+	for(var i=0;i<parts.length;i++){
+		if(i>0)frag.appendChild(doc.createElement('br'));
+		lastNode=doc.createTextNode(parts[i]);
+		frag.appendChild(lastNode);
+	}
+	newRange.insertNode(frag);
+	// Place caret after inserted content.
+	var caretRange=doc.createRange();
+	if(lastNode){caretRange.setStart(lastNode,(lastNode.textContent||'').length);}
+	else{caretRange.setStart(node,start);}
+	caretRange.collapse(true);
+	sel.setRng(caretRange);
+	ed.focus();
+	// Sync to markdown source of truth.
+	tinyMCESyncToTA();
+	markEdited();scheduleSave();
+	_clientLog('expander.tinymce.replace',{trigger:entry.trigger,replacementLength:entry.text.length,lines:parts.length});
+	return true;
+}
+
+// Build an AI-prompt string from the text before the caret in the TinyMCE
+// iframe. Walks the iframe body in document order up to the caret, joining
+// block boundaries with newlines so the provider sees paragraph structure.
+function getTextBeforeCaretTinyMCE(editor){
+	var ed=editor||getTinyMCE();
+	if(!ed||!ed.selection)return '';
+	var rng=ed.selection.getRng&&ed.selection.getRng();
+	if(!rng)return '';
+	var doc=ed.getDoc&&ed.getDoc();var body=ed.getBody&&ed.getBody();
+	if(!doc||!body)return '';
+	// Range from the very start of the body to the caret.
+	var pre=doc.createRange();
+	pre.setStart(body,0);
+	try{pre.setEnd(rng.startContainer,rng.startOffset);}catch(_e){return '';}
+	var frag=pre.cloneContents();
+	// Serialize the fragment to text, treating block elements as line breaks.
+	var host=doc.createElement('div');host.appendChild(frag);
+	var BLOCK=/^(P|DIV|LI|BLOCKQUOTE|H1|H2|H3|H4|H5|H6|PRE|TR|BR)$/;
+	var out='';
+	(function walk(node){
+		for(var n=node.firstChild;n;n=n.nextSibling){
+			if(n.nodeType===3){out+=n.textContent||'';}
+			else if(n.nodeType===1){
+				if(n.tagName==='BR'){out+='\n';continue;}
+				var block=BLOCK.test(n.tagName);
+				if(block&&out&&!/\n$/.test(out))out+='\n';
+				walk(n);
+				if(block&&out&&!/\n$/.test(out))out+='\n';
+			}
+		}
+	})(host);
+	return out.replace(/\u00a0/g,' ');
+}
+
+// Insert AI prose-completion text at the current TinyMCE caret and sync to the
+// markdown source of truth. Multi-line completions become <br>-separated lines
+// (matching replaceTinyMCETextExpansion), so a single paragraph is preserved.
+// Text is inserted as DOM text nodes (never HTML) so provider output cannot
+// inject markup into the iframe.
+function insertProseCompletionTinyMCE(text,editor,bookmark){
+	var ed=editor||getTinyMCE();
+	if(!ed||!text||!ed.selection)return false;
+	ed.focus();
+	if(bookmark){try{ed.selection.moveToBookmark(bookmark);}catch(_e){}}
+	var sel=ed.selection;
+	var rng=sel.getRng&&sel.getRng();
+	if(!rng)return false;
+	var doc=ed.getDoc();
+	rng.deleteContents();
+	var parts=String(text).split('\n');
+	var frag=doc.createDocumentFragment();
+	var lastNode=null;
+	for(var i=0;i<parts.length;i++){
+		if(i>0)frag.appendChild(doc.createElement('br'));
+		lastNode=doc.createTextNode(parts[i]);
+		frag.appendChild(lastNode);
+	}
+	rng.insertNode(frag);
+	var caretRange=doc.createRange();
+	if(lastNode)caretRange.setStart(lastNode,(lastNode.textContent||'').length);
+	else caretRange.setStart(rng.startContainer,rng.startOffset);
+	caretRange.collapse(true);
+	sel.setRng(caretRange);
+	ed.focus();
+	tinyMCESyncToTA();
+	markEdited();scheduleSave();
+	return true;
+}
+
+// Remove a matched AI-trigger from the TinyMCE iframe (so the trigger text does
+// not become part of the prompt or remain after the completion). Returns true
+// when the trigger was found immediately before the caret and removed.
+function removeTinyMCETriggerForAction(entry,editor){
+	var ed=editor||getTinyMCE();
+	if(!ed||!entry||!entry.trigger||!ed.selection)return false;
+	var rng=ed.selection.getRng&&ed.selection.getRng();
+	if(!rng||!rng.collapsed)return false;
+	var node=rng.startContainer;if(!node||node.nodeType!==3)return false;
+	var caret=rng.startOffset;
+	if((node.textContent||'').slice(0,caret).slice(-entry.trigger.length)!==entry.trigger)return false;
+	var start=caret-entry.trigger.length;if(start<0)return false;
+	var doc=ed.getDoc();
+	var delRange=doc.createRange();
+	delRange.setStart(node,start);delRange.setEnd(node,caret);
+	delRange.deleteContents();
+	var caretRange=doc.createRange();
+	caretRange.setStart(node,start);caretRange.collapse(true);
+	ed.selection.setRng(caretRange);
+	return true;
+}
+
+// Screen (viewport) coordinates of the TinyMCE caret, for positioning the
+// autocomplete popup which lives in the OUTER document. The caret rect from the
+// iframe is relative to the iframe viewport, so offset it by the iframe element.
+function tinyMCECaretCoords(editor){
+	var ed=editor||getTinyMCE();
+	if(!ed||!ed.selection)return null;
+	var rng=ed.selection.getRng&&ed.selection.getRng();
+	if(!rng)return null;
+	var rect=null;
+	try{
+		var rects=rng.getClientRects&&rng.getClientRects();
+		if(rects&&rects.length)rect=rects[rects.length-1];
+		if(!rect||(!rect.width&&!rect.height)){
+			var node=rng.startContainer;
+			var el=node&&node.nodeType===1?node:(node&&node.parentElement);
+			if(el&&el.getBoundingClientRect)rect=el.getBoundingClientRect();
+		}
+	}catch(_e){return null;}
+	if(!rect)return null;
+	var ifr=ed.iframeElement||(ed.getContentAreaContainer&&ed.getContentAreaContainer().querySelector&&ed.getContentAreaContainer().querySelector('iframe'));
+	var off={left:0,top:0};
+	if(ifr&&ifr.getBoundingClientRect){var ir=ifr.getBoundingClientRect();off.left=ir.left;off.top=ir.top;}
+	return {top:rect.top+off.top,left:rect.left+off.left,height:rect.height||18};
+}
+
+// Launch an AI prose completion from within TinyMCE (rendered mode). Used by
+// both the Ctrl/Cmd-Space shortcut and AI-action Expander triggers. The result
+// is offered in the same accept/dismiss popup used by markdown mode (Enter/Tab
+// to insert, Esc to discard) rather than inserted directly.
+function requestTinyMCEProseCompletion(opts){
+	opts=opts||{};
+	var ed=opts.editor||getTinyMCE();
+	if(!ed||!_openRouterEnabled||_manualProseCompletionInFlight)return false;
+	var prompt=getTextBeforeCaretTinyMCE(ed);
+	if(!prompt||prompt.trim().length<20){console.info('[joplock] tinymce prose autocomplete skipped: prompt too short',{length:prompt?prompt.trim().length:0});return false;}
+	// Capture the caret so accept can insert at the right spot even if focus moves.
+	var bookmark=null;try{bookmark=ed.selection.getBookmark(2);}catch(_e){}
+	_manualProseCompletionInFlight=true;
+	_clientLog('expander.tinymce.ai.request',{profileId:opts.profileId||'',promptChars:prompt.length});
+	requestProseCompletion(prompt,true,opts.profileId||'').then(function(text){
+		if(!text)return;
+		var coords=tinyMCECaretCoords(ed);
+		if(!coords){insertProseCompletionTinyMCE(text,ed);_clientLog('expander.tinymce.ai.insert',{length:text.length,fallback:true});return;}
+		showRenderAutocompletePopup(coords,[{label:text,text:text}],'tinymce-prose',{editor:ed,bookmark:bookmark});
+		_clientLog('expander.tinymce.ai.popup',{length:text.length});
+	}).finally(function(){_manualProseCompletionInFlight=false});
+	return true;
+}
+
+function maybeExpandTextFromTinyMCE(editor){
+	var ed=editor||getTinyMCE();
+	if(!ed||_editorMode==='markdown'||_editorMode==='md'||!_textExpanders.length)return false;
+	var sel=ed.selection;if(!sel)return false;
+	var rng=sel.getRng&&sel.getRng();if(!rng||!rng.collapsed)return false;
+	var node=rng.startContainer;if(!node||node.nodeType!==3)return false;
+	var before=(node.textContent||'').slice(0,rng.startOffset);
+	var candidates=_textExpanders.slice().sort(function(a,b){return b.trigger.length-a.trigger.length});
+	for(var i=0;i<candidates.length;i++){
+		var entry=candidates[i];
+		if(!entry.trigger)continue;
+		if(before.slice(-entry.trigger.length)!==entry.trigger)continue;
+		if(entry.action==='ai'){
+			// AI prose-completion in rendered mode: remove the trigger from the
+			// iframe, then request a completion and insert it at the caret.
+			if(!_openRouterEnabled||_manualProseCompletionInFlight){
+				_clientLog('expander.tinymce.skip',{reason:'ai-blocked',trigger:entry.trigger,openRouterEnabled:_openRouterEnabled,inFlight:_manualProseCompletionInFlight});
+				continue;
+			}
+			if(!removeTinyMCETriggerForAction(entry,ed))continue;
+			tinyMCESyncToTA();
+			_clientLog('expander.tinymce.ai.trigger',{trigger:entry.trigger,profileId:entry.profileId||''});
+			requestTinyMCEProseCompletion({editor:ed,profileId:entry.profileId||''});
+			return true;
+		}
+		var ok=replaceTinyMCETextExpansion(entry,ed);
+		_clientLog('expander.tinymce.match',{trigger:entry.trigger,action:entry.action,ok:ok});
+		if(ok)return true;
+	}
+	return false;
 }
 
 function runTextExpanderAction(entry,source){
@@ -785,6 +1802,10 @@ function applyActiveAutocompleteSelection(entry){
 		var state=_activeRenderPopupState||{};
 		var text=(entry.text||entry.label||'').trim();
 		if(cm&&text){var from=typeof state.from==='number'?state.from:cm.state.selection.main.from;var to=typeof state.to==='number'?state.to:cm.state.selection.main.to;var docLen=cm.state.doc.length;from=Math.min(Math.max(from,0),docLen);to=Math.min(Math.max(to,from),docLen);var atBottom=to>=docLen;try{cm.dispatch({changes:{from:from,to:to,insert:text},selection:{anchor:from+text.length}});cm.focus();if(atBottom)scrollMarkdownToBottom()}catch(err){console.error('[joplock] autocomplete dispatch failed',err);var cur=cm.state.selection.main;cm.dispatch({changes:{from:cur.from,to:cur.to,insert:text},selection:{anchor:cur.from+text.length}});cm.focus();scrollMarkdownToBottom()}}
+	}else if(_activeRenderPopupKind==='tinymce-prose'){
+		var st=_activeRenderPopupState||{};
+		var t=(entry.text||entry.label||'').trim();
+		if(t){insertProseCompletionTinyMCE(t,st.editor,st.bookmark);_clientLog('expander.tinymce.ai.insert',{length:t.length});}
 	}else{
 		replaceRenderQueryWithLink(entry.id,entry.title);
 	}
@@ -820,11 +1841,14 @@ function scrollMarkdownToBottom(){
 	if(ta)setTimeout(function(){ta.scrollTop=ta.scrollHeight},0);
 }
 
-document.addEventListener('keydown',function(e){
-	if(!_activeRenderPopup)return;
+// Handle a keydown while the autocomplete popup is open. Returns true if the
+// key was consumed. Shared between the outer-document listener and the TinyMCE
+// iframe keydown handler (iframe key events never reach the outer document).
+function handleRenderPopupKey(e){
+	if(!_activeRenderPopup)return false;
 	if(e.key==='ArrowDown'||e.key==='ArrowUp'||e.key==='Enter'||e.key==='Tab'||e.key==='Escape'){
-		e.preventDefault();
-		e.stopPropagation();
+		if(e.preventDefault)e.preventDefault();
+		if(e.stopPropagation)e.stopPropagation();
 		if(e.key==='ArrowDown'){
 			_popupSelectedIndex=(_popupSelectedIndex+1)%_popupItems.length;
 			updateRenderPopupSelection();
@@ -837,7 +1861,13 @@ document.addEventListener('keydown',function(e){
 		}else if(e.key==='Escape'){
 			hideRenderAutocompletePopup();
 		}
+		return true;
 	}
+	return false;
+}
+
+document.addEventListener('keydown',function(e){
+	handleRenderPopupKey(e);
 },true);
 
 function updateRenderPopupSelection() {
@@ -940,11 +1970,27 @@ function replaceRenderQueryWithLink(noteId, title) {
 	var pv = getPV();
 	if (pv) pv.focus();
 }
+function _cmNormalizeLanguageSupport(support){
+	if(!support)return null;
+	if(support.language&&support.language.parser)return support;
+	if(support.parser)return {language:support};
+	return null;
+}
+function _cmLanguageDescription(C,name,alias,buildSupport){
+	var support=null;
+	try{support=_cmNormalizeLanguageSupport(buildSupport())}catch(_e){support=null}
+	if(!support)return null;
+	return C.LanguageDescription.of({
+		name:name,
+		alias:alias||[],
+		load:function(){return Promise.resolve(support)}
+	});
+}
 function initCM(host,content){
 	if(_cmView){_cmView.destroy();_cmView=null}
 	var C=window.CM;
 	var joplockTheme=C.EditorView.theme({
-		'&':{height:'100%',fontSize:'var(--font-size-note)'},
+		'&':{height:'100%'},
 		'.cm-scroller':{overflow:'auto',fontFamily:'"Cascadia Mono",monospace',lineHeight:'1.7'},
 		'.cm-content':{padding:'16px 20px',caretColor:'var(--accent)'},
 		'.cm-gutters':{display:'none'},
@@ -986,24 +2032,26 @@ function initCM(host,content){
 	var onUpdate=C.EditorView.updateListener.of(function(upd){
 		if(upd.docChanged){cmSyncToTA();var ta=getTA();if(ta)ta.dispatchEvent(new Event('input',{bubbles:true}));maybeTriggerManualProseFromCM(_cmView,upd)}
 	});
+	var codeLanguages=[];
+	[
+		_cmLanguageDescription(C,'javascript',['js','jsx'],function(){return C.javascript({jsx:true})}),
+		_cmLanguageDescription(C,'typescript',['ts','tsx'],function(){return C.javascript({typescript:true,jsx:true})}),
+		_cmLanguageDescription(C,'html',[],function(){return C.html()}),
+		_cmLanguageDescription(C,'css',[],function(){return C.css()}),
+		_cmLanguageDescription(C,'json',[],function(){return C.json()}),
+		_cmLanguageDescription(C,'sql',[],function(){return C.sql()}),
+		_cmLanguageDescription(C,'python',['py'],function(){return C.python()}),
+		_cmLanguageDescription(C,'xml',[],function(){return C.xml()}),
+		_cmLanguageDescription(C,'go',['golang'],function(){return C.go()}),
+		_cmLanguageDescription(C,'c++',['cpp','c'],function(){return C.cpp()}),
+		_cmLanguageDescription(C,'yaml',['yml','dockerfile','docker-compose'],function(){return C.yaml()}),
+		_cmLanguageDescription(C,'shell',['bash','sh','zsh'],function(){return C.StreamLanguage.define(C.shell)})
+	].forEach(function(desc){if(desc)codeLanguages.push(desc)});
 	_cmView=new C.EditorView({
 		state:C.EditorState.create({
 			doc:content||'',
 				extensions:[
-					C.markdown({base:C.markdownLanguage,codeLanguages:[
-				C.LanguageDescription.of({name:'javascript',alias:['js','jsx'],load:function(){return Promise.resolve(C.javascript({jsx:true}))}}),
-				C.LanguageDescription.of({name:'typescript',alias:['ts','tsx'],load:function(){return Promise.resolve(C.javascript({typescript:true,jsx:true}))}}),
-				C.LanguageDescription.of({name:'html',load:function(){return Promise.resolve(C.html())}}),
-				C.LanguageDescription.of({name:'css',load:function(){return Promise.resolve(C.css())}}),
-				C.LanguageDescription.of({name:'json',load:function(){return Promise.resolve(C.json())}}),
-				C.LanguageDescription.of({name:'sql',load:function(){return Promise.resolve(C.sql())}}),
-				C.LanguageDescription.of({name:'python',alias:['py'],load:function(){return Promise.resolve(C.python())}}),
-				C.LanguageDescription.of({name:'xml',load:function(){return Promise.resolve(C.xml())}}),
-				C.LanguageDescription.of({name:'go',alias:['golang'],load:function(){return Promise.resolve(C.go())}}),
-				C.LanguageDescription.of({name:'c++',alias:['cpp','c'],load:function(){return Promise.resolve(C.cpp())}}),
-				C.LanguageDescription.of({name:'yaml',alias:['yml','dockerfile','docker-compose'],load:function(){return Promise.resolve(C.yaml())}}),
-				C.LanguageDescription.of({name:'shell',alias:['bash','sh','zsh'],load:function(){return Promise.resolve(C.StreamLanguage.define(C.shell))}})
-			]}),
+					C.markdown({base:C.markdownLanguage,codeLanguages:codeLanguages}),
 				C.syntaxHighlighting(joplockHighlight),
 				C.syntaxHighlighting(C.defaultHighlightStyle,{fallback:true}),
 				joplockTheme,
@@ -1040,10 +2088,62 @@ function initCM(host,content){
 			if(_pendingTextExpansion){consumePendingTextExpansion('cm');return}
 		});
 		_cmView.contentDOM.addEventListener('blur',function(){_resetRingBuffer('cm-blur')});
+		// Drag-and-drop file upload directly into markdown editor (no modal).
+		_cmView.contentDOM.addEventListener('dragover',function(e){
+			if(e.dataTransfer&&e.dataTransfer.types&&Array.prototype.indexOf.call(e.dataTransfer.types,'Files')>=0){
+				e.preventDefault();if(e.dataTransfer){try{e.dataTransfer.dropEffect='copy'}catch(_){}}
+			}
+		});
+		_cmView.contentDOM.addEventListener('drop',function(e){
+			var files=e.dataTransfer&&e.dataTransfer.files;
+			if(!files||!files.length)return;
+			e.preventDefault();e.stopPropagation();
+			var arr=Array.prototype.slice.call(files);
+			// Insert at drop position if resolvable, else at current selection.
+			try{var p=_cmView.posAtCoords({x:e.clientX,y:e.clientY});if(p!=null)_cmView.dispatch({selection:{anchor:p}})}catch(_){}
+			arr.reduce(function(pr,file){return pr.then(function(){return _uploadFileToCM(file)})},Promise.resolve()).then(function(){markEdited();scheduleSave()}).catch(function(err){console.error('CM drop upload failed:',err)});
+		});
 	}
 }
 var _editorMode='markdown';
-function syncEditorModeButtons(){var previewVisible=!!getPV();var markdownVisible=isMarkdownVisible();var mode=previewVisible?'preview':'markdown';_editorMode=mode;document.querySelectorAll('#markdown-toggle').forEach(function(btn){btn.classList.toggle('active',mode==='markdown')});document.querySelectorAll('#preview-toggle').forEach(function(btn){btn.classList.toggle('active',mode==='preview')});var mMd=document.getElementById('mobile-md-toggle');var mPv=document.getElementById('mobile-preview-toggle');if(mMd)mMd.classList.toggle('active',mode==='markdown');if(mPv)mPv.classList.toggle('active',mode==='preview');var tb=document.getElementById('editor-toolbar');var form=activeEditorForm();if(tb&&inMobileEditor()&&!(form&&form.dataset.encrypted==='1'))tb.style.display='flex';document.body.classList.toggle('mobile-markdown-mode',inMobileEditor()&&mode==='markdown')}
+function syncEditorModeButtons(){var mode=_editorMode||'rich';var isMd=mode==='markdown'||mode==='md';document.querySelectorAll('#markdown-toggle').forEach(function(btn){btn.classList.toggle('active',isMd)});document.querySelectorAll('#preview-toggle').forEach(function(btn){btn.classList.toggle('active',!isMd)});var mMd=document.getElementById('mobile-md-toggle');var mPv=document.getElementById('mobile-preview-toggle');if(mMd)mMd.classList.toggle('active',isMd);if(mPv)mPv.classList.toggle('active',!isMd);document.body.classList.toggle('mobile-markdown-mode',inMobileEditor()&&isMd);document.body.classList.toggle('editor-markdown-mode',isMd);document.body.classList.toggle('editor-rich-mode',!isMd)}
+function applyEditorModeVisibility(mode,opts){
+	opts=opts||{};
+	var isMd=mode==='markdown'||mode==='md';
+	var ta=getTA();
+	var tb=queryActiveEditor('#editor-toolbar');
+	var cmHost=queryActiveEditor('#cm-host');
+	var slot=queryActiveEditor('#tinymce-slot');
+	var pv=queryActiveEditor('#note-preview');
+	if(tb&&!opts.preserveToolbarInline)tb.style.display='';
+	if(isMd){
+		hideTinyMCEHost();
+		// The tinymce-slot placeholder also has flex:1; collapse it in markdown mode so it
+		// does not steal vertical space from #cm-host (which would truncate the editor).
+		if(slot){slot.style.flex='0';slot.style.height='0';slot.style.minHeight='0';}
+		var haveCM=!!(cmHost&&window.CM);
+		if(cmHost)cmHost.style.display=haveCM?'':'none';
+		if(ta){
+			// When CM6 is available the textarea is a hidden sync target; otherwise it is the
+			// visible fallback editor.
+			if(haveCM){
+				ta.style.display='none';
+			}else{
+				ta.style.display='block';
+				ta.style.flex='1';
+				ta.style.minHeight='0';
+				if(opts.focusTextarea!==false)ta.focus();
+			}
+		}
+		if(pv)pv.style.display='none';
+		return;
+	}
+	// Rich mode: restore the slot so it anchors and sizes the TinyMCE host.
+	if(slot){slot.style.flex='';slot.style.height='';slot.style.minHeight='';}
+	if(ta)ta.style.display='none';
+	if(cmHost)cmHost.style.display='none';
+	if(pv)pv.style.display='none';
+}
 function activeSearchInput(){if(isMobileShellMode()){var mobileInput=document.getElementById('mobile-editor-search-input');if(mobileInput)return mobileInput}return document.getElementById('nav-search')}
 function currentListSearchInput(){return document.getElementById('nav-search')||document.getElementById('mobile-search-input')}
 function currentListSearchTerm(){var input=currentListSearchInput();return input&&typeof input.value==='string'?input.value:''}
@@ -1101,13 +2201,15 @@ var _codeSavedSel=null;
 var _codeSavedRange=null;
 var _codeEditPre=null;
 var _codeModalCM=null;
+var _codeTinyMCE=false;
+var _codeTinyMCEBookmark=null;
 var _codeLangMap={'javascript':function(C){return C.javascript({jsx:true})},'typescript':function(C){return C.javascript({typescript:true,jsx:true})},'html':function(C){return C.html()},'css':function(C){return C.css()},'json':function(C){return C.json()},'sql':function(C){return C.sql()},'python':function(C){return C.python()},'xml':function(C){return C.xml()},'go':function(C){return C.go()},'c':function(C){return C.cpp()},'cpp':function(C){return C.cpp()},'yaml':function(C){return C.yaml()},'bash':function(C){return C.StreamLanguage.define(C.shell)}};
 function _codeModalLangExt(lang){var C=window.CM;var fn=_codeLangMap[lang];return fn?fn(C):[]}
-function _initCodeModalCM(host,content,lang){if(_codeModalCM){_codeModalCM.destroy();_codeModalCM=null}var C=window.CM;var theme=C.EditorView.theme({'&':{height:'100%',fontSize:'13px'},'.cm-scroller':{overflow:'auto',fontFamily:'"Cascadia Mono",monospace',lineHeight:'1.5'},'.cm-content':{padding:'12px'},'.cm-gutters':{display:'none'},'.cm-activeLine':{backgroundColor:'var(--bg-hover)'},'.cm-selectionBackground':{backgroundColor:'var(--accent-dim) !important'},'&.cm-focused .cm-selectionBackground':{backgroundColor:'var(--accent-dim) !important'},'.cm-cursor':{borderLeftColor:'var(--accent)'}});_codeModalCM=new C.EditorView({state:C.EditorState.create({doc:content||'',extensions:[_codeModalLangExt(lang),C.syntaxHighlighting(C.defaultHighlightStyle,{fallback:true}),C.syntaxHighlighting(C.HighlightStyle.define([{tag:C.tags.keyword,color:'#c678dd'},{tag:[C.tags.string,C.tags.special(C.tags.brace)],color:'#98c379'},{tag:C.tags.number,color:'#d19a66'},{tag:C.tags.bool,color:'#d19a66'},{tag:[C.tags.definition(C.tags.variableName),C.tags.function(C.tags.variableName)],color:'#61afef'},{tag:C.tags.typeName,color:'#e5c07b'},{tag:C.tags.comment,color:'var(--text-dim)',fontStyle:'italic'},{tag:C.tags.operator,color:'#56b6c2'},{tag:C.tags.className,color:'#e5c07b'},{tag:C.tags.propertyName,color:'#e06c75'},{tag:C.tags.attributeName,color:'#d19a66'},{tag:C.tags.attributeValue,color:'#98c379'}])),theme,C.drawSelection(),C.highlightActiveLine(),C.bracketMatching(),C.history(),C.keymap.of([...C.defaultKeymap,...C.historyKeymap,C.indentWithTab]),C.placeholder('Paste or type code here...'),C.EditorView.lineWrapping]}),parent:host});_codeModalCM.focus()}
+function _initCodeModalCM(host,content,lang){if(_codeModalCM){_codeModalCM.destroy();_codeModalCM=null}var C=window.CM;var codeModalTheme=C.EditorView.theme({'&':{height:'100%',fontSize:'13px',color:'var(--text)'},'.cm-scroller':{overflow:'auto',fontFamily:'"Cascadia Mono",monospace',lineHeight:'1.5'},'.cm-content':{padding:'12px',caretColor:'var(--accent)'},'.cm-gutters':{display:'none'},'.cm-selectionBackground':{backgroundColor:'color-mix(in srgb, var(--accent) 25%, transparent)!important'},'&.cm-focused .cm-selectionBackground':{backgroundColor:'color-mix(in srgb, var(--accent) 30%, transparent)!important'},'.cm-cursor':{borderLeftColor:'var(--accent)'}});var codeModalHighlight=C.HighlightStyle.define([{tag:C.tags.keyword,color:'#c678dd'},{tag:[C.tags.string,C.tags.special(C.tags.brace)],color:'#98c379'},{tag:C.tags.number,color:'#d19a66'},{tag:C.tags.bool,color:'#d19a66'},{tag:[C.tags.definition(C.tags.variableName),C.tags.function(C.tags.variableName)],color:'#61afef'},{tag:C.tags.typeName,color:'#e5c07b'},{tag:C.tags.comment,color:'#5c6370',fontStyle:'italic'},{tag:C.tags.operator,color:'#56b6c2'},{tag:C.tags.className,color:'#e5c07b'},{tag:C.tags.propertyName,color:'#e06c75'},{tag:C.tags.attributeName,color:'#d19a66'},{tag:C.tags.attributeValue,color:'#98c379'},{tag:C.tags.meta,color:'var(--text-dim)'},{tag:C.tags.processingInstruction,fontFamily:'"Cascadia Mono",monospace',color:'var(--accent)'},{tag:C.tags.monospace,fontFamily:'"Cascadia Mono",monospace'}]);_codeModalCM=new C.EditorView({state:C.EditorState.create({doc:content||'',extensions:[_codeModalLangExt(lang),C.syntaxHighlighting(codeModalHighlight),C.syntaxHighlighting(C.defaultHighlightStyle,{fallback:true}),codeModalTheme,C.drawSelection(),C.bracketMatching(),C.history(),C.keymap.of([...C.defaultKeymap,...C.historyKeymap,C.indentWithTab]),C.placeholder('Paste or type code here...'),C.EditorView.lineWrapping]}),parent:host});_codeModalCM.focus()}
 function _updateCodeModalLang(lang){if(!_codeModalCM)return;var C=window.CM;var doc=_codeModalCM.state.doc.toString();var host=_codeModalCM.dom.parentElement;_codeModalCM.destroy();_initCodeModalCM(host,doc,lang)}
 function closeCodeModal(){if(_codeModalCM){_codeModalCM.destroy();_codeModalCM=null}var modal=document.getElementById('code-modal');if(modal)modal.hidden=true}
-function openCodeModal(editPre){var pv=getPV();var cm=getCM();var sel='';var lang='';_codeSavedSel=null;_codeSavedRange=null;_codeEditPre=editPre||null;if(_codeEditPre){var codeEl=_codeEditPre.querySelector('code[class*="language-"]');sel=codeEl?codeEl.textContent:(_codeEditPre.querySelector('code')||_codeEditPre).textContent;if(codeEl){var classes=(codeEl.getAttribute('class')||'').split(' ');for(var i=0;i<classes.length;i++){if(classes[i].indexOf('language-')===0){lang=classes[i].slice(9);break}}}}else if(pv){var s=window.getSelection();_codeSavedRange=s&&s.rangeCount?s.getRangeAt(0).cloneRange():null;sel=(s&&s.toString())||''}else if(cm){var s=cm.state.selection.main;_codeSavedSel={from:s.from,to:s.to};sel=cm.state.sliceDoc(s.from,s.to)}var langEl=document.getElementById('code-lang');if(langEl){langEl.value=lang;langEl.onchange=function(){_updateCodeModalLang(langEl.value)}}var title=document.getElementById('code-modal-title');if(title)title.textContent=_codeEditPre?'Edit code block':'Insert code block';var submitBtn=document.getElementById('code-modal-submit');if(submitBtn)submitBtn.textContent=_codeEditPre?'Save':'Insert';var modal=document.getElementById('code-modal');if(modal)modal.hidden=false;var host=document.getElementById('code-input');if(host){host.innerHTML='';_initCodeModalCM(host,sel,lang)}}
-function submitCode(event){if(event)event.preventDefault();var lang=document.getElementById('code-lang');var l=(lang?lang.value:'');var code=_codeModalCM?_codeModalCM.state.doc.toString():'';closeCodeModal();var pv=getPV();if(pv&&_codeEditPre){var codeEl=_codeEditPre.querySelector('code');if(!codeEl){codeEl=document.createElement('code');_codeEditPre.appendChild(codeEl)}codeEl.textContent=code;codeEl.className=l?'language-'+l:'';if(codeEl.dataset.highlighted)delete codeEl.dataset.highlighted;_codeEditPre=null;initCopyButtons(pv);highlightCodeBlocks(pv);ensureEditableAfterPre(pv);syncPV();pv.focus();return false}if(pv){if(_codeSavedRange){var sel=window.getSelection();sel.removeAllRanges();sel.addRange(_codeSavedRange)}_codeSavedRange=null;var escaped=code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');var cls=l?' class="language-'+l+'"':'';document.execCommand('insertHTML',false,'<pre spellcheck="false"><code'+cls+'>'+escaped+'</code></pre>');initCopyButtons(pv);highlightCodeBlocks(pv);ensureEditableAfterPre(pv);syncPV();pv.focus();return false}var cm=getCM();if(cm){var s=_codeSavedSel||cm.state.selection.main;var md='\n```'+l+'\n'+code+'\n```\n';cm.dispatch({changes:{from:s.from,to:s.to,insert:md},selection:{anchor:s.from+md.length}});cm.focus()}_codeSavedSel=null;_codeSavedRange=null;_codeEditPre=null;return false}
+function openCodeModal(editPre){var pv=getPV();var cm=getCM();var tmce=(!_isMarkdownModeActive()&&getTinyMCE())?getTinyMCE():null;var sel='';var lang='';_codeSavedSel=null;_codeSavedRange=null;_codeEditPre=editPre||null;_codeTinyMCE=!!tmce;_codeTinyMCEBookmark=null;if(_codeEditPre){var codeEl=_codeEditPre.querySelector('code');var readEl=codeEl||_codeEditPre;var _clone=readEl.cloneNode(true);var _cb=_clone.querySelector&&_clone.querySelector('.pre-copy-btn');if(_cb&&_cb.parentNode)_cb.parentNode.removeChild(_cb);sel=_clone.textContent||'';var langSrc=(codeEl&&(codeEl.className||'').indexOf('language-')!==-1)?codeEl:_codeEditPre;var classes=((langSrc.getAttribute&&langSrc.getAttribute('class'))||'').split(' ');for(var i=0;i<classes.length;i++){if(classes[i].indexOf('language-')===0){lang=classes[i].slice(9);break}}}else if(tmce){try{_codeTinyMCEBookmark=tmce.selection&&tmce.selection.getBookmark?tmce.selection.getBookmark(2,true):null}catch(_e){_codeTinyMCEBookmark=null}sel=(tmce.selection&&tmce.selection.getContent)?(tmce.selection.getContent({format:'text'})||''):''}else if(pv){var s=window.getSelection();_codeSavedRange=s&&s.rangeCount?s.getRangeAt(0).cloneRange():null;sel=(s&&s.toString())||''}else if(cm){var s=cm.state.selection.main;_codeSavedSel={from:s.from,to:s.to};sel=cm.state.sliceDoc(s.from,s.to)}var langEl=document.getElementById('code-lang');if(langEl){langEl.value=lang;langEl.onchange=function(){_updateCodeModalLang(langEl.value)}}var title=document.getElementById('code-modal-title');if(title)title.textContent=_codeEditPre?'Edit code block':'Insert code block';var submitBtn=document.getElementById('code-modal-submit');if(submitBtn)submitBtn.textContent=_codeEditPre?'Save':'Insert';var modal=document.getElementById('code-modal');if(modal)modal.hidden=false;var host=document.getElementById('code-input');if(host){host.innerHTML='';_initCodeModalCM(host,sel,lang)}}
+function submitCode(event){if(event)event.preventDefault();var lang=document.getElementById('code-lang');var l=(lang?lang.value:'');var code=_codeModalCM?_codeModalCM.state.doc.toString():'';var wasTinyMCE=_codeTinyMCE;var bookmark=_codeTinyMCEBookmark;closeCodeModal();if(wasTinyMCE){var ed=getTinyMCE();if(ed){var escapedT=code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');var preHTML='<pre class="language-'+(l||'')+'">'+escapedT+'</pre>';if(_codeEditPre){try{ed.selection.select(_codeEditPre)}catch(_e){}}else{try{if(bookmark&&ed.selection&&ed.selection.moveToBookmark)ed.selection.moveToBookmark(bookmark)}catch(_e2){}}ed.focus();ed.insertContent(preHTML);ed.focus();var _finishTinyMCECode=function(){ensureTinyMCEEditableAfterPre(ed);initTinyMCECodeCopyButtons(ed);tinyMCESyncToTA()};_finishTinyMCECode();setTimeout(_finishTinyMCECode,0);_codeSavedSel=null;_codeSavedRange=null;_codeEditPre=null;_codeTinyMCE=false;_codeTinyMCEBookmark=null;return false}}var pv=getPV();if(pv&&_codeEditPre){var codeEl=_codeEditPre.querySelector('code');if(!codeEl){codeEl=document.createElement('code');_codeEditPre.appendChild(codeEl)}codeEl.textContent=code;codeEl.className=l?'language-'+l:'';if(codeEl.dataset.highlighted)delete codeEl.dataset.highlighted;_codeEditPre=null;initCopyButtons(pv);highlightCodeBlocks(pv);ensureEditableAfterPre(pv);syncPV();pv.focus();return false}if(pv){if(_codeSavedRange){var sel=window.getSelection();sel.removeAllRanges();sel.addRange(_codeSavedRange)}_codeSavedRange=null;var escaped=code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');var cls=l?' class="language-'+l+'"':'';	document.execCommand('insertHTML',false,'<pre'+cls+'><code>'+escaped+'</code></pre>');initCopyButtons(pv);highlightCodeBlocks(pv);ensureEditableAfterPre(pv);syncPV();pv.focus();return false}var cm=getCM();if(cm){var s=_codeSavedSel||cm.state.selection.main;var md='\n```'+l+'\n'+code+'\n```\n';cm.dispatch({changes:{from:s.from,to:s.to,insert:md},selection:{anchor:s.from+md.length}});cm.focus()}_codeSavedSel=null;_codeSavedRange=null;_codeEditPre=null;_codeTinyMCE=false;_codeTinyMCEBookmark=null;return false}
 function insertImg(){var pv=getPV();if(pv){var u=prompt('Image URL:');if(!u)return;document.execCommand('insertHTML',false,'<img src="'+u+'" alt="image" class="preview-img" />');syncPV();pv.focus();return}var u=prompt('Image URL:');if(u)insertTxt('![image]('+u+')')}
 var _uploadInsertTarget=null;
 function _captureUploadInsertTarget(){var pv=getPV();if(pv){var sel=window.getSelection();var range=sel&&sel.rangeCount?sel.getRangeAt(0):null;if(range&&pv.contains(range.commonAncestorContainer))return {mode:'preview',range:range.cloneRange()};var fallback=document.createRange();fallback.selectNodeContents(pv);fallback.collapse(false);return {mode:'preview',range:fallback}}var cm=getCM();if(cm&&isMarkdownVisible()){var s=cm.state.selection.main;return {mode:'cm',from:s.from,to:s.to}}var ta=getTA();if(!ta)return null;var current=ta.value||'';var start=typeof ta.selectionStart==='number'?ta.selectionStart:current.length;var end=typeof ta.selectionEnd==='number'?ta.selectionEnd:start;return {mode:'textarea',start:start,end:end}}
@@ -1213,26 +2315,275 @@ var _snapshots=[];var _snapshotMaxCount=20;var _undoTimer=null;
 function pushSnapshot(){var ta=getTA();var title=queryActiveEditor('[name="title"]');var body=ta?ta.value:'';var t=title?title.value:'';if(_snapshots.length>0&&_snapshots[_snapshots.length-1].body===body&&_snapshots[_snapshots.length-1].title===t)return;_snapshots.push({body:body,title:t,ts:Date.now()});if(_snapshots.length>_snapshotMaxCount)_snapshots.shift();var btn=queryActiveEditor('#undo-save-btn');if(btn)btn.hidden=_snapshots.length<2;_log('pushSnapshot count',_snapshots.length)}
 function undoSnapshot(){if(_snapshots.length<2){_log('undoSnapshot: nothing to undo');return}if(_undoTimer){clearTimeout(_undoTimer);_undoTimer=null}_snapshots.pop();var snap=_snapshots[_snapshots.length-1];var btn=queryActiveEditor('#undo-save-btn');if(btn)btn.hidden=_snapshots.length<2;_log('undoSnapshot restoring ts',snap.ts);var ta=getTA();var titleInput=queryActiveEditor('[name="title"]');var titleDiv=queryActiveEditor('.editor-title');var pv=getPV();if(ta)ta.value=snap.body;if(titleInput)titleInput.value=snap.title;if(titleDiv)titleDiv.textContent=snap.title;var cm=getCM();if(cm&&!pv)cmSetVal(snap.body);if(pv&&pv.style.display!=='none'){fetch('/fragments/preview',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'body='+encodeURIComponent(snap.body)}).then(function(r){return r.text()}).then(function(h){pv.innerHTML=h;syncPV()}).catch(function(){})}if(ta)ta.dispatchEvent(new Event('input',{bubbles:true}));scheduleSave();var s=queryActiveEditor('#autosave-status');if(s){s.innerHTML='<span class="autosave-edited">Undone</span>';clearTimeout(_undoTimer);_undoTimer=setTimeout(function(){var s2=queryActiveEditor('#autosave-status');if(s2&&s2.querySelector('.autosave-edited'))s2.innerHTML='<span class="autosave-ok">Saved</span>'},3000)}}
 function handleDrop(e){e.preventDefault();var files=e.dataTransfer&&e.dataTransfer.files;if(!files||!files.length)return;uploadFiles(files).catch(function(){})}
+function _escapeHtmlAttr(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+// Keep in sync with appSettings.maxUploadMb (admin) and Joplin's own 200MB cap.
+function _maxUploadBytes(){var mb=(window._joplockConfig&&window._joplockConfig.maxUploadMb)||200;return Math.min(mb,200)*1024*1024}
+function _fileTooLarge(file){return!!(file&&typeof file.size==='number'&&file.size>_maxUploadBytes())}
+function _tooLargeMsg(file){var mb=Math.round((file&&file.size||0)/1048576);var lim=Math.round(_maxUploadBytes()/1048576);return'"'+((file&&file.name)||'file')+'" is too large ('+mb+'MB). Maximum upload size is '+lim+'MB.'}
+function _uploadFileToTinyMCE(file,editor){
+	if(!file)return Promise.resolve();
+	if(_fileTooLarge(file)){alert(_tooLargeMsg(file));return Promise.reject(new Error('File too large'))}
+	// Rename unnamed blobs
+	if((!file.name||file.name==='')&&file.type){
+		var ext=file.type.split('/')[1]||'bin';
+		file=new File([file],'dropped-'+Date.now()+'.'+ext,{type:file.type});
+	}
+	var fd=new FormData();
+	fd.append('file',file);
+	return fetch('/fragments/upload',{method:'POST',body:fd,credentials:'same-origin'})
+		.then(function(r){return r.json()})
+		.then(function(data){
+			var id=data.resourceId;
+			var name=_escapeHtmlAttr(file.name||'file');
+			if(file.type&&file.type.startsWith('image/')){
+				// Insert the image on its own line/paragraph and ALWAYS follow it
+				// with a blank paragraph, so the caret lands on a fresh empty line
+				// and typed text is never glued to the image. The trailing empty
+				// <p> serialises to a blank markdown line via the emptyP rule.
+				editor.insertContent('<p><img src="/resources/'+id+'" data-resource-id="'+id+'" alt="'+name+'" /></p><p></p>');
+			}else{
+				editor.insertContent('<a href="/resources/'+id+'" data-resource-id="'+id+'">'+name+'</a>');
+			}
+			// Sync textarea immediately so the source-of-truth (note-body) has
+			// the resource reference even if onEdit fires asynchronously.
+			var ta=getTA();
+			if(ta){
+				var md=tinymceToMarkdown(editor.getContent());
+				if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));}
+			}
+		});
+}
+// Upload a file and insert its markdown reference at the CodeMirror cursor.
+function _uploadFileToCM(file){
+	if(!file||!_cmView)return Promise.resolve();
+	if(_fileTooLarge(file)){alert(_tooLargeMsg(file));return Promise.reject(new Error('File too large'))}
+	if((!file.name||file.name==='')&&file.type){
+		var ext=file.type.split('/')[1]||'bin';
+		file=new File([file],'dropped-'+Date.now()+'.'+ext,{type:file.type});
+	}
+	var fd=new FormData();
+	fd.append('file',file);
+	return fetch('/fragments/upload',{method:'POST',body:fd,credentials:'same-origin'})
+		.then(function(r){return r.json()})
+		.then(function(data){
+			if(data&&data.error){alert(data.error);throw new Error(data.error)}
+			var isImage=!!(file.type&&file.type.indexOf('image/')===0);
+			var md=data.markdown||((isImage?'!':'')+'['+(file.name||'file')+'](:/'+data.resourceId+')');
+			// Always add a blank line after an inserted image so the caret lands on
+			// a fresh empty line and typed text is never glued to the image.
+			if(isImage)md=md+'\n\n';
+			if(_cmView){
+				var pos=_cmView.state.selection.main.head;
+				_cmView.dispatch({changes:{from:pos,insert:md},selection:{anchor:pos+md.length}});
+				cmSyncToTA();
+			}
+		});
+}
+// --- upload modal ---
+var _uploadModalFiles=[];
+var _uploadModalInsertRng=null;
+function openUploadModal(){
+	// Capture editor insert position (TinyMCE only)
+	_uploadModalInsertRng=null;
+	if(_tinymceEditor){
+		try{var rng=_tinymceEditor.selection.getRng();if(rng)_uploadModalInsertRng=rng.cloneRange()}catch(e){}
+	}
+	_uploadModalFiles=[];
+	var list=document.getElementById('upload-file-list');if(list)list.innerHTML='';
+	var btn=document.getElementById('upload-insert-btn');if(btn)btn.disabled=true;
+	var backdrop=document.getElementById('upload-modal-backdrop');if(backdrop)backdrop.hidden=false;
+	var modal=document.getElementById('upload-modal');if(modal)modal.hidden=false;
+	// Wire drop zone events (once)
+	var dz=document.getElementById('upload-drop-zone');
+	if(dz&&!dz._dropWired){
+		dz._dropWired=true;
+		dz.addEventListener('dragover',function(e){e.preventDefault();e.stopPropagation();dz.classList.add('drag-over')});
+		dz.addEventListener('dragleave',function(e){dz.classList.remove('drag-over')});
+		dz.addEventListener('drop',function(e){
+			e.preventDefault();e.stopPropagation();
+			dz.classList.remove('drag-over');
+			var files=e.dataTransfer&&e.dataTransfer.files;
+			if(files&&files.length)uploadModalFiles(Array.prototype.slice.call(files));
+		});
+	}
+}
+function closeUploadModal(){
+	var backdrop=document.getElementById('upload-modal-backdrop');if(backdrop)backdrop.hidden=true;
+	var modal=document.getElementById('upload-modal');if(modal)modal.hidden=true;
+}
+function handleUploadModalFiles(input){
+	if(!input||!input.files||!input.files.length)return;
+	var files=Array.prototype.slice.call(input.files);
+	input.value='';
+	uploadModalFiles(files);
+}
+function uploadModalFiles(files){
+	var list=document.getElementById('upload-file-list');if(!list)return;
+	for(var i=0;i<files.length;i++){
+		var file=files[i];
+		var entry={file:file,resourceId:null,markdown:null,state:'uploading'};
+		_uploadModalFiles.push(entry);
+		_renderUploadFileItem(entry,list);
+	}
+	_uploadModalFilesSeq(0);
+}
+function _uploadModalFilesSeq(idx){
+	if(idx>=_uploadModalFiles.length){
+		var active=_uploadModalFiles.filter(function(e){return!e._deleted});
+		var any=active.some(function(e){return e.state==='done'});
+		var anyError=active.some(function(e){return e.state==='error'});
+		var allDone=active.length>0&&active.every(function(e){return e.state==='done'});
+		var btn=document.getElementById('upload-insert-btn');if(btn)btn.disabled=!any;
+		// Auto-insert and dismiss when every file uploaded cleanly. If any failed,
+		// keep the modal open so the user can see which file errored.
+		if(allDone&&!anyError){insertUploadedFiles();}
+		return;
+	}
+	var entry=_uploadModalFiles[idx];
+	if(entry._deleted||entry.state!=='uploading'){_uploadModalFilesSeq(idx+1);return}
+	var file=entry.file;
+	if(_fileTooLarge(file)){entry.state='error';entry._errMsg='Too large (max '+Math.round(_maxUploadBytes()/1048576)+'MB)';_refreshUploadFileItem(idx);_uploadModalFilesSeq(idx+1);return}
+	if((!file.name||file.name==='')&&file.type){
+		var ext=file.type.split('/')[1]||'bin';
+		file=new File([file],'upload-'+Date.now()+'.'+ext,{type:file.type});
+		entry.file=file;
+	}
+	var fd=new FormData();fd.append('file',file);
+	var xhr=new XMLHttpRequest();
+	entry._xhr=xhr;
+	xhr.upload.onprogress=function(e){
+		if(e.lengthComputable)_updateUploadFileProgress(idx,Math.round(e.loaded/e.total*100));
+	};
+	xhr.onload=function(){
+		entry._xhr=null;
+		if(entry._deleted){_uploadModalFilesSeq(idx+1);return}
+		try{var d=JSON.parse(xhr.responseText);
+			if(d.error){entry.state='error';entry._errMsg=d.error}else{entry.state='done';entry.resourceId=d.resourceId;entry.markdown=d.markdown}
+		}catch(e2){entry.state='error';entry._errMsg='Upload failed'}
+		_refreshUploadFileItem(idx);
+		_uploadModalFilesSeq(idx+1);
+	};
+	xhr.onerror=function(){
+		entry._xhr=null;
+		if(entry._deleted){_uploadModalFilesSeq(idx+1);return}
+		entry.state='error';_refreshUploadFileItem(idx);_uploadModalFilesSeq(idx+1)
+	};
+	xhr.open('POST','/fragments/upload');
+	xhr.send(fd);
+}
+function _renderUploadFileItem(entry,list){
+	var idx=_uploadModalFiles.indexOf(entry);
+	var div=document.createElement('div');div.className='upload-file-item';div.id='upload-file-'+idx;
+	var name=_escapeHtmlAttr(entry.file.name||'file');
+	div.innerHTML='<span class="upload-file-name">'+name+'</span>'+'<span class="upload-file-size">'+_fmtFileSize(entry.file.size)+'</span>'+'<span class="upload-file-status">Uploading</span>'+'<div class="upload-progress-bar"><div class="upload-progress-bar-fill" style="width:0%"></div></div>'+'<button type="button" class="upload-file-del" title="Delete this file" onclick="event.stopPropagation();deleteUploadedResource('+idx+')" style="display:none">&times;</button>';
+	list.appendChild(div);
+}
+function _updateUploadFileProgress(idx,pct){
+	var item=document.getElementById('upload-file-'+idx);if(!item)return;
+	var fill=item.querySelector('.upload-progress-bar-fill');if(fill)fill.style.width=pct+'%';
+}
+function _refreshUploadFileItem(idx){
+	var entry=_uploadModalFiles[idx];var item=document.getElementById('upload-file-'+idx);if(!item||!entry)return;
+	var statusEl=item.querySelector('.upload-file-status');
+	if(entry.state==='done'){
+		item.classList.add('done');
+		if(statusEl){statusEl.textContent='\u2713';statusEl.className='upload-file-status ok'}
+	}else if(entry.state==='error'){
+		item.classList.add('error');
+		if(statusEl){statusEl.textContent=entry._errMsg||'Failed';statusEl.className='upload-file-status err';statusEl.title=entry._errMsg||'Failed'}
+	}
+	var bar=item.querySelector('.upload-progress-bar');if(bar)bar.remove();
+	// Show delete button once uploaded (done or error)
+	var delBtn=item.querySelector('.upload-file-del');
+	if(delBtn)delBtn.style.display='';
+}
+function deleteUploadedResource(idx){
+	if(idx<0||idx>=_uploadModalFiles.length)return;
+	var entry=_uploadModalFiles[idx];
+	entry._deleted=true;
+	// Abort in-progress upload
+	if(entry._xhr){try{entry._xhr.abort()}catch(e){}entry._xhr=null}
+	// If already uploaded, delete from server
+	if(entry.resourceId){
+		fetch('/resources/'+entry.resourceId,{method:'DELETE',credentials:'same-origin'}).catch(function(){});
+	}
+	// Remove from array and from DOM
+	var item=document.getElementById('upload-file-'+idx);
+	if(item)item.remove();
+	// Re-index remaining DOM items
+	var list=document.getElementById('upload-file-list');
+	if(list){
+		var items=list.querySelectorAll('.upload-file-item');
+		for(var i=0;i<items.length;i++){
+			items[i].id='upload-file-'+i;
+			var delBtn=items[i].querySelector('.upload-file-del');
+			if(delBtn)delBtn.setAttribute('onclick','event.stopPropagation();deleteUploadedResource('+i+')');
+		}
+	}
+	_uploadModalFiles.splice(idx,1);
+	// Update insert button state
+	var any=_uploadModalFiles.some(function(e){return e.state==='done'&&!e._deleted});
+	var btn=document.getElementById('upload-insert-btn');if(btn)btn.disabled=!any;
+}
+function _fmtFileSize(bytes){if(!bytes&&bytes!==0)return'';if(bytes<1024)return bytes+' B';if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';return(bytes/1048576).toFixed(1)+' MB'}
+function _mdToTinyMCEInsert(entry){
+	var id=entry.resourceId||'';
+	var name=_escapeHtmlAttr((entry.file&&entry.file.name)||'file');
+	if(entry.file&&entry.file.type&&entry.file.type.startsWith('image/'))return'<img src="/resources/'+id+'" data-resource-id="'+id+'" alt="'+name+'" />';
+	return'<a href="/resources/'+id+'" data-resource-id="'+id+'">'+name+'</a>';
+}
+function insertUploadedFiles(){
+	var done=_uploadModalFiles.filter(function(e){return e.state==='done'&&e.markdown});
+	if(!done.length)return;
+	if(_tinymceEditor&&_uploadModalInsertRng){
+		try{_tinymceEditor.selection.setRng(_uploadModalInsertRng)}catch(e){}
+		var html='';
+		for(var i=0;i<done.length;i++){if(i>0)html+=' ';html+=_mdToTinyMCEInsert(done[i])}
+		_tinymceEditor.insertContent(html);
+	}else{
+		_uploadInsertTarget=_captureUploadInsertTarget();
+		for(var j=0;j<done.length;j++)_insertUploadedMarkdown(done[j].markdown);
+	}
+	closeUploadModal();
+	markEdited();
+	scheduleSave();
+}
 var _tdService=null;
 function getTurndown(){
 	if(_tdService)return _tdService;
 	var td=new TurndownService({headingStyle:'atx',hr:'---',codeBlockStyle:'fenced',bulletListMarker:'-',emDelimiter:'*',strongDelimiter:'**',br:''});
+	// Preserve fenced code language from TinyMCE codesample blocks.
+	td.addRule('fencedCodeLanguage',{filter:function(n){return n.nodeName==='PRE'&&(!!n.querySelector('code')||/(?:^|\s)language-/.test(n.getAttribute('class')||''))},replacement:function(_c,n){
+		var codeEl=n.querySelector('code');
+		var cls=((codeEl&&codeEl.getAttribute('class'))||n.getAttribute('class')||'');
+		var m=cls.match(/(?:^|\s)language-([\w-]+)/);
+		var lang=m?m[1]:'';
+		var code=(codeEl?codeEl.textContent:n.textContent)||'';
+		code=code.replace(/\n+$/,'');
+		var ticks='```';
+		var runs=code.match(/`{3,}/g)||[];
+		runs.forEach(function(run){if(run.length>=ticks.length)ticks='`'.repeat(run.length+1)});
+		return '\n'+ticks+lang+'\n'+code+'\n'+ticks+'\n';
+	}});
 	// Joplin resource images (with optional resize dimensions)
 	td.addRule('joplinImg',{filter:function(n){return n.nodeName==='IMG'},replacement:function(c,n){
 		var alt=n.getAttribute('alt')||'';var src=n.getAttribute('src')||'';
 		var w=n.style.width||n.getAttribute('width');var h=n.style.height||n.getAttribute('height');
-		var rm=src.match(/^\/resources\/([0-9a-zA-Z]{32})$/);
+		var rm=src.match(/^\/?resources\/([0-9a-zA-Z]{32})$/);
 		// Never embed data: URIs into markdown — they corrupt note storage
 		if(src.startsWith('data:'))return alt?'['+alt+']':'';
 		if(w||h){var iSrc=rm?':/'+rm[1]:src;return '<img src="'+iSrc+'" alt="'+alt+'"'+(w?' width="'+parseInt(w)+'"':'')+(h?' height="'+parseInt(h)+'"':'')+' />'}
 		if(rm)return '!['+alt+'](:/'+rm[1]+')';return '!['+alt+']('+src+')'}});
 	// Joplin resource links
-	td.addRule('joplinLink',{filter:function(n){return n.nodeName==='A'&&/^\/resources\/[0-9a-zA-Z]{32}(?:\?download=1)?$/.test((n.getAttribute('href')||'').split('#')[0])},
-		replacement:function(c,n){var m=(n.getAttribute('href')||'').match(/^\/resources\/([0-9a-zA-Z]{32})/);return '['+c+'](:/'+m[1]+')'}});
+	td.addRule('joplinLink',{filter:function(n){return n.nodeName==='A'&&/^\/?resources\/[0-9a-zA-Z]{32}(?:\?download=1)?$/.test((n.getAttribute('href')||'').split('#')[0])},
+		replacement:function(c,n){var m=(n.getAttribute('href')||'').match(/^\/?resources\/([0-9a-zA-Z]{32})/);return '['+c+'](:/'+m[1]+')'}});
 	// Preserve external links created in rendered mode instead of collapsing same-label links back to plain text.
-	td.addRule('externalLink',{filter:function(n){var href=(n.getAttribute('href')||'').trim();return n.nodeName==='A'&&!!href&&!/^\/resources\//.test(href)},replacement:function(c,n){var href=(n.getAttribute('href')||'').trim();var label=(c||'').trim()||href;return '['+label+']('+href+')'}});
-	// md-blank-line divs — use placeholder to survive <br> normalization
-	td.addRule('blankLine',{filter:function(n){return n.nodeName==='DIV'&&n.classList.contains('md-blank-line')&&!n.querySelector('img,a,pre,code,ul,ol,blockquote,table')&&!n.textContent.trim()},replacement:function(){return '\x00BL\x00'}});
+	td.addRule('externalLink',{filter:function(n){var href=(n.getAttribute('href')||'').trim();return n.nodeName==='A'&&!!href&&!/^\/?resources\//.test(href)},replacement:function(c,n){var href=(n.getAttribute('href')||'').trim();var label=(c||'').trim()||href;return '['+label+']('+href+')'}});
+	// md-blank-line markers — use placeholder to survive <br> normalization.
+	// Emitted by the renderer as <p class="md-blank-line"><br></p> (TinyMCE-stable);
+	// also accept the legacy <div class="md-blank-line"> shape. After
+	// <br>→sentinel conversion, textContent is the sentinel string; accept that too.
+	td.addRule('blankLine',{filter:function(n){return (n.nodeName==='DIV'||n.nodeName==='P')&&n.classList.contains('md-blank-line')&&!n.querySelector('img,a,pre,code,ul,ol,blockquote,table')&&(!n.textContent.trim()||n.textContent.trim()==='\u2764BR\u2764')},replacement:function(){return '\x00BL\x00'}});
 	// md-checkbox divs
 	td.addRule('checkbox',{filter:function(n){return n.nodeName==='DIV'&&n.classList.contains('md-checkbox')},
 		replacement:function(c,n){var checked=n.classList.contains('checked');var txt=c.replace(/^[\u2611\u2610\u2612\u2705\u00a0 ]+/,'');return (checked?'- [x] ':'- [ ] ')+txt+'\n'}});
@@ -1245,8 +2596,9 @@ function getTurndown(){
 	// exactly one md-blank-line div. Using '<br>' caused line 611 to produce 4 newlines (two divs).
 	// Using '' made blank-line edits invisible to Turndown (hash never changed, note never saved).
 	td.addRule('emptyDiv',{filter:function(n){return n.nodeName==='DIV'&&!n.classList.length&&!n.querySelector('img,a,pre,code,ul,ol,blockquote,table')&&(!n.textContent.trim()||n.innerHTML==='<br>')},replacement:function(){return '\x00BL\x00'}});
-	// Empty paragraphs from contenteditable (<p><br></p>) — same reasoning.
-	td.addRule('emptyP',{filter:function(n){return n.nodeName==='P'&&!n.querySelector('img')&&(!n.textContent.trim()||n.innerHTML==='<br>')},replacement:function(){return '\x00BL\x00'}});
+	// Empty paragraphs TinyMCE inserts when user presses Enter for a blank line (<p><br></p>).
+	// Each one = one extra blank line → \x00BL\x00 sentinel → post-processing converts to \n\n\n.
+	td.addRule('emptyP',{filter:function(n){return n.nodeName==='P'&&!n.querySelector('img')&&(!n.textContent.trim()||n.innerHTML==='<br>'||n.innerHTML==='\u2764BR\u2764')},replacement:function(){return '\x00BL\x00'}});
 	_tdService=td;return td}
 function htmlToMarkdown(el){
 	var root=el.cloneNode(true);
@@ -1275,12 +2627,105 @@ function htmlToMarkdown(el){
 	}
 	return out
 }
-function setEditorMode(mode){var ta=getTA(),pv=queryActiveEditor('#note-preview'),tb=queryActiveEditor('#editor-toolbar'),host=queryActiveEditor('#cm-host'),form=activeEditorForm();if(!ta||!pv)return;_resetRingBuffer('mode-switch');if(form)form.dataset.editorMode=mode;if(mode==='preview'){_previewDirty=false;if(_cmView)cmSyncToTA();fetch('/fragments/preview',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'body='+encodeURIComponent(ta.value)}).then(function(r){return r.text()}).then(function(h){pv.innerHTML=h;pv.contentEditable='true';pv.style.display='';if(host)host.style.display='none';_editorMode='preview';syncEditorModeButtons();activatePV(pv);_previewDirty=false;applySearchHighlight()})}else{if(_pvSyncTimer){clearTimeout(_pvSyncTimer);_pvSyncTimer=null}var _pvWasDirty=_previewDirty;if(pv.contentEditable==='true'&&_pvWasDirty){syncPV()}_previewDirty=false;pv.contentEditable='false';pv.oninput=null;pv.onkeyup=null;pv.style.display='none';if(host){host.style.display='';if(!_cmView)initCM(host,ta.value);else if(_cmView.state.doc.toString()!==ta.value)cmSetVal(ta.value);setTimeout(function(){if(_cmView)_cmView.focus();applySearchHighlight()},0)}if(tb)tb.style.display='';_editorMode='markdown';syncEditorModeButtons()}}
+function tinymceToMarkdown(html){
+	if(!html)return '';
+	html=html.replace(/\u200b/g,'');
+	// Normalise blank-line markers. TinyMCE strips the <br> from
+	// <p class="md-blank-line"><br></p> on setContent, leaving an empty
+	// <p class="md-blank-line"></p> — which Turndown drops entirely (empty block
+	// = no output), swallowing the blank line. Rewrite any md-blank-line paragraph
+	// (empty or not) to the sentinel shape the blankLine rule reliably matches.
+	html=html.replace(/<p([^>]*\bclass="[^"]*\bmd-blank-line\b[^"]*"[^>]*)>[\s\S]*?<\/p>/gi,'<p$1>\u2764BR\u2764</p>');
+	// tinyMCE appends a trailing <br> to every non-empty <p> block. Strip before conversion
+	// so it doesn't become a spurious newline. Do NOT strip from <p><br></p> (blank lines).
+	html=html.replace(/<p>((?:[^<]|<(?!\/p>))+?)<br\s*\/?>\s*<\/p>/gi,'<p>$1</p>');
+	// Convert <br> (line breaks within paragraphs and blank-line divs) to a
+	// sentinel Turndown won't touch. Restore as \n after conversion.
+	// For md-blank-line divs the blankLine rule matches the sentinel text.
+	var BR='\u2764BR\u2764';
+	html=html.replace(/<br\s*\/?>/gi,BR);
+	html=html.replace(/src="\/?resources\/([0-9a-fA-F]{32})"/g,'src=":/$1"');
+	html=html.replace(/href="\/?resources\/([0-9a-fA-F]{32})"/g,'href=":/$1"');
+	html=html.replace(/<span style="text-decoration: underline;">([\s\S]*?)<\/span>/g,'++$1++');
+	html=html.replace(/<span style="text-decoration: line-through;">([\s\S]*?)<\/span>/g,'~~$1~~');
+	var td=getTurndown();
+	var md=td.turndown(html);
+	var nl=String.fromCharCode(10);
+	var headingGapRe=new RegExp('^(#{1,6}[^'+nl+']*)'+nl+'{2,}(?=\\S)','gm');
+	var headingLeadRe=new RegExp('([^'+nl+'])'+nl+'{2,}(#{1,6}\\s)','g');
+	md=md.replace(headingLeadRe,'$1'+nl+'$2');
+	md=md.replace(headingGapRe,'$1'+nl);
+	// Normalise blank-line sentinels (md-blank-line divs + empty paragraphs)
+	md=md.replace(/\n*(?:\x00BL\x00\n*)+/g,function(m){var count=(m.match(/\x00BL\x00/g)||[]).length;return nl+nl+Array(count+1).join(nl)});
+	// Restore line-break sentinels as \n (soft breaks within paragraphs)
+	md=md.split('\u2764BR\u2764').join(nl);
+	var out='';
+	for(var i=0;i<md.length;i++){
+		var ch=md.charAt(i),nx=md.charAt(i+1);
+		if(ch.charCodeAt(0)===92&&(nx==='['||nx===']'||nx.charCodeAt(0)===96||nx==='*'||nx==='_'||nx.charCodeAt(0)===92||nx==='$')){out+=nx;i++;continue}
+		out+=ch
+	}
+	return out
+}
+function setEditorMode(mode){
+	var ta=getTA();
+	var form=activeEditorForm();
+	if(form)form.dataset.editorMode=mode;
+	// Persist user's last-used mode so it sticks across refreshes.
+	_defaultNoteOpenMode=(mode==='markdown'||mode==='md')?'markdown':'preview';
+	fetch('/api/web/settings',{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'noteOpenMode='+encodeURIComponent(_defaultNoteOpenMode)}).catch(function(){});
+	if(mode==='markdown'||mode==='md'){
+		// Markdown mode: sync latest rich content back to the textarea, then mount CM6.
+		tinyMCESyncToTA();
+		applyEditorModeVisibility('markdown');
+		mountMarkdownEditor(ta?ta.value:'');
+		_editorMode='markdown';
+		syncEditorModeButtons();
+		return;
+	}
+	// Rich mode: sync CM6 content back to the textarea, hide markdown editor, show TinyMCE.
+	cmSyncToTA();
+	var mdVal=ta?ta.value:'';
+	applyEditorModeVisibility('rich',{focusTextarea:false});
+	_editorMode='rich';
+	syncEditorModeButtons();
+	if(!_tinymceEditor){
+		// TinyMCE not ready yet — start init, it will call refreshTinyMCEForActiveNote on init.
+		initPersistentTinyMCE();
+		return;
+	}
+	// Re-render current textarea content and push into the persistent editor.
+	fetch('/fragments/preview',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'body='+encodeURIComponent(mdVal)}).then(function(r){return r.text()}).then(function(h){
+		if(!_tinymceEditor)return;
+		_setTinyMCEContent(h);
+		showTinyMCEHost();
+		_tinymceEditor.focus();
+	});
+}
+// Mount (or remount) the CodeMirror 6 markdown editor into #cm-host, seeded from `content`.
+// Falls back gracefully to the raw textarea if the CM6 bundle failed to load.
+function mountMarkdownEditor(content){
+	var host=queryActiveEditor('#cm-host');
+	if(!host||!window.CM||typeof initCM!=='function'){
+		// No CM bundle / host — leave the textarea visible as a fallback.
+		var ta=getTA();
+		if(ta){ta.style.display='block';ta.style.flex='1';ta.style.minHeight='0';}
+		return;
+	}
+	host.style.display='';
+	initCM(host,content||'');
+	if(_cmView){
+		// Recompute layout after the host has its final flex height, then focus.
+		if(_cmView.requestMeasure)_cmView.requestMeasure();
+		requestAnimationFrame(function(){if(_cmView&&_cmView.requestMeasure)_cmView.requestMeasure();});
+		if(_cmView.focus)_cmView.focus();
+	}
+}
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){var codeModal=document.getElementById('code-modal');if(codeModal&&!codeModal.hidden){closeCodeModal();return}closeFolderContextMenu();closeFolderModal();closeLinkModal();closeNewFolderModal();closeVaultModal();closeHistoryModal();closeEmptyTrashModal();var bar=document.getElementById('search-nav-bar');if(bar&&!bar.hidden){searchNavDismiss();return}}if(!getTA()&&!getPV()&&!getCM())return;if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='Space'){e.preventDefault();requestManualProseCompletion();return}if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();wrapSel('**','**')}if((e.ctrlKey||e.metaKey)&&e.key==='i'){e.preventDefault();wrapSel('*','*')}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();if(_editorMode==='preview'&&_searchMarks.length){searchNavStep(1)}else{applySearchHighlight()}}});
 document.addEventListener('click',function(e){var menu=document.getElementById('folder-context-menu');if(menu&&!menu.hidden&&!menu.contains(e.target))closeFolderContextMenu()});
 function highlightCodeBlocks(container){if(!window.hljs||!container)return;container.querySelectorAll('pre code[class*="language-"]').forEach(function(el){if(el.dataset.highlighted)return;window.hljs.highlightElement(el)})}
 function ensureEditableAfterPre(pv){if(!pv)return;var pres=pv.querySelectorAll('pre');pres.forEach(function(pre){var next=pre.nextElementSibling;if(!next){var p=document.createElement('p');p.innerHTML='<br>';p.dataset.pvTrail='1';pv.appendChild(p)}})}
-function initCopyButtons(pv){if(!pv)return;pv.querySelectorAll('pre').forEach(function(pre){pre.contentEditable='false';pre.style.cursor='pointer';if(pre.querySelector('.pre-copy-btn'))return;var btn=document.createElement('button');btn.type='button';btn.className='pre-copy-btn';btn.title='Copy code';btn.textContent='Copy';btn.addEventListener('click',function(e){e.stopPropagation();var code=pre.querySelector('code');var text=code?code.textContent:(pre.textContent||'');navigator.clipboard.writeText(text).then(function(){btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},1500)}).catch(function(){var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},1500)})});pre.insertBefore(btn,pre.firstChild);pre.addEventListener('click',function(e){if(e.target.closest('.pre-copy-btn'))return;e.preventDefault();e.stopPropagation();openCodeModal(pre)})})}
+function initCopyButtons(pv){if(!pv)return;pv.querySelectorAll('pre').forEach(function(pre){pre.contentEditable='false';pre.style.cursor='pointer';if(pre.querySelector('.pre-copy-btn'))return;var btn=document.createElement('button');btn.type='button';btn.className='pre-copy-btn';btn.title='Copy code';btn.textContent='Copy';btn.addEventListener('click',function(e){e.stopPropagation();var code=pre.querySelector('code');var text=code?code.textContent:(pre.textContent||'');navigator.clipboard.writeText(text).then(function(){btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},1500)}).catch(function(){var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},1500)})});pre.insertBefore(btn,pre.firstChild);pre.addEventListener('click',function(e){if(e.target.closest('.pre-copy-btn'))return;e.preventDefault();e.stopPropagation();if(!tinyMCEInsertCodeBlock(pre))openCodeModal(pre)})})}
 function _isIOSWebKit(){var ua=navigator.userAgent||'';var platform=navigator.platform||'';var touchMac=platform==='MacIntel'&&navigator.maxTouchPoints>1;return /iP(ad|hone|od)/.test(ua)||touchMac}
 function _isStandalonePWA(){return !!((window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true)}
 function _openResourceInNewContext(url){var a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();document.body.removeChild(a)}
@@ -1497,13 +2942,15 @@ var _formHashExclude={baseUpdatedTime:true,forceSave:true,createCopy:true};funct
 var _savedHash=0;
 var _saveTimer=null;
 var _saveTitleTimer=null;
-function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal','empty-trash-modal'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
+function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal','empty-trash-modal','upload-modal','vault-modal','new-folder-modal'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
 function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
 function scheduleSaveTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(mobileTitle&&document.activeElement===mobileTitle)return;// Don't save while user is still editing title
 if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
 function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_log('snapshotHash',_savedHash)}
 function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
-function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_resetRingBuffer('note-switch');_log('initEditorPanel',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';var pv=queryActiveEditor('#note-preview');var host=queryActiveEditor('#cm-host');if(form.dataset.encrypted==='1'){if(pv)pv.style.display='none';if(host)host.style.display='none';_editorMode='markdown';syncEditorModeButtons();return}var defaultMode=form.dataset.editorMode||_defaultNoteOpenMode||'preview';if(defaultMode!=='markdown')defaultMode='preview';form.dataset.editorMode=defaultMode;if(defaultMode==='preview'&&pv&&pv.style.display!=='none'){_editorMode='preview';activatePV(pv);_previewDirty=false;if(host)host.style.display='none';syncEditorModeButtons();applySearchHighlight()}else{_editorMode='markdown';form.dataset.editorMode='markdown';if(pv)pv.style.display='none';if(host){host.style.display='';initCM(host,ta?ta.value:'')}syncEditorModeButtons();applySearchHighlight()}}
+function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_resetRingBuffer('note-switch');_log('initEditorPanel',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
+e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+1;ta.dispatchEvent(new Event('input',{bubbles:true}))}else{// Enter = new paragraph (\n\n)
+e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+2;ta.dispatchEvent(new Event('input',{bubbles:true}))}})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';/* Persistent TinyMCE: refresh content for this note (skip locked encrypted notes) */if(form.dataset.encrypted!=='1'){_editorMode=_defaultNoteOpenMode==='markdown'?'markdown':'rich';syncEditorModeButtons();if(_editorMode==='markdown'){hideTinyMCEHost();applyEditorModeVisibility('markdown');var mdta=getTA();mountMarkdownEditor(mdta?mdta.value:'');initPersistentTinyMCE()}else{initPersistentTinyMCE();refreshTinyMCEForActiveNote()}}else{hideTinyMCEHost()}}
 function applySearchHighlight(){var term=activeSearchTerm();var bar=document.getElementById('search-nav-bar');if(bar)bar.hidden=true;_searchMarks=[];_searchMarkIdx=0;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);if(!term||!term.trim()){clearCodeMirrorSearch();return}term=term.trim();if(_editorMode==='preview'&&pv){clearCodeMirrorSearch();var savedHandler=pv.oninput;pv.oninput=null;highlightInPreview(pv,term);pv.oninput=savedHandler}else if(_editorMode==='markdown'&&_cmView&&window.CM&&window.CM.SearchQuery&&window.CM.setSearchQuery){			window.CM.openSearchPanel(_cmView);var q=new window.CM.SearchQuery({search:term,caseSensitive:false});_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)});_cmSearchMatches=collectCodeMirrorSearchMatches(q);if(_cmSearchMatches.length)setCodeMirrorSearchActive(0);else searchNavShow(0,0)}}
 function escapeRegex(s){var specials=['.','+','*','?','^','$','(',')','{','}','[',']','|','\\'];return s.split('').map(function(c){return specials.indexOf(c)>=0?'\\'+c:c}).join('')}
 var _searchMarks=[];var _searchMarkIdx=0;
@@ -1517,11 +2964,11 @@ function initNavPanel(){_log('initNavPanel');var state=navFolderState();var sele
 	el.classList.toggle('collapsed',!open);// Lazy-load if expanded and not yet loaded
 	if(open){var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');if(notesDiv&&!notesDiv.getAttribute('data-loaded')){notesDiv.setAttribute('data-loaded','1');var folderId=notesDiv.getAttribute('data-folder-id');htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'})}}})}
 var _folderSelectValue=null;var _folderSelectNoteId=null;
-document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');if(sel){_folderSelectValue=sel.value;_folderSelectNoteId=form?form.getAttribute('hx-put'):''}});
-document.body.addEventListener('htmx:afterSettle',function(){initNavPanel();initEditorPanel();refreshAllVaultIcons();
+document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');if(sel){_folderSelectValue=sel.value;_folderSelectNoteId=form?form.getAttribute('hx-put'):''}var target=e.detail&&e.detail.target;if(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body')){hideTinyMCEHost()}});
+document.body.addEventListener('htmx:afterSettle',function(){initNavPanel();initEditorPanel();refreshAllVaultIcons();positionTinyMCEHost();
 	if(_folderSelectValue){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');var currentNoteId=form?form.getAttribute('hx-put'):'';if(sel&&currentNoteId&&currentNoteId===_folderSelectNoteId){sel.value=_folderSelectValue}_folderSelectValue=null;_folderSelectNoteId=null}});
 // Also refresh on initial SSR page load (htmx:afterSettle only fires after htmx swaps)
-if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',refreshAllVaultIcons)}else{refreshAllVaultIcons()}
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',function(){refreshAllVaultIcons();initPersistentTinyMCE();setTimeout(positionTinyMCEHost,0)})}else{refreshAllVaultIcons();initPersistentTinyMCE();setTimeout(positionTinyMCEHost,0)}
 document.body.addEventListener('htmx:confirm',function(e){var elt=e.detail&&e.detail.elt;if(!elt)return;var msg=elt.getAttribute('data-confirm-trash');if(msg){e.preventDefault();if(_cfg.confirmTrash===false){e.detail.issueRequest(true);return}if(confirm(msg))e.detail.issueRequest(true)}});
 function showNoteOverlay(){var o=document.getElementById('note-loading-overlay');if(o)o.classList.add('active')}
 function hideNoteOverlay(){var o=document.getElementById('note-loading-overlay');if(o)o.classList.remove('active')}
@@ -1532,7 +2979,7 @@ document.body.addEventListener('htmx:afterRequest',function(e){var xhr=e.detail&
 // that just got swapped into #autosave-status, and surface the prominent
 // banner so the user can't miss it.
 _log('afterRequest detected save conflict');showRemoteUpdateBanner('changed')}else{snapshotHash();pushSnapshot();setSaveState('<span class="autosave-ok">Saved</span>','Saved');dismissRemoteUpdateBanner();_log('afterRequest snapshotHash after save')}}if(e.detail&&e.detail.successful&&document.body.classList.contains('is-offline')){clearOffline()}});
-document.body.addEventListener('htmx:afterSwap',function(e){var target=e.detail&&e.detail.target;_log('htmx:afterSwap',target&&target.id);if(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body')){hideNoteOverlay();dismissRemoteUpdateBanner();if(_cmView){_cmView.destroy();_cmView=null}_searchMarks=[];_searchMarkIdx=0}});
+document.body.addEventListener('htmx:afterSwap',function(e){var target=e.detail&&e.detail.target;_log('htmx:afterSwap',target&&target.id);if(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body')){hideNoteOverlay();dismissRemoteUpdateBanner();if(_cmView){_cmView.destroy();_cmView=null}_searchMarks=[];_searchMarkIdx=0;/* Persistent TinyMCE: no destroy; reposition + refresh on next tick */setTimeout(positionTinyMCEHost,0)}});
 function showOffline(){setSaveState('<span class="autosave-offline">Offline</span>','Offline');document.body.classList.add('is-offline');_log('offline indicator shown');showDisconnected()}
 function clearOffline(){document.body.classList.remove('is-offline');_log('offline indicator cleared')}
 document.body.addEventListener('htmx:sendError',function(e){var elt=e.detail&&e.detail.elt;_log('htmx:sendError',elt&&elt.id);if(elt&&elt.id==='note-editor-form')showOffline()});
@@ -1664,7 +3111,7 @@ function dismissRemoteUpdateBanner(){var bar=document.getElementById('remote-upd
 function showRemoteUpdateBanner(kind){var bar=document.getElementById('remote-update-bar');if(!bar)return;var text=document.getElementById('remote-update-text');var useBtn=document.getElementById('remote-update-use-server-btn');var owBtn=document.getElementById('remote-update-overwrite-btn');if(kind==='deleted'){if(text)text.textContent='This note was deleted in another window.';if(useBtn)useBtn.hidden=true;if(owBtn)owBtn.hidden=true}else{if(text)text.textContent='A newer version of this note exists on the server.';if(useBtn)useBtn.hidden=false;if(owBtn)owBtn.hidden=false}bar.hidden=false}
 function reloadCurrentNoteFromServer(){var noteId=_activeEditorNoteId();if(!noteId)return;var folderId=_activeEditorCurrentFolderId();var targetSel=inMobileEditor()?'#mobile-editor-body':'#editor-panel';var target=document.querySelector(targetSel);if(!target)return;dismissRemoteUpdateBanner();var url='/fragments/editor/'+encodeURIComponent(noteId)+(folderId?'?currentFolderId='+encodeURIComponent(folderId):'');_log('reloadCurrentNoteFromServer',url);htmx.ajax('GET',url,{target:targetSel,swap:'innerHTML'}).catch(function(){})}
 function overwriteWithLocalEdits(){var form=activeEditorForm();if(!form)return;dismissRemoteUpdateBanner();// Sync preview/CM into the textarea so the body in the form is current
-var pv=getPV();if(pv)syncPV();else cmSyncToTA();syncTitleToHidden({silent:true});// Set forceSave=1 so the server skips the optimistic-concurrency guard
+var pv=getPV();if(pv)syncPV();else if(_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA();syncTitleToHidden({silent:true});// Set forceSave=1 so the server skips the optimistic-concurrency guard
 var fs=form.querySelector('[name="forceSave"]');if(fs)fs.value='1';setSaveState('<span class="autosave-saving">Saving...</span>','Saving...');_log('overwriteWithLocalEdits forcing save');htmx.trigger(form,'joplock:save')}
 function checkNoteFreshness(){if(_noteFreshnessBusy)return;var noteId=_activeEditorNoteId();if(!noteId)return;if(document.hidden)return;if(_anyModalOpen())return;var form=activeEditorForm();if(!form||form.dataset.encrypted==='1')return;// Skip while a vault note is locked or unlock UI is showing
 if(form.dataset.unlocking==='1')return;var base=_activeEditorBaseUpdatedTime();if(!base)return;// Editor doesn't have a baseline yet (fresh new note); nothing to compare
@@ -1673,11 +3120,11 @@ if(data.deletedTime&&data.deletedTime>0){showRemoteUpdateBanner('deleted');retur
 reloadCurrentNoteFromServer()}).catch(function(){}).then(function(){_noteFreshnessBusy=false})}
 // Always-on connectivity ping (every 30s) — triggers disconnected overlay on failure and probes note freshness
 (function(){var _cpMs=30000;function _connectivityPing(){_dcPing().then(function(ok){if(ok){_dcOnFetchOk();checkNoteFreshness()}else _dcOnFetchFail()}).catch(function(){_dcOnFetchFail()})}var _cpInterval=setInterval(_connectivityPing,_cpMs);_connectivityPing()})();
-document.addEventListener('visibilitychange',function(){if(!document.hidden)checkNoteFreshness()});
+document.addEventListener('visibilitychange',function(){if(document.hidden){_log('visibilitychange hidden, flushing dirty note');flushSave(function(){})}else{checkNoteFreshness()}});
 window.addEventListener('load',function(){if(isMobileShellMode())return;initNavPanel();initEditorPanel()});
 window.addEventListener('resize',applyMobileTitleMode);
 document.addEventListener('keydown',function(e){var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoSnapshot()}});
-	function flushSave(callback){var form=activeEditorForm();if(!form){_log('flushSave skip (no form)');if(callback)callback(true);return}if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}if(_pvSyncTimer){clearTimeout(_pvSyncTimer);_pvSyncTimer=null;_syncPVInFlight=true;syncPV();_syncPVInFlight=false}else{var pv=getPV();if(pv&&_previewDirty)syncPV();else if(!pv)cmSyncToTA()}syncTitleToHidden({silent:true});var h=formHash(form);if(h===_savedHash){_log('flushSave skip (hash unchanged)',h);if(callback)callback(true);return}setSaveState('<span class="autosave-saving">Saving...</span>','Saving...');var restoreReq=function(){};buildFlushRequest(form).then(function(req){if(!req){if(callback)callback(true);return}restoreReq=req.restore||restoreReq;_log('flushSave',req.url);return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){restoreReq();_log('flushSave ok',html.slice(0,80));snapshotHash();window._mobileNewNoteId=null;setSaveState('<span class="autosave-ok">Saved</span>','Saved');if(callback)callback(true)})}).catch(function(err){restoreReq();_log('flushSave error',err);showOffline();if(callback)callback(false)})}
+	function flushSave(callback){var form=activeEditorForm();if(!form){_log('flushSave skip (no form)');if(callback)callback(true);return}if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}if(_pvSyncTimer){clearTimeout(_pvSyncTimer);_pvSyncTimer=null;_syncPVInFlight=true;syncPV();_syncPVInFlight=false}else{var pv=getPV();if(pv&&_previewDirty)syncPV();else if(!pv&&_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA()}syncTitleToHidden({silent:true});var h=formHash(form);if(h===_savedHash){_log('flushSave skip (hash unchanged)',h);if(callback)callback(true);return}setSaveState('<span class="autosave-saving">Saving...</span>','Saving...');var restoreReq=function(){};buildFlushRequest(form).then(function(req){if(!req){if(callback)callback(true);return}restoreReq=req.restore||restoreReq;_log('flushSave',req.url);return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){restoreReq();_log('flushSave ok',html.slice(0,80));snapshotHash();window._mobileNewNoteId=null;setSaveState('<span class="autosave-ok">Saved</span>','Saved');if(callback)callback(true)})}).catch(function(err){restoreReq();_log('flushSave error',err);showOffline();if(callback)callback(false)})}
 	function shouldInterceptNavigationClick(target){var navTarget=target&&target.closest?target.closest('.notelist-item,.sidebar-item,.nav-folder-row,[hx-get],[hx-post],[hx-delete]'):null;if(!navTarget)return null;if(navTarget.closest&&navTarget.closest('#note-editor-form'))return null;if(navTarget.closest&&navTarget.closest('#folder-context-menu,#folder-modal,#link-modal,#history-modal,#code-modal,#new-folder-modal,#vault-modal,#empty-trash-modal'))return null;return navTarget}
 document.addEventListener('click',function(e){var navTarget=shouldInterceptNavigationClick(e.target);if(!navTarget)return;var form=activeEditorForm();var status=queryActiveEditor('#autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty)return;_log('navigation click intercepted, flushing save',navTarget.className||navTarget.id||navTarget.tagName);e.preventDefault();e.stopImmediatePropagation();flushSave(function(saved){if(saved){_log('flushSave done, re-clicking navigation target');navTarget.click()}})},true);
 window.joplockLiveSearch=_cfg.liveSearch||false;
@@ -1721,6 +3168,8 @@ function confirmLogout(event){
 			el.classList.remove('mobile-screen-left','mobile-screen-right');
 			el.classList.toggle('mobile-screen-active',s===_state.screen);
 		});
+		// Hide the persistent TinyMCE host and reparented toolbar whenever the editor screen is not active.
+		if(_state.screen!=='editor'){hideTinyMCEHost()}else{setTimeout(positionTinyMCEHost,0)}
 		// Titles
 		var notesTitle=document.getElementById('mobile-notes-title');
 		if(notesTitle&&_state.folderTitle)notesTitle.textContent=_state.folderTitle;
@@ -2086,6 +3535,7 @@ function confirmLogout(event){
 			});
 			// SSR already rendered editor content — init it directly, fetch lists in background
 			initEditorPanel();
+			initMobileToolbar();
 			htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
 			if(_state.folderId)htmx.ajax('GET','/fragments/mobile/notes?folderId='+encodeURIComponent(_state.folderId),{target:'#mobile-notes-body',swap:'innerHTML'});
 		}else{
@@ -2128,6 +3578,9 @@ function confirmLogout(event){
 	}
 	function syncResponsiveMode(){
 		var mobile=isMobile();
+		document.body.classList.toggle('mobile-shell-active',mobile);
+		document.documentElement.classList.toggle('mobile-no-page-scroll',mobile);
+		document.body.classList.toggle('mobile-no-page-scroll',mobile);
 		// For auto mode, ensure body classes reflect current viewport so CSS overrides work
 		if(_uiMode==='auto'){
 			document.body.classList.toggle('force-mobile',mobile);
@@ -2168,35 +3621,76 @@ function confirmLogout(event){
 		// uninitialized state (both visible, wrong display values, stale scroll).
 		if(wasMobile===true){initNavPanel();initEditorPanel();}
 	}
-	function initMobileToolbar(){
-		var tb=document.getElementById('editor-toolbar');
-		if(!tb||!inMobileEditor())return;
-		if(tb.dataset.mobileToolbarInit==='1'){syncEditorModeButtons();return}
-		tb.dataset.mobileToolbarInit='1';
-		tb.style.position='fixed';
-		tb.style.left='0';tb.style.right='0';
-		tb.style.bottom='0';
-		tb.style.zIndex='50';
-		tb.style.background='var(--bg-side)';
-		tb.style.borderTop='1px solid var(--border)';
-		// Adjust editor body padding so toolbar doesn't overlap content
+	function mobileEditorToolbar(){
 		var body=document.getElementById('mobile-editor-body');
-		if(body)body.style.paddingBottom='90px';
-		tb.style.display='flex';
-		function positionToolbar(){
-			if(!inMobileEditor()||!tb)return;
-			var vv=window.visualViewport;
-			// Use innerHeight - vv.height so toolbar clears keyboard + iOS accessory bar
-			var keyboardH=vv?Math.max(0,window.innerHeight-vv.height):0;
-			tb.style.bottom=keyboardH+'px';
+		return body?body.querySelector('#editor-toolbar'):null;
+	}
+	function setMobileToolbarVisible(show){
+		var tb=mobileEditorToolbar();
+		if(!tb)return;
+		// In rich (TinyMCE) mode the built-in toolbar is used; always keep the
+		// custom toolbar visibility class-driven and clear inline overrides.
+		if(_editorMode!=='markdown'&&_editorMode!=='md'){
+			tb.style.display='';
+			positionTinyMCEHost();
+			return;
 		}
-		if(window.visualViewport){
-			window.visualViewport.addEventListener('resize',positionToolbar);
-			window.visualViewport.addEventListener('scroll',positionToolbar);
-		}
-		positionToolbar();
+		var form=activeEditorForm();
+		if(form&&form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1')show=false;
+		tb.style.display=show?'flex':'none';
+		// Reposition immediately, then again after a tick so the toolbar has a
+		// rendered height before positionTinyMCEHost measures the anchor bottom.
+		positionTinyMCEHost();
+		if(show)setTimeout(positionTinyMCEHost,0);
+	}
+	function initMobileToolbar(){
+		// Remove any stale reparented toolbar from a previous approach.
+		var stale=document.body.querySelector('#editor-toolbar[data-mobile-reparented]');
+		if(stale)stale.remove();
+		var tb=mobileEditorToolbar();
+		if(!tb||!inMobileEditor())return;
+		// Allow CSS mode classes to control toolbar visibility.
+		tb.style.display='';
+		positionTinyMCEHost();
 		syncEditorModeButtons();
 	}
+	// Reposition TinyMCE host when viewport changes (keyboard open/close, resize).
+	// Show/hide toolbar on TinyMCE focus/blur.
+	(function initMobileToolbarGlobalListeners(){
+		function onVpChange(){
+			stabilizeTinyMCEHostPosition();
+			// When the visual viewport returns to full height the keyboard has gone away.
+			// Hide the toolbar — user is no longer actively editing.
+			if(!inMobileEditor())return;
+			var vv=window.visualViewport;
+			var keyboardGone=!vv||(window.innerHeight-vv.height<80);
+			if(keyboardGone&&!(_tinymceEditor&&_tinymceEditor.hasFocus&&_tinymceEditor.hasFocus())){
+				setMobileToolbarVisible(false);
+			}
+		}
+		if(window.visualViewport){
+			window.visualViewport.addEventListener('resize',onVpChange);
+			window.visualViewport.addEventListener('scroll',positionTinyMCEHost);
+		}
+		window.addEventListener('resize',positionTinyMCEHost);
+		// TinyMCE lives in an iframe; relay focus/blur via custom events from setup().
+		document.body.addEventListener('joplock:editor-focus',function(){
+			if(_tinymceSuppressEdits)return;
+			if(inMobileEditor()){
+				setMobileToolbarVisible(true);
+				stabilizeTinyMCEHostPosition();
+			}
+		});
+		document.body.addEventListener('joplock:editor-blur',function(){
+			if(!inMobileEditor())return;
+			// Give the browser time to update hasFocus and visualViewport,
+			// then hide toolbar if editor is truly no longer focused.
+			setTimeout(function(){
+				if(_tinymceEditor&&_tinymceEditor.hasFocus&&_tinymceEditor.hasFocus())return;
+				setMobileToolbarVisible(false);
+			},200);
+		});
+	})();
 	// Update editor title when editor loads
 		document.body.addEventListener('htmx:afterSettle',function(e){
 		var t=e.detail&&e.detail.target;
@@ -2393,6 +3887,7 @@ function toggleVaultLock(folderId){
 			if(bodyVault===folderId){
 				var panel=form.closest('#editor-panel')||document.getElementById('editor-panel');
 				if(panel)panel.innerHTML='<div class="editor-empty">Select a note</div>';
+				hideTinyMCEHost();
 			}
 		}
 	}else{
@@ -2552,8 +4047,6 @@ function _completeUnlock(noteId,plaintext,vaultId){
 
 	var ta=getTA();
 	var lockedDiv=document.getElementById('editor-locked');
-	var host=queryActiveEditor('#cm-host');
-	var pv=queryActiveEditor('#note-preview');
 	var tb=queryActiveEditor('#editor-toolbar');
 	var form=activeEditorForm();
 
@@ -2585,18 +4078,9 @@ function _completeUnlock(noteId,plaintext,vaultId){
 	if(mdBtn)mdBtn.style.display='';
 	if(pvBtn)pvBtn.style.display='';
 
-	// Use user's default open mode
-	if(form)delete form.dataset.editorMode;
-	var defaultMode=_defaultNoteOpenMode||'preview';
-	if(defaultMode==='preview'&&pv){
-		pv.style.display='';
-		fetch('/fragments/preview',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'body='+encodeURIComponent(plaintext)}).then(function(r){return r.text()}).then(function(h){pv.innerHTML=h;activatePV(pv);_previewDirty=false;if(host)host.style.display='none';_editorMode='preview';syncEditorModeButtons()});
-	}else{
-		if(pv)pv.style.display='none';
-		if(host){host.style.display='';initCM(host,plaintext)}
-		_editorMode='markdown';
-		syncEditorModeButtons();
-	}
+	// Open in the user's preferred mode — setEditorMode handles CM6 mount / TinyMCE setContent.
+	setEditorMode(_defaultNoteOpenMode==='markdown'?'markdown':'rich');
+	snapshotHash();
 
 	_updateLockToggle(noteId,true);
 	_updateNoteLockIcon(noteId,true);
@@ -2700,7 +4184,7 @@ function buildFlushRequest(form){
 	var url=form.getAttribute('hx-put');
 	if(!url)return Promise.resolve(null);
 	var pv=getPV();
-	if(pv)syncPV();else cmSyncToTA();
+	if(pv)syncPV();else if(_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA();
 	syncTitle();
 	var ta=getTA();
 	if(form.dataset.encrypted==='1'&&form.dataset.vaultId&&ta&&!isEncryptedBody(ta.value)){
@@ -3097,6 +4581,13 @@ window.openHistoryModal=openHistoryModal;
 window.selectHistorySnapshot=selectHistorySnapshot;
 window.restoreHistorySnapshot=restoreHistorySnapshot;
 window.setEditorMode=setEditorMode;
+window.tinyMCEFormat=tinyMCEFormat;
+window.tinyMCEFormatBlock=tinyMCEFormatBlock;
+window.tinyMCEInsertCheckbox=tinyMCEInsertCheckbox;
+window.tinyMCEInsertDate=tinyMCEInsertDate;
+window.tinyMCEInsertDateTime=tinyMCEInsertDateTime;
+window.tinyMCEInsertLink=tinyMCEInsertLink;
+window.tinyMCEInsertImage=tinyMCEInsertImage;
 window.wrapSel=wrapSel;
 window.insertPfx=insertPfx;
 window.insertTxt=insertTxt;
@@ -3112,6 +4603,11 @@ window.openCodeModal=openCodeModal;
 window.closeCodeModal=closeCodeModal;
 window.submitCode=submitCode;
 window.handleDrop=handleDrop;
+window.openUploadModal=openUploadModal;
+window.closeUploadModal=closeUploadModal;
+window.handleUploadModalFiles=handleUploadModalFiles;
+window.insertUploadedFiles=insertUploadedFiles;
+window.deleteUploadedResource=deleteUploadedResource;
 window.undoSnapshot=undoSnapshot;
 window.searchNavStep=searchNavStep;
 window.searchNavDismiss=searchNavDismiss;

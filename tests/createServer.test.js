@@ -603,7 +603,7 @@ test('POST /fragments/notes in vault renders locked editor with vault id', async
 		assert.ok(res.body.includes('data-vault-id="vault-1"'));
 		assert.ok(res.body.includes('id="editor-locked"'));
 		assert.ok(res.body.includes('id="editor-toolbar" style="display:none"'));
-		assert.ok(res.body.includes('id="cm-host" style="display:none"'));
+		assert.ok(res.body.includes('id="tinymce-slot"'));
 	});
 });
 
@@ -985,6 +985,46 @@ test('POST /login creates starter content for user with no real folders', async 
 	}
 });
 
+test('POST /login forwards configured public origin and referer to Joplin', async () => {
+  let capturedHeaders = null;
+  const upstream = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/api/sessions') {
+      capturedHeaders = req.headers;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 'fresh-session' }));
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const upstreamPort = upstream.address().port;
+  try {
+    await withServer({
+      joplinServerOrigin: `http://127.0.0.1:${upstreamPort}`,
+      joplinServerPublicUrl: 'https://joplinweb.021407.xyz/joplin',
+      sessionService: {
+        userBySessionId: async sessionId => {
+          if (sessionId === 'fresh-session') return { id: 'user-1', email: 'user@example.com', sessionId };
+          return null;
+        },
+      },
+    }, async port => {
+      const res = await request(port, {
+        path: '/login',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'email=user%40example.com&password=test',
+      });
+      assert.equal(res.statusCode, 302);
+      assert.equal(capturedHeaders.origin, 'https://joplinweb.021407.xyz');
+      assert.equal(capturedHeaders.referer, 'https://joplinweb.021407.xyz/joplin/login');
+    });
+  } finally {
+    await new Promise(resolve => upstream.close(resolve));
+  }
+});
+
 test('POST /login sets sessionId cookie with custom Max-Age when sessionCookieMaxAge is provided', async () => {
 	const upstream = http.createServer((req, res) => {
 		if (req.method === 'POST' && req.url === '/api/sessions') {
@@ -1218,7 +1258,8 @@ test('GET /settings shows font controls and per-user MFA section', async () => {
 		assert.ok(res.body.includes('Joplock Settings'));
 		assert.ok(res.body.includes('settings-note-font'));
 		assert.ok(res.body.includes('value="17"'));
-		assert.ok(res.body.includes('Use monospace for note text'));
+		assert.ok(res.body.includes('settings-note-font-family'));
+		assert.ok(res.body.includes('Monospace (Cascadia Mono)'));
 		assert.ok(res.body.includes('Reopen the last edited note on startup'));
 		assert.ok(res.body.includes('Two-Factor Authentication'));
 	});
@@ -2352,6 +2393,43 @@ test('POST /fragments/upload returns 401 for unauthenticated user', async () => 
 	});
 });
 
+test('POST /fragments/upload rejects file over admin maxUploadMb with 413', async () => {
+	let createCalled = false;
+	await withServer({
+		settingsService: {
+			settingsByUserId: async () => ({ noteFontSize: 15 }),
+			saveSettings: async (_id, s) => s,
+			appSettings: async () => ({ authRateLimitAttempts: 20, maxUploadMb: 1 }), // 1MB cap
+			getTotpSeed: async () => null,
+		},
+		itemWriteService: {
+			createResource: async () => { createCalled = true; return { id: 'x'.repeat(32) }; },
+		},
+	}, async port => {
+		const boundary = '----bigboundary';
+		const bigFile = Buffer.alloc(2 * 1024 * 1024, 0x41); // 2MB > 1MB cap
+		const body = Buffer.concat([
+			Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="big.bin"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+			bigFile,
+			Buffer.from(`\r\n--${boundary}--\r\n`),
+		]);
+		const res = await request(port, {
+			path: '/fragments/upload',
+			method: 'POST',
+			headers: {
+				Cookie: 'sessionId=test-session',
+				'Content-Type': `multipart/form-data; boundary=${boundary}`,
+				'Content-Length': body.length,
+			},
+			rawBody: body,
+		});
+		assert.equal(res.statusCode, 413);
+		const payload = JSON.parse(res.body);
+		assert.ok(/too large/i.test(payload.error), 'error mentions too large');
+		assert.equal(createCalled, false, 'must not forward oversized file upstream');
+	});
+});
+
 test('GET /fragments/editor/:id includes folder dropdown', async () => {
 	await withServer({
 		itemService: {
@@ -2596,11 +2674,35 @@ test('POST /admin/security saves auth rate limit setting', async () => {
 			path: '/admin/security',
 			method: 'POST',
 			headers: { Cookie: 'sessionId=admin-session', 'Content-Type': 'application/x-www-form-urlencoded' },
-			body: 'authRateLimitAttempts=35',
+			body: 'authRateLimitAttempts=35&maxUploadMb=150',
 		});
 		assert.equal(res.statusCode, 302);
 		assert.ok(res.headers.location.includes('saved=1'));
-		assert.deepEqual(saved, { authRateLimitAttempts: 35 });
+		assert.deepEqual(saved, { authRateLimitAttempts: 35, maxUploadMb: 150, debugLogging: false });
+	});
+});
+
+test('POST /admin/security enables debug logging when checkbox present', async () => {
+	let saved = null;
+	await withServer(makeAdminMocks({
+		settingsService: {
+			settingsByUserId: async () => ({ noteFontSize: 15 }),
+			saveSettings: async (_id, s) => s,
+			appSettings: async () => ({ authRateLimitAttempts: 20, maxUploadMb: 200 }),
+			saveAppSettings: async s => { saved = s; return s; },
+			getTotpSeed: async () => null,
+			setTotpSeed: async () => true,
+			clearTotpSeed: async () => true,
+		},
+	}), async port => {
+		const res = await request(port, {
+			path: '/admin/security',
+			method: 'POST',
+			headers: { Cookie: 'sessionId=admin-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'authRateLimitAttempts=20&maxUploadMb=200&debugLogging=on',
+		});
+		assert.equal(res.statusCode, 302);
+		assert.equal(saved.debugLogging, true);
 	});
 });
 
@@ -2659,7 +2761,8 @@ test('GET /settings does not show admin tab for non-admin user', async () => {
 			headers: { Cookie: 'sessionId=test-session' },
 		});
 		assert.equal(res.statusCode, 200);
-		assert.ok(!res.body.includes('tab-admin'), 'should not include admin tab panel');
+		assert.ok(!res.body.includes('id="tab-admin"'), 'should not include admin tab panel markup');
+		assert.ok(!res.body.includes('data-tab="admin"'), 'should not include admin tab button markup');
 	});
 });
 

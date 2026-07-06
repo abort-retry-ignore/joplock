@@ -112,7 +112,7 @@ const renderInlineMarkdown = (text) => {
 	html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
 	html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
 	html = html.replace(/\+\+(.+?)\+\+/g, '<u>$1</u>');
-	html = html.replace(/`(.+?)`/g, '<code spellcheck="false">$1</code>');
+	html = html.replace(/`(.+?)`/g, '<code>$1</code>');
 	return html;
 };
 

@@ -82,13 +82,16 @@ const previewRoundTrip = markdown => {
 		filter: node => node.nodeName === 'DIV' && !node.classList.length && (!node.textContent.trim() || node.innerHTML === '<br>'),
 		replacement: () => '\n<br>\n',
 	});
-	td.addRule('emptyP', {
-		filter: node => node.nodeName === 'P' && !node.querySelector('img') && (!node.textContent.trim() || node.innerHTML === '<br>'),
-		replacement: () => '\n\n<br>\n\n',
-	});
+	// blankLine must be registered BEFORE emptyP so the marker paragraph
+	// (<p class="md-blank-line"><br></p>) is matched as a blank-line sentinel
+	// rather than a generic empty paragraph. Mirrors public/app.js.
 	td.addRule('blankLine', {
-		filter: node => node.nodeName === 'DIV' && node.classList.contains('md-blank-line'),
+		filter: node => (node.nodeName === 'DIV' || node.nodeName === 'P') && node.classList.contains('md-blank-line'),
 		replacement: () => '\x00BL\x00',
+	});
+	td.addRule('emptyP', {
+		filter: node => node.nodeName === 'P' && !node.classList.contains('md-blank-line') && !node.querySelector('img') && (!node.textContent.trim() || node.innerHTML === '<br>'),
+		replacement: () => '\n\n<br>\n\n',
 	});
 	const root = dom.window.document.getElementById('root').cloneNode(true);
 	root.querySelectorAll('.preview-img-download-btn').forEach(btn => btn.remove());
@@ -406,4 +409,50 @@ test('logged in layout includes htmlToMarkdown normalization for preview save', 
 	assert.ok(html.includes('/app.js'));
 	assert.ok(html.includes('_joplockConfig'));
 	assert.ok(!html.includes('function htmlToMarkdown(el){'));
+});
+
+test('logged in layout loads both TinyMCE (rendered mode) and CodeMirror (markdown mode)', () => {
+	// TinyMCE powers rendered mode; CodeMirror 6 powers markdown mode. Both must be
+	// present. CM must load before app.js because initCM() reads window.CM at runtime.
+	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '' });
+	assert.ok(html.includes('tinymce/tinymce.min.js'), 'TinyMCE script must be loaded');
+	assert.ok(html.includes('turndown.min.js'), 'Turndown must be loaded (required by tinymceToMarkdown)');
+	assert.ok(html.includes('codemirror.min.js'), 'CodeMirror must be loaded for markdown mode');
+	const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1]);
+	const cmIdx = scripts.findIndex(s => s.includes('codemirror'));
+	const appIdx = scripts.findIndex(s => s.includes('app.js'));
+	assert.ok(cmIdx !== -1 && appIdx !== -1, 'both codemirror and app.js script tags must exist');
+	assert.ok(cmIdx < appIdx, 'codemirror.min.js must load before app.js');
+});
+
+test('logged in layout has persistent TinyMCE host outside editor-panel and outside .app', () => {
+	// Regression: TinyMCE must be initialised on a persistent DOM element that
+	// survives htmx swaps of #editor-panel. If the textarea lives inside the
+	// swap zone the iframe gets destroyed on every note switch, losing the
+	// setup() handlers (input, change) and the newline_behavior config. That
+	// was the root cause of the encrypted-note editor spacing / save-status
+	// regression. Also must live outside .app because the mobile media query
+	// hides .app entirely on mobile viewports.
+	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '' });
+	assert.ok(html.includes('id="tinymce-host"'), '#tinymce-host must exist in the shell');
+	assert.ok(html.includes('id="tinymce-editor"'), '#tinymce-editor textarea must exist in the shell (inside #tinymce-host)');
+	// Confirm host is not inside editor-panel.
+	const hostIdx = html.indexOf('id="tinymce-host"');
+	const editorPanelIdx = html.indexOf('id="editor-panel"');
+	const editorPanelCloseIdx = html.indexOf('</div>', editorPanelIdx);
+	assert.ok(hostIdx > editorPanelCloseIdx, '#tinymce-host must appear after #editor-panel closes (i.e. not nested inside)');
+	// Confirm host is not inside .app (which is display:none on mobile).
+	const appOpenIdx = html.indexOf('<div class="app">');
+	assert.ok(appOpenIdx !== -1, '.app div must exist');
+	// Find matching </div> for .app by scanning: simpler check — ensure the string
+	// between .app opening and its matching close does not contain the host id.
+	// Practical shortcut: the host must appear after the </div> that follows
+	// the last child of .app. Since .app's last direct child in our template is
+	// #editor-panel, verifying host is after editor-panel's close (already done)
+	// AND after the .app's own </div> close is sufficient.
+	// We approximate by looking for the pattern `</div>\n\t</div>` (two closing divs)
+	// that closes editor-panel then .app.
+	const appCloseIdx = html.indexOf('</div>\n\t</div>', appOpenIdx);
+	assert.ok(appCloseIdx !== -1, '.app closing tag structure must be recognisable');
+	assert.ok(hostIdx > appCloseIdx, '#tinymce-host must be outside .app so mobile media query does not hide it');
 });

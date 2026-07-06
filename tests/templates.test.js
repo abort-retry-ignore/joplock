@@ -31,13 +31,106 @@ test('editorFragment includes date and datetime toolbar buttons', () => {
 	const html = editorFragment({ id: 'n1', title: 'Active', body: 'Body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'Folder 1' }]);
 	assert.ok(html.includes('title="Insert date"'));
 	assert.ok(html.includes('title="Insert date and time"'));
-	assert.ok(html.includes('insertStamp(\'date\')'));
-	assert.ok(html.includes('insertStamp(\'datetime\')'));
-	assert.ok(html.includes('id="markdown-toggle"'));
-	assert.ok(html.includes('id="preview-toggle"'));
-	assert.ok(html.includes('onclick="setEditorMode(\'markdown\')"'));
-	assert.ok(html.includes('onclick="setEditorMode(\'preview\')"'));
-	assert.ok(html.includes('title="Rendered Markdown"'));
+	assert.ok(html.includes('tinyMCEInsertDate()'));
+	assert.ok(html.includes('tinyMCEInsertDateTime()'));
+	assert.ok(html.includes('id="tinymce-slot"'));
+});
+
+test('editorFragment toolbar wires every action handler', () => {
+	const html = editorFragment({ id: 'n1', title: 'Active', body: 'Body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'Folder 1' }]);
+	const expectedHandlers = [
+		"tinyMCEFormat('bold')",
+		"tinyMCEFormat('italic')",
+		"tinyMCEFormat('underline')",
+		"tinyMCEFormat('strikethrough')",
+		"tinyMCEFormatBlock('h1')",
+		"tinyMCEFormatBlock('h2')",
+		"tinyMCEFormatBlock('h3')",
+		"tinyMCEFormat('InsertUnorderedList')",
+		"tinyMCEFormat('InsertOrderedList')",
+		'tinyMCEInsertCheckbox()',
+		"tinyMCEFormat('code')",
+		"tinyMCEFormat('mceCodeSample')",
+		"tinyMCEFormatBlock('blockquote')",
+		"tinyMCEFormat('InsertHorizontalRule')",
+		'tinyMCEInsertDate()',
+		'tinyMCEInsertDateTime()',
+		"tinyMCEFormat('removeformat')",
+		"tinyMCEFormat('mceLink')",
+		"tinyMCEFormat('mceImage')",
+		'openUploadModal()',
+		"openHistoryModal('n1')",
+	];
+	for (const handler of expectedHandlers) {
+		assert.ok(html.includes(`onclick=\"${handler}\"`), `missing toolbar handler: ${handler}`);
+	}
+});
+
+// ---- TinyMCE save-pipeline regression tests ----
+// These guard the structural requirements for autosave to work.
+// Each test corresponds to a regression that was previously broken.
+
+test('editorFragment note-body textarea has name="body" required for formHash', () => {
+	// formHash() iterates form.elements and reads el.name/el.value.
+	// If name="body" is missing the hash never changes and saves are silently skipped.
+	const html = editorFragment({ id: 'n1', title: 'T', body: 'hello', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'F' }]);
+	assert.ok(html.includes('name="body"'), 'textarea must have name="body" for formHash');
+	assert.ok(html.includes('id="note-body"'), 'textarea must have id="note-body" for getTA()');
+});
+
+test('editorFragment form has hx-put and hx-trigger required for htmx autosave', () => {
+	// htmx.trigger(form, "joplock:save") fires the PUT only if hx-put and hx-trigger are present.
+	const html = editorFragment({ id: 'abc123', title: 'T', body: 'B', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'F' }]);
+	assert.ok(html.includes('hx-put="/fragments/editor/abc123"'), 'form must have hx-put for save');
+	assert.ok(html.includes('hx-trigger="joplock:save"'), 'form must have hx-trigger for save');
+	assert.ok(html.includes('hx-target="#autosave-status"'), 'save response must target autosave-status');
+});
+
+test('editorFragment autosave-status span present for save state display', () => {
+	// setSaveState() sets innerHTML of #autosave-status.
+	// If element is absent, Edited/Saved indicators never appear.
+	const html = editorFragment({ id: 'n1', title: 'T', body: 'B', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'F' }]);
+	assert.ok(html.includes('id="autosave-status"'), '#autosave-status must exist for save state display');
+});
+
+test('editorFragment mode toggle buttons are in titlebar, not toolbar', () => {
+	// MD/preview buttons must be in the titlebar row (.editor-titlebar) so they
+	// appear next to Saved/Undo, not inside the formatting toolbar.
+	const html = editorFragment({ id: 'n1', title: 'T', body: 'B', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'F' }]);
+	const titlebarsStart = html.indexOf('<div class="editor-titlebar">');
+	const toolbarStart = html.indexOf('<div class="editor-toolbar"');
+	assert.ok(titlebarsStart !== -1, 'editor-titlebar must exist');
+	assert.ok(toolbarStart !== -1, 'editor-toolbar must exist');
+	// titlebar ends where toolbar begins
+	const titlebarSection = html.slice(titlebarsStart, toolbarStart);
+	const toolbarSection = html.slice(toolbarStart);
+	assert.ok(titlebarSection.includes('id="markdown-toggle"'), 'markdown-toggle must be in titlebar');
+	assert.ok(titlebarSection.includes('id="preview-toggle"'), 'preview-toggle must be in titlebar');
+	assert.ok(!toolbarSection.includes('id="markdown-toggle"'), 'markdown-toggle must NOT be in toolbar');
+	assert.ok(!toolbarSection.includes('id="preview-toggle"'), 'preview-toggle must NOT be in toolbar');
+});
+
+test('editorFragment mode toggle buttons call setEditorMode', () => {
+	const html = editorFragment({ id: 'n1', title: 'T', body: 'B', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'F' }]);
+	assert.ok(html.includes("setEditorMode('markdown')"), 'MD button must call setEditorMode(\'markdown\')');
+	assert.ok(html.includes("setEditorMode('rich')"), 'preview button must call setEditorMode(\'rich\')');
+});
+
+test('editorFragment has cm-host for markdown mode and no old insertStamp/note-preview patterns', () => {
+	// CodeMirror 6 markdown mode mounts into #cm-host. The old contenteditable
+	// #note-preview must stay gone (superseded by TinyMCE for rendered mode).
+	const html = editorFragment({ id: 'n1', title: 'T', body: 'B', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'F' }]);
+	assert.ok(!html.includes("insertStamp("), 'toolbar must not use old insertStamp()');
+	assert.ok(html.includes('id="cm-host"'), 'fragment must include cm-host mount element for CM6 markdown mode');
+	assert.ok(!html.includes('id="note-preview"'), 'fragment must not include old note-preview contenteditable element');
+});
+
+test('editorFragment does NOT include #tinymce-editor (it lives in persistent shell host)', () => {
+	// Regression: If #tinymce-editor is inside the fragment, htmx swaps destroy
+	// the iframe on every note switch. Must stay in loggedInLayout's #tinymce-host.
+	const html = editorFragment({ id: 'n1', title: 'T', body: 'B', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'F' }]);
+	assert.ok(!html.includes('id="tinymce-editor"'), '#tinymce-editor must not be in the swapped fragment');
+	assert.ok(html.includes('id="tinymce-slot"'), '#tinymce-slot positioning anchor must be in the fragment');
 });
 
 test('editorFragment hides lock toggle for plaintext notes', () => {
@@ -58,10 +151,8 @@ test('editorFragment hides plaintext body for vault-protected notes', () => {
 	assert.ok(html.includes('data-vault-id="vault-1"'));
 	assert.ok(html.includes('id="note-body" style="display:none">Top secret</textarea>'));
 	assert.ok(html.includes('id="editor-toolbar" style="display:none"'));
-	assert.ok(html.includes('id="note-preview"'));
-	assert.ok(html.includes('contenteditable="true"'));
+	assert.ok(html.includes('id="tinymce-slot"'));
 	assert.ok(html.includes('style="display:none"'));
-	assert.ok(html.includes('id="cm-host" style="display:none"'));
 	assert.ok(!html.includes('>Top secret</div>'));
 	assert.ok(html.includes('Vault: Vault 1'));
 	assert.ok(!html.includes('editor-locked-back'));
@@ -72,10 +163,8 @@ test('mobileEditorFragment hides plaintext preview for vault-protected notes', (
 	assert.ok(html.includes('id="editor-locked"'));
 	assert.ok(html.includes('id="note-body" style="display:none">Top secret</textarea>'));
 	assert.ok(html.includes('id="editor-toolbar" style="display:none"'));
-	assert.ok(html.includes('id="note-preview"'));
-	assert.ok(html.includes('contenteditable="true"'));
+	assert.ok(html.includes('id="tinymce-slot"'));
 	assert.ok(html.includes('style="display:none"'));
-	assert.ok(html.includes('id="cm-host" style="display:none"'));
 	assert.ok(!html.includes('>Top secret</div>'));
 });
 
@@ -251,11 +340,11 @@ test('renderMarkdown renders GFM tables', () => {
 	assert.ok(html.includes('<td>bar</td>'), 'body cell preserved');
 });
 
-test('renderMarkdown renders indented code blocks with spellcheck attrs', () => {
+test('renderMarkdown renders indented code blocks without superfluous attrs', () => {
 	const html = renderMarkdown('    indented code here');
-	assert.ok(html.includes('<pre spellcheck="false">'), 'pre should have spellcheck=false');
-	assert.ok(html.includes('<code spellcheck="false">'), 'code should have spellcheck=false');
+	assert.ok(html.includes('<pre><code>'), 'pre and code should be present');
 	assert.ok(html.includes('indented code here'), 'code content preserved');
+	assert.ok(!html.includes('spellcheck='), 'pre/code should not have spellcheck attr');
 });
 
 test('renderMarkdown renders setext headings as h1 and h2', () => {
@@ -327,11 +416,11 @@ test('settings page renders font controls and MFA details', () => {
 	assert.ok(html.includes('Joplock Settings'));
 	assert.ok(html.includes('id="settings-note-font"'));
 	assert.ok(html.includes('id="settings-code-font"'));
-	assert.ok(html.includes('id="settings-note-monospace"'));
+	assert.ok(html.includes('id="settings-note-font-family"'));
 	assert.ok(html.includes('id="settings-date-format"'));
 	assert.ok(html.includes('id="settings-datetime-format"'));
 	assert.ok(html.includes('Two-Factor Authentication'));
-	assert.ok(html.includes('Use monospace for note text'));
+	assert.ok(html.includes('Monospace (Cascadia Mono)'));
 	assert.ok(html.includes('Reopen the last edited note on startup'));
 	assert.ok(html.includes('Expire session after inactivity'));
 	assert.ok(html.includes('name="autoLogoutMinutes"'));
@@ -574,9 +663,9 @@ test('logged in layout uses ordered list command and block transforms in preview
 	assert.ok(!html.includes('clean-md-toggle'));
 });
 
-test('editorFragment uses openFilePicker for upload toolbar action', () => {
+test('editorFragment uses openUploadModal for upload toolbar action', () => {
 	const html = editorFragment({ id: 'n1', title: 'Active', body: 'Body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'Folder 1' }]);
-	assert.ok(html.includes('onclick="openFilePicker()"'));
+	assert.ok(html.includes('onclick="openUploadModal()"'));
 	assert.ok(!html.includes("document.getElementById('file-upload').click()"));
 });
 
@@ -913,7 +1002,7 @@ test('renderInlineMarkdown renders bold, italic, strikethrough, underline, code'
 	assert.equal(renderInlineMarkdown('*italic*'), '<em>italic</em>');
 	assert.equal(renderInlineMarkdown('~~strike~~'), '<del>strike</del>');
 	assert.equal(renderInlineMarkdown('++under++'), '<u>under</u>');
-	assert.equal(renderInlineMarkdown('`code`'), '<code spellcheck="false">code</code>');
+	assert.equal(renderInlineMarkdown('`code`'), '<code>code</code>');
 });
 
 test('renderInlineMarkdown returns empty for falsy input', () => {

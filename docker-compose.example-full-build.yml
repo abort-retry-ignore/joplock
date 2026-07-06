@@ -67,6 +67,8 @@ services:
       # Optional break-glass recovery mode for backup/restore
       JOPLOCK_RECOVERY_ENABLED: 'false'
       JOPLOCK_RECOVERY_PASSWORD: ''
+      # Startup default for debug logging; admins can override at runtime in Settings.
+      DEBUG: 'false'
     volumes:
       - backup_data:/backups
 

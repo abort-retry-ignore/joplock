@@ -1,6 +1,6 @@
 // markdown-it-based renderer replacing the hand-rolled regex pipeline.
 // Preserves all Joplin-flavored extensions (resource URIs, checkboxes,
-// underline, blank-line markers, spellcheck attrs, hx-* strip).
+// underline, blank-line markers, hx-* strip).
 'use strict';
 
 const MarkdownIt = require('markdown-it');
@@ -84,24 +84,21 @@ md.core.ruler.push('underline', state => {
 // Render rule overrides
 // ---------------------------------------------------------------------------
 
-// fence: <pre spellcheck="false"><code class="language-X" spellcheck="false">
 md.renderer.rules.fence = (tokens, idx) => {
 	const token = tokens[idx];
 	const lang = token.info ? token.info.trim().split(/\s+/)[0] : '';
 	const cls = lang ? ` class="language-${escapeHtmlAttr(lang)}"` : '';
 	const code = token.content;
-	return `<pre spellcheck="false"><code${cls} spellcheck="false">${escapeHtmlForCode(code)}</code></pre>\n`;
+	return `<pre${cls}><code${cls}>${escapeHtmlForCode(code)}</code></pre>\n`;
 };
 
-// code_block (indented): same as fence, no language
 md.renderer.rules.code_block = (tokens, idx) => {
 	const code = tokens[idx].content;
-	return `<pre spellcheck="false"><code spellcheck="false">${escapeHtmlForCode(code)}</code></pre>\n`;
+	return `<pre><code>${escapeHtmlForCode(code)}</code></pre>\n`;
 };
 
-// code_inline
 md.renderer.rules.code_inline = (tokens, idx) => {
-	return `<code spellcheck="false">${escapeHtmlForCode(tokens[idx].content)}</code>`;
+	return `<code>${escapeHtmlForCode(tokens[idx].content)}</code>`;
 };
 
 function escapeHtmlForCode(str) {
@@ -196,21 +193,25 @@ function preProcessCheckboxes(src) {
 		const checked = m[2].toLowerCase() === 'x';
 		const text = m[3];
 		const cls = checked ? 'md-checkbox checked' : 'md-checkbox';
-		const glyph = checked ? '&#9745;' : '&#9744;';
-		return `<div class="${cls}"><span class="md-cb-icon">${glyph}</span>&nbsp;${text}</div>`;
+		return `<div class="${cls}">&nbsp;${text}</div>`;
 	});
 }
 
 /**
- * Replace runs of 3+ newlines with explicit md-blank-line divs so Turndown's
- * `blankLine` rule can reconstruct the extra blank lines on round-trip.
- * Uses direct HTML blocks instead of NUL sentinels (markdown-it replaces U+0000
- * with U+FFFD, breaking sentinel-based approaches).
+ * Replace runs of 3+ newlines with explicit blank-line paragraphs so Turndown's
+ * `emptyP` / `blankLine` rules can reconstruct the extra blank lines on
+ * round-trip.
+ *
+ * These are emitted as `<p class="md-blank-line"><br></p>` (not bare
+ * `<div><br></div>`): TinyMCE's schema preserves empty paragraphs natively as
+ * blank lines, whereas a bare `<div><br></div>` gets normalised/merged/dropped
+ * around block-level images — which swallowed the spacing between images after
+ * a few markdown⇄render round-trips. Using a real `<p>` keeps the marker stable.
  */
 function injectBlankLineBlocks(src) {
 	return src.replace(/\n{3,}/g, match => {
 		const extra = match.length - 2;
-		return '\n\n' + '<div class="md-blank-line"><br></div>\n\n'.repeat(extra);
+		return '\n\n' + '<p class="md-blank-line"><br></p>\n\n'.repeat(extra);
 	});
 }
 
@@ -221,6 +222,8 @@ function injectBlankLineBlocks(src) {
 function postProcess(html) {
 	// Rewrite :/<id> in src attrs from raw HTML passthrough (<img src=":/...">)
 	html = html.replace(JOPLIN_SRC_RE, (_m, id) => `src="/resources/${id}" data-resource-id="${id}"`);
+	// Also fix buggy TinyMCE-normalized URLs missing the leading slash/colon
+	html = html.replace(/src="resources\/([0-9a-fA-F]{32})"/g, (_m, id) => `src="/resources/${id}" data-resource-id="${id}"`);
 
 	// Raw HTML images bypass markdown-it's image renderer, so normalize them here
 	// to preserve preview-only behaviors like resize handles.
@@ -231,6 +234,16 @@ function postProcess(html) {
 		}
 		return `<img${attrs} class="preview-img"${selfClosing ? '/' : ''}>`;
 	});
+
+	// Wrap bare block-level <img> in its own <p>. Raw-HTML images (those with
+	// width/height, emitted by Turndown's joplinImg rule as literal <img> tags)
+	// are treated by markdown-it as HTML blocks and rendered OUTSIDE any <p>.
+	// A loose block-level <img> next to empty blank-line paragraphs gets absorbed
+	// by TinyMCE's schema into an adjacent paragraph on setContent, collapsing the
+	// blank lines between images. Wrapping each in <p> gives TinyMCE a stable
+	// block boundary (matching how ![](:/id) images already render). Match a whole
+	// line that is only an <img> tag (plus optional trailing whitespace).
+	html = html.replace(/^[ \t]*(<img\b[^>]*>)[ \t]*$/gim, '<p>$1</p>');
 
 	// Strip hx-* attributes (htmx injection guard)
 	html = html.replace(/\s+hx-[a-z-]+="[^"]*"/g, '');

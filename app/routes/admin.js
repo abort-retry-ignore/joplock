@@ -6,7 +6,7 @@ const { generateSeed } = require('../auth/mfaService');
 const { contentDispositionFilename, redirect, parseBody, sendJson } = require('./_helpers');
 
 const handle = async (url, request, response, ctx) => {
-	const { authenticatedUser, settingsService, adminService, isJoplockAdmin, backupService, maintenance } = ctx;
+	const { authenticatedUser, settingsService, adminService, isJoplockAdmin, backupService, maintenance, itemService, itemWriteService, upstreamRequestContext, refreshDebugLogging } = ctx;
 
 	if (!url.pathname.startsWith('/admin')) return false;
 
@@ -112,7 +112,12 @@ const handle = async (url, request, response, ctx) => {
 			await settingsService.saveAppSettings({
 				...current,
 				authRateLimitAttempts: Number.parseInt(`${body.authRateLimitAttempts || ''}`, 10),
+				maxUploadMb: Number.parseInt(`${body.maxUploadMb || ''}`, 10),
+				// Checkbox: present => 'on' => true, absent => false (explicit off).
+				debugLogging: body.debugLogging === 'on' || body.debugLogging === 'true' || body.debugLogging === '1',
 			});
+			// Apply the new debug state immediately (no restart needed).
+			if (refreshDebugLogging) { try { await refreshDebugLogging(); } catch { /* ignore */ } }
 			redirect(response, '/settings?saved=1&tab=admin');
 		} catch (error) {
 			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Security settings failed')}&tab=admin`);
@@ -196,6 +201,50 @@ const handle = async (url, request, response, ctx) => {
 			redirect(response, '/settings?saved=Restore+started&tab=admin');
 		} catch (error) {
 			redirect(response, `/settings?error=${encodeURIComponent(error.message || 'Restore failed')}&tab=admin`);
+		}
+		return true;
+	}
+
+	// GET /admin/orphaned-resources — count orphaned resources
+	if (url.pathname === '/admin/orphaned-resources' && request.method === 'GET') {
+		try {
+			const orphanData = await itemService.countOrphanedResources(auth.user.id);
+			sendJson(response, 200, orphanData);
+		} catch (error) {
+			sendJson(response, 500, { error: error.message || 'Query failed' });
+		}
+		return true;
+	}
+
+	// GET /admin/orphaned-resources/ids — list orphaned resource IDs
+	if (url.pathname === '/admin/orphaned-resources/ids' && request.method === 'GET') {
+		try {
+			const ids = await itemService.getOrphanedResourceIds(auth.user.id);
+			sendJson(response, 200, ids);
+		} catch (error) {
+			sendJson(response, 500, { error: error.message || 'Query failed' });
+		}
+		return true;
+	}
+
+	// POST /admin/orphaned-resources/cleanup — delete orphaned resources
+	if (url.pathname === '/admin/orphaned-resources/cleanup' && request.method === 'POST') {
+		try {
+			const ids = await itemService.getOrphanedResourceIds(auth.user.id);
+			let deleted = 0;
+			let failed = 0;
+			const reqCtx = upstreamRequestContext(request);
+			for (const id of ids) {
+				try {
+					await itemWriteService.deleteResource(auth.user.sessionId, id, reqCtx);
+					deleted++;
+				} catch (e) {
+					failed++;
+				}
+			}
+			sendJson(response, 200, { deleted, failed, total: ids.length });
+		} catch (error) {
+			sendJson(response, 500, { error: error.message || 'Cleanup failed' });
 		}
 		return true;
 	}

@@ -329,6 +329,68 @@ const createItemService = database => {
 				size: Number(content.size || 0),
 			};
 		},
+
+		// Count orphaned resources (not referenced by any non-deleted note body)
+		async countOrphanedResources(userId) {
+			const result = await database.query(`
+				WITH resource_ids AS (
+					SELECT jop_id,
+						COALESCE((convert_from(content, 'UTF8')::json ->> 'size')::bigint, 0) AS size
+					FROM items
+					WHERE owner_id = $1 AND jop_type = $2
+						AND COALESCE((convert_from(content, 'UTF8')::json ->> 'deleted_time')::bigint, 0) = 0
+				),
+				referenced_ids AS (
+					SELECT DISTINCT m[1] AS ref_id
+					FROM items,
+					LATERAL regexp_matches(
+						convert_from(content, 'UTF8')::json ->> 'body',
+						'(?::/|resources/)([0-9a-fA-F]{32})', 'g'
+					) AS m
+					WHERE owner_id = $1 AND jop_type = $3
+						AND COALESCE((convert_from(content, 'UTF8')::json ->> 'deleted_time')::bigint, 0) = 0
+				)
+				SELECT COUNT(*)::int AS resource_count,
+					COALESCE(SUM(r.size), 0)::bigint AS total_bytes
+				FROM resource_ids r
+				WHERE NOT EXISTS (
+					SELECT 1 FROM referenced_ids ref WHERE ref.ref_id = r.jop_id
+				)
+			`, [userId, MODEL_TYPE_RESOURCE, MODEL_TYPE_NOTE]);
+			const row = result.rows[0] || {};
+			return {
+				count: Number(row.resource_count || 0),
+				totalBytes: Number(row.total_bytes || 0),
+			};
+		},
+
+		// Get IDs of orphaned resources
+		async getOrphanedResourceIds(userId) {
+			const result = await database.query(`
+				WITH resource_ids AS (
+					SELECT jop_id
+					FROM items
+					WHERE owner_id = $1 AND jop_type = $2
+						AND COALESCE((convert_from(content, 'UTF8')::json ->> 'deleted_time')::bigint, 0) = 0
+				),
+				referenced_ids AS (
+					SELECT DISTINCT m[1] AS ref_id
+					FROM items,
+					LATERAL regexp_matches(
+						convert_from(content, 'UTF8')::json ->> 'body',
+						'(?::/|resources/)([0-9a-fA-F]{32})', 'g'
+					) AS m
+					WHERE owner_id = $1 AND jop_type = $3
+						AND COALESCE((convert_from(content, 'UTF8')::json ->> 'deleted_time')::bigint, 0) = 0
+				)
+				SELECT r.jop_id
+				FROM resource_ids r
+				WHERE NOT EXISTS (
+					SELECT 1 FROM referenced_ids ref WHERE ref.ref_id = r.jop_id
+				)
+			`, [userId, MODEL_TYPE_RESOURCE, MODEL_TYPE_NOTE]);
+			return result.rows.map(r => r.jop_id);
+		},
 	};
 };
 

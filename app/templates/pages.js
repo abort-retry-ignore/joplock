@@ -10,7 +10,12 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20260519pwa22';
+const ASSET_VERSION = '20260706cm6-markdown2';
+
+const noteFontFamilyCSS = (settings) => {
+	const f = settings.noteFontFamily || 'sans';
+	return f === 'mono' ? "'Cascadia Mono',monospace" : f === 'serif' ? "Georgia,'Times New Roman',serif" : '';
+};
 
 const formatBytes = value => {
 	const bytes = Number(value || 0);
@@ -30,6 +35,7 @@ const formatBytes = value => {
 const layoutPage = (options = {}) => {
 	const { user, navContent, editorContent, loginError, debug = false, mobileStartup = null, mobileEditorContent = '' } = options;
 	const settings = options.settings || {};
+	const maxUploadMb = Number.isFinite(options.maxUploadMb) ? options.maxUploadMb : 200;
 	const loggedIn = !!user;
 
 	if (!loggedIn) {
@@ -50,7 +56,7 @@ const layoutPage = (options = {}) => {
 	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<title>Joplock</title>
 </head>
-<body class="theme-dark-grey${settings.noteMonospace ? ' note-body-monospace' : ''}" style="--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;">
+<body class="theme-dark-grey${noteFontFamilyCSS(settings)==="'Cascadia Mono',monospace"?' note-body-monospace':''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;">
 	<script>
 	(function(){
 		var keys=['joplock-theme','joplock-nav-collapsed','joplock-nav-folders'];
@@ -95,13 +101,14 @@ const layoutPage = (options = {}) => {
 	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<script src="/htmx.min.js"></script>
 	<script src="/turndown.min.js"></script>
-	<script src="/codemirror.min.js"></script>
+	<script src="/codemirror.min.js?v=${ASSET_VERSION}"></script>
+	<script src="/tinymce/tinymce.min.js"></script>
 	<script src="/hljs.min.js"></script>
 	<script>window.joplockStripNoteTitle=${stripMarkdownForTitle.toString()};</script>
 	<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 	<title>Joplock</title>
 </head>
-<body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${settings.noteMonospace ? ' note-body-monospace' : ''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;">
+<body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${noteFontFamilyCSS(settings)==="'Cascadia Mono',monospace"?' note-body-monospace':''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;" data-newline-behavior="${escapeHtml(settings.newlineBehavior || 'block')}">
 	<div id="note-loading-overlay" aria-hidden="true">
 		<div class="note-loading-ring"></div>
 		<div class="note-loading-label">Loading note…</div>
@@ -115,6 +122,10 @@ const layoutPage = (options = {}) => {
 		<div class="col-editor" id="editor-panel">
 			${editorContent || '<div class="editor-empty">Select a note</div>'}
 		</div>
+	</div>
+	<!-- Persistent TinyMCE host — outside .app/#mobile-app so htmx swaps and mobile media queries don't destroy or hide the iframe. Positioned by JS. -->
+	<div id="tinymce-host" class="tinymce-host" aria-hidden="true">
+		<textarea id="tinymce-editor"></textarea>
 	</div>
 	<!-- Mobile app: 3-screen stack, only visible on mobile -->
 	<div id="mobile-app" class="mobile-app" aria-hidden="true">
@@ -271,6 +282,28 @@ const layoutPage = (options = {}) => {
 			</div>
 		</form>
 	</div>
+	<!-- Upload modal -->
+	<div class="folder-modal-backdrop" id="upload-modal-backdrop" hidden onclick="closeUploadModal()"></div>
+	<div class="folder-modal" id="upload-modal" hidden>
+		<form class="folder-modal-card upload-modal-card" id="upload-modal-form" onsubmit="event.preventDefault()">
+			<div class="upload-modal-header">
+				<h3 class="folder-modal-title">Upload files</h3>
+				<button type="button" class="btn btn-icon upload-close-btn" onclick="closeUploadModal()" title="Close">&#10005;</button>
+			</div>
+			<div class="upload-drop-zone" id="upload-drop-zone">
+				<div class="upload-drop-icon">&#128206;</div>
+				<p class="upload-drop-text">Drag and drop files here</p>
+				<p class="upload-drop-or">or</p>
+				<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('upload-modal-file-input').click()">Browse files</button>
+				<input type="file" id="upload-modal-file-input" multiple style="display:none" onchange="handleUploadModalFiles(this)" />
+			</div>
+			<div class="upload-file-list" id="upload-file-list"></div>
+			<div class="folder-modal-actions">
+				<button type="button" class="btn btn-sm btn-secondary" onclick="closeUploadModal()">Cancel</button>
+				<button type="button" class="btn btn-sm btn-primary" id="upload-insert-btn" onclick="insertUploadedFiles()" disabled>Insert</button>
+			</div>
+		</form>
+	</div>
 	<script>
 	window._joplockConfig={
 		debug:${debug ? 'true' : 'false'},
@@ -285,6 +318,7 @@ const layoutPage = (options = {}) => {
 		encryptionAutoLockMinutes:${JSON.stringify(settings.encryptionAutoLockMinutes || 5)},
 		uiMode:${JSON.stringify(settings.uiMode || 'auto')},
 		proseAutocompleteSentenceCount:${JSON.stringify(settings.proseAutocompleteSentenceCount || 1)},
+		maxUploadMb:${JSON.stringify(maxUploadMb)},
 		textExpanders:${JSON.stringify(Array.isArray(settings.textExpanders) ? settings.textExpanders : [])},
 		openRouterEnabled:${(Array.isArray(settings.aiProfiles) ? settings.aiProfiles.some(p => p.apiKey) : !!settings.openRouterApiKey) ? 'true' : 'false'}
 	};

@@ -124,7 +124,7 @@ const adminUserRow = (u, currentUserId) => {
 };
 
 const settingsPage = (options = {}) => {
-	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', dbCompression = null, flash = '', flashError = '', activeTab = 'appearance', hasExplicitTab = false } = options;
+	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', orphanedResources = null, dbCompression = null, flash = '', flashError = '', activeTab = 'appearance', hasExplicitTab = false, debug = false } = options;
 	const validTabs = ['appearance', 'ai', 'expander', 'profile', 'security'];
 	if (isAdmin) validTabs.push('admin');
 	const tab = validTabs.includes(activeTab) ? activeTab : 'appearance';
@@ -150,7 +150,7 @@ const settingsPage = (options = {}) => {
 	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<title>Joplock Settings</title>
 </head>
-<body class="theme-${escapeHtml(settings.theme || 'matrix')}">
+<body class="theme-${escapeHtml(settings.theme || 'matrix')}" onkeydown="var k=event.key||event.keyCode;if(k==='Escape'||k==='Esc'||k===27){event.preventDefault();document.body.style.background='#300';setTimeout(function(){document.body.style.background=''},150);setTimeout(function(){window.location.href='/'},100)}">
 	<div class="settings-page">
 		<div class="settings-card">
 			<div class="settings-header">
@@ -185,9 +185,14 @@ const settingsPage = (options = {}) => {
 							</select>
 						</label>
 						<label class="settings-field">
-							<span>Note font size</span>
+							<span>Render font size</span>
 							<input type="range" min="12" max="24" value="${escapeHtml(settings.noteFontSize || 15)}" id="settings-note-font" onchange="saveSetting('noteFontSize',this.value)" />
 							<output id="settings-note-font-value">${escapeHtml(settings.noteFontSize || 15)}px</output>
+						</label>
+						<label class="settings-field">
+							<span>Markdown font size</span>
+							<input type="range" min="12" max="24" value="${escapeHtml(settings.markdownFontSize || 14)}" id="settings-markdown-font" onchange="saveSetting('markdownFontSize',this.value)" />
+							<output id="settings-markdown-font-value">${escapeHtml(settings.markdownFontSize || 14)}px</output>
 						</label>
 						<label class="settings-field">
 							<span>Mobile note font size</span>
@@ -199,9 +204,21 @@ const settingsPage = (options = {}) => {
 							<input type="range" min="10" max="22" value="${escapeHtml(settings.codeFontSize || 12)}" id="settings-code-font" onchange="saveSetting('codeFontSize',this.value)" />
 							<output id="settings-code-font-value">${escapeHtml(settings.codeFontSize || 12)}px</output>
 						</label>
-						<label class="settings-field settings-checkbox">
-							<span>Note body font</span>
-							<label><input type="checkbox" id="settings-note-monospace" onchange="saveSetting('noteMonospace',this.checked?'1':'0')"${settings.noteMonospace ? ' checked' : ''} /> Use monospace for note text</label>
+						<label class="settings-field">
+							<span>Note font</span>
+							<select id="settings-note-font-family" class="login-input" onchange="saveSetting('noteFontFamily',this.value)">
+								<option value="sans"${!settings.noteFontFamily||settings.noteFontFamily==='sans'?' selected':''}>System (sans-serif)</option>
+								<option value="serif"${settings.noteFontFamily==='serif'?' selected':''}>Serif</option>
+								<option value="mono"${settings.noteFontFamily==='mono'?' selected':''}>Monospace (Cascadia Mono)</option>
+							</select>
+						</label>
+						<label class="settings-field">
+							<span>Enter key behavior</span>
+							<select id="settings-newline-behavior" class="login-input" onchange="saveSetting('newlineBehavior',this.value)">
+								<option value="block"${!settings.newlineBehavior||settings.newlineBehavior==='block'?' selected':''}>Paragraphs (default)</option>
+								<option value="linebreak"${settings.newlineBehavior==='linebreak'?' selected':''}>Line breaks</option>
+								<option value="invert"${settings.newlineBehavior==='invert'?' selected':''}>Line breaks with list support</option>
+							</select>
 						</label>
 						<label class="settings-field settings-checkbox">
 							<span>Markdown editor</span>
@@ -436,7 +453,15 @@ const settingsPage = (options = {}) => {
 								<span>Allowed attempts per 15 minutes</span>
 								<input type="number" class="login-input" name="authRateLimitAttempts" min="1" max="1000" value="${escapeHtml(appSettings.authRateLimitAttempts != null ? appSettings.authRateLimitAttempts : 20)}" />
 							</label>
+							<label class="settings-field">
+								<span>Maximum upload size (MB)</span>
+								<input type="number" class="login-input" name="maxUploadMb" min="1" max="2000" value="${escapeHtml(appSettings.maxUploadMb != null ? appSettings.maxUploadMb : 200)}" />
+							</label>
 						</div>
+						<label class="settings-checkbox-row" style="display:flex;align-items:center;gap:8px;margin-top:10px">
+							<input type="checkbox" name="debugLogging" value="on"${appSettings.debugLogging === true ? ' checked' : ''} />
+							<span>Enable debug logging (server console + browser console). Overrides the DEBUG startup flag.</span>
+						</label>
 						<div class="settings-actions"><button type="submit" class="btn btn-primary">Save security settings</button></div>
 					</form>
 				</section>
@@ -468,6 +493,24 @@ const settingsPage = (options = {}) => {
 						<thead><tr><th>Email</th><th>Name</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
 						<tbody>${adminUsers.map(u => adminUserRow(u, user.id)).join('')}</tbody>
 					</table></div>` : '<p class="settings-section-sub">No users found.</p>'}
+				</section>
+				<section class="settings-section">
+					<h2 class="settings-section-title">Orphaned Resources</h2>
+					<p class="settings-section-sub">Resources (attachments) that are no longer referenced by any note. These files waste storage and can be safely deleted.</p>
+					<div id="orphaned-resources-status" class="settings-security-card" style="margin-bottom:16px">
+						<p class="settings-mfa-status">
+							<span class="badge badge-off" id="orphaned-badge">${orphanedResources && orphanedResources.count > 0 ? 'Detected' : 'Clean'}</span>
+							${orphanedResources && orphanedResources.count > 0 ?
+								`<span id="orphaned-count"><strong>${orphanedResources.count}</strong> orphaned resource${orphanedResources.count !== 1 ? 's' : ''} (${formatBytes(orphanedResources.totalBytes)})</span>` :
+								'<span id="orphaned-count">No orphaned resources found.</span>'}
+						</p>
+						<p id="orphaned-result" class="settings-section-sub" style="display:none"></p>
+					</div>
+					<div class="settings-actions">
+						<button type="button" class="btn btn-sm btn-secondary" onclick="refreshOrphanedResources()" title="Check again">Check</button>
+						${orphanedResources && orphanedResources.count > 0 ?
+							`<button type="button" class="btn btn-sm btn-danger" onclick="cleanupOrphanedResources()">Delete ${orphanedResources.count} orphaned resource${orphanedResources.count !== 1 ? 's' : ''}</button>` : ''}
+					</div>
 				</section>
 				<section class="settings-section">
 					<h2 class="settings-section-title">Database Compression</h2>
@@ -552,12 +595,16 @@ const settingsPage = (options = {}) => {
 	</div>
 	<script>
 	(function(){
+		var DEBUG=${debug ? 'true' : 'false'};
+		function dlog(){if(DEBUG){try{console.log.apply(console,['[joplock]'].concat([].slice.call(arguments)))}catch(_){}}}
+		dlog('settings script loaded');
 		function bindRange(inputId,valueId,cssVar){var input=document.getElementById(inputId);var value=document.getElementById(valueId);if(!input||!value)return;document.body.style.setProperty(cssVar,input.value+'px');value.textContent=input.value+'px';input.addEventListener('input',function(){document.body.style.setProperty(cssVar,this.value+'px');value.textContent=this.value+'px'})}
-		function bindMonospace(){var input=document.getElementById('settings-note-monospace');if(!input)return;document.body.classList.toggle('note-body-monospace',input.checked);input.addEventListener('change',function(){document.body.classList.toggle('note-body-monospace',this.checked)})}
+		function bindFont(){var input=document.getElementById('settings-note-font-family');if(!input)return;function apply(v){document.body.style.setProperty('--font-family-note',v==='mono'?"'Cascadia Mono',monospace":v==='serif'?"Georgia,'Times New Roman',serif":'');document.body.classList.toggle('note-body-monospace',v==='mono')}apply(input.value);input.addEventListener('change',function(){apply(this.value)})}
 		bindRange('settings-note-font','settings-note-font-value','--font-size-note');
+		bindRange('settings-markdown-font','settings-markdown-font-value','--font-size-markdown');
 		bindRange('settings-mobile-note-font','settings-mobile-note-font-value','--font-size-note-mobile');
 		bindRange('settings-code-font','settings-code-font-value','--font-size-code');
-		bindMonospace();
+		bindFont();
 		window.saveSetting=function(key,value){
 			var body=encodeURIComponent(key)+'='+encodeURIComponent(value);
 			fetch('/api/web/settings',{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body}).catch(function(){});
@@ -655,7 +702,68 @@ const settingsPage = (options = {}) => {
 			try{render(JSON.parse(panel.getAttribute('data-initial')||'{}'))}catch(e){}
 			setInterval(function(){fetch('/admin/status',{headers:{'Accept':'application/json'}}).then(function(r){return r.ok?r.json():null}).then(function(data){if(data&&data.job)render(data.job)}).catch(function(){})},1500)
 		})();
-		document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;if(e.defaultPrevented)return;if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable))return;if(document.querySelector('dialog[open]'))return;window.location.href='/'});
+		// Orphaned resource management
+		window.refreshOrphanedResources=function(){
+			var badge=document.getElementById('orphaned-badge');
+			var count=document.getElementById('orphaned-count');
+			var result=document.getElementById('orphaned-result');
+			var actions=document.getElementById('orphaned-actions');
+			if(badge)badge.textContent='Checking\u2026';
+			if(result){result.style.display='none';result.textContent=''}
+			fetch('/admin/orphaned-resources',{credentials:'same-origin'})
+				.then(function(r){return r.json()})
+				.then(function(data){
+					if(data.error){
+						if(badge)badge.textContent='Error';
+						if(count)count.textContent=data.error;
+						return;
+					}
+					var n=data.count||0;
+					var bytes=n>0?' ('+(data.totalBytes<1024?data.totalBytes+' B':data.totalBytes<1048576?(data.totalBytes/1024).toFixed(1)+' KB':(data.totalBytes/1048576).toFixed(1)+' MB')+')':'';
+					if(badge)badge.textContent=n>0?'Detected':'Clean';
+					if(count)count.innerHTML=n>0?'<strong>'+n+'</strong> orphaned resource'+(n!==1?'s':'')+bytes:'No orphaned resources found.';
+					// Rebuild action buttons
+					var container=document.querySelector('#tab-admin .settings-section .settings-actions');
+					if(container){
+						var btns=container.querySelectorAll('button');
+						for(var b=0;b<btns.length;b++)btns[b].remove();
+						var checkBtn=document.createElement('button');
+						checkBtn.type='button';checkBtn.className='btn btn-sm btn-secondary';checkBtn.title='Check again';checkBtn.textContent='Check';checkBtn.onclick=refreshOrphanedResources;
+						container.appendChild(checkBtn);
+						if(n>0){
+							var delBtn=document.createElement('button');
+							delBtn.type='button';delBtn.className='btn btn-sm btn-danger';delBtn.textContent='Delete '+n+' orphaned resource'+(n!==1?'s':'');delBtn.onclick=cleanupOrphanedResources;
+							container.appendChild(delBtn);
+						}
+					}
+				}).catch(function(err){
+					if(badge)badge.textContent='Error';
+					if(count)count.textContent=err.message||'Request failed';
+				});
+		};
+		window.cleanupOrphanedResources=function(){
+			if(!confirm('Permanently delete all orphaned resources? This cannot be undone.'))return;
+			var badge=document.getElementById('orphaned-badge');
+			var count=document.getElementById('orphaned-count');
+			var result=document.getElementById('orphaned-result');
+			if(badge)badge.textContent='Deleting\u2026';
+			if(result){result.style.display='none';result.textContent=''}
+			fetch('/admin/orphaned-resources/cleanup',{method:'POST',credentials:'same-origin'})
+				.then(function(r){return r.json()})
+				.then(function(data){
+					if(data.error){
+						if(badge)badge.textContent='Error';
+						if(result){result.style.display='block';result.textContent=data.error;result.style.color='var(--danger)'}
+						return;
+					}
+					if(result){result.style.display='block';result.textContent='Deleted '+data.deleted+' resource'+(data.deleted!==1?'s':'')+(data.failed>0?', '+data.failed+' failed':'')+'.';result.style.color='var(--accent)'}
+					// Refresh count
+					refreshOrphanedResources();
+				}).catch(function(err){
+					if(badge)badge.textContent='Error';
+					if(result){result.style.display='block';result.textContent=err.message||'Request failed';result.style.color='var(--danger)'}
+				});
+		};
 	})();
 	</script>
 </body>

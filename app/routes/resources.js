@@ -2,6 +2,24 @@
 
 const { send, sendJson, readRawBody, parseMultipart, contentDispositionFilename, shouldInlineResource } = require('./_helpers');
 
+// Joplin Server rejects files over its formidable maxFileSize (200MB) with an
+// opaque 500 after fully buffering the upload. Guard below that so the client
+// gets an immediate, clear error instead of a slow failure. The effective limit
+// is admin-configurable (appSettings.maxUploadMb), capped at Joplin's own ceiling.
+const JOPLIN_HARD_CAP_BYTES = 200 * 1024 * 1024 - 1024 * 1024; // 199MB, just under Joplin's 200MB cap
+const humanBytes = n => n >= 1048576 ? `${(n / 1048576).toFixed(0)}MB` : `${(n / 1024).toFixed(0)}KB`;
+
+const resolveMaxUploadBytes = async settingsService => {
+	let mb = 200;
+	try {
+		if (settingsService && settingsService.appSettings) {
+			const app = await settingsService.appSettings();
+			if (app && Number.isFinite(app.maxUploadMb)) mb = app.maxUploadMb;
+		}
+	} catch { /* fall back to default */ }
+	return Math.min(mb * 1024 * 1024, JOPLIN_HARD_CAP_BYTES);
+};
+
 const escapeHtml = value => `${value}`
 	.replaceAll('&', '&amp;')
 	.replaceAll('<', '&lt;')
@@ -10,7 +28,7 @@ const escapeHtml = value => `${value}`
 	.replaceAll("'", '&#39;');
 
 const handle = async (url, request, response, ctx) => {
-	const { authenticatedUser, itemService, itemWriteService, upstreamRequestContext } = ctx;
+	const { authenticatedUser, itemService, itemWriteService, upstreamRequestContext, settingsService } = ctx;
 
 	// GET|HEAD /resources/:id
 	if (url.pathname.startsWith('/resources/') && (request.method === 'GET' || request.method === 'HEAD')) {
@@ -107,6 +125,22 @@ const handle = async (url, request, response, ctx) => {
 		return true;
 	}
 
+	// DELETE /resources/:id
+	if (url.pathname.startsWith('/resources/') && request.method === 'DELETE') {
+		try {
+			const auth = await authenticatedUser(request);
+			if (auth.error) { sendJson(response, 401, { error: 'Session expired' }); return true; }
+			const resourceId = decodeURIComponent(url.pathname.slice('/resources/'.length));
+			var idClean = resourceId.split(/[?#]/)[0];
+			if (!idClean || idClean.length < 10) { sendJson(response, 400, { error: 'Invalid resource id' }); return true; }
+			await itemWriteService.deleteResource(auth.user.sessionId, idClean, upstreamRequestContext(request));
+			sendJson(response, 200, { ok: true });
+		} catch (error) {
+			sendJson(response, error.statusCode || 500, { error: error.message || 'Delete failed' });
+		}
+		return true;
+	}
+
 	// POST /fragments/upload
 	if (url.pathname === '/fragments/upload' && request.method === 'POST') {
 		try {
@@ -119,10 +153,24 @@ const handle = async (url, request, response, ctx) => {
 				return true;
 			}
 
+			// Reject oversized uploads early using the declared Content-Length so we
+			// don't buffer huge files just to fail. parseMultipart also enforces below.
+			const maxBytes = await resolveMaxUploadBytes(settingsService);
+			const declaredLen = Number(request.headers['content-length'] || 0);
+			if (declaredLen && declaredLen > maxBytes + 4096) {
+				sendJson(response, 413, { error: `File too large. Maximum upload size is ${humanBytes(maxBytes)}.` });
+				return true;
+			}
+
 			const rawBody = await readRawBody(request);
 			const file = parseMultipart(rawBody, contentType);
 			if (!file || !file.data.length) {
 				sendJson(response, 400, { error: 'No file uploaded' });
+				return true;
+			}
+
+			if (file.data.length > maxBytes) {
+				sendJson(response, 413, { error: `File too large (${humanBytes(file.data.length)}). Maximum upload size is ${humanBytes(maxBytes)}.` });
 				return true;
 			}
 

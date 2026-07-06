@@ -52,7 +52,28 @@ const createServer = options => {
 		adminService && adminEmail && user && user.email === adminEmail && user.isAdmin
 	);
 
-	const log = debug ? (...args) => process.stdout.write(`[joplock] ${args.join(' ')}\n`) : () => {};
+	// Effective debug logging state. Starts from the env DEBUG default, but can be
+	// overridden at runtime by the admin setting appSettings.debugLogging
+	// (null = inherit env default, true/false = explicit override). Kept in memory
+	// and refreshed on startup + whenever the admin saves security settings.
+	const debugDefault = !!debug;
+	let effectiveDebug = debugDefault;
+	const isDebug = () => effectiveDebug;
+	const refreshDebugLogging = async () => {
+		try {
+			if (settingsService && settingsService.appSettings) {
+				const app = await settingsService.appSettings();
+				effectiveDebug = (app && app.debugLogging !== null && app.debugLogging !== undefined)
+					? !!app.debugLogging
+					: debugDefault;
+			}
+		} catch { effectiveDebug = debugDefault; }
+		return effectiveDebug;
+	};
+	// Initialize from DB (fire-and-forget; env default applies until it resolves).
+	void refreshDebugLogging();
+
+	const log = (...args) => { if (effectiveDebug) process.stdout.write(`[joplock] ${args.join(' ')}\n`); };
 	let maintenanceReason = '';
 	const maintenance = {
 		isEnabled: () => !!maintenanceReason,
@@ -289,11 +310,14 @@ Code block example
 			// config
 			joplinPublicBasePath,
 			joplinServerOrigin,
+			joplinServerPublicUrl,
 			configuredPublicUrl,
 			ignoreAdminMfa,
 			adminEmail,
 			sessionCookieMaxAge,
-			debug,
+			debug: effectiveDebug,
+			isDebug,
+			refreshDebugLogging,
 		};
 
 		// Health check
@@ -373,6 +397,13 @@ Code block example
 					return;
 				}
 				const settings = await userSettings(auth.user.id);
+				let maxUploadMb = 200;
+				try {
+					if (settingsService && settingsService.appSettings) {
+						const app = await settingsService.appSettings();
+						if (app && Number.isFinite(app.maxUploadMb)) maxUploadMb = app.maxUploadMb;
+					}
+				} catch { /* keep default */ }
 				try { await ensureStarterContent(auth.user, request); } catch {}
 				let { folders, counts } = await navData(auth.user.id);
 				let selectedFolderId = '';
@@ -402,9 +433,10 @@ Code block example
 						await settingsService.saveSettings(auth.user.id, { ...settings, lastNoteId: '', lastNoteFolderId: '' });
 					}
 				}
-				sendHtml(response, 200, templates.layoutPage({ debug,
+				sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug,
 					user: auth.user,
 					settings,
+					maxUploadMb,
 					mobileStartup,
 					mobileEditorContent,
 					navContent: templates.navigationFragment(folders, counts, selectedFolderId, selectedNoteId, '', selectedNoteContextFolderId),
@@ -412,7 +444,7 @@ Code block example
 					joplinBasePath: joplinPublicBasePath,
 				}));
 			} catch {
-				sendHtml(response, 200, templates.layoutPage({ debug, user: null, joplinBasePath: joplinPublicBasePath }));
+				sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug, user: null, joplinBasePath: joplinPublicBasePath }));
 			}
 			return;
 		}
@@ -433,7 +465,7 @@ Code block example
 			}
 			const settings = await userSettings(auth.user.id);
 			const { folders, counts } = await navData(auth.user.id);
-			sendHtml(response, 200, templates.layoutPage({ debug,
+			sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug,
 				user: auth.user,
 				settings,
 				navContent: templates.navigationFragment(folders, counts, '', ''),

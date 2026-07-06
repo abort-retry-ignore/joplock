@@ -437,8 +437,14 @@
 /* ===== Reset ===== */
 *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
+html.mobile-no-page-scroll,
+body.mobile-no-page-scroll {
+	overflow: hidden !important;
+	height: 100dvh;
+}
 body {
 	--font-size-note: 15px;
+	--font-size-markdown: 14px;
 	--font-size-code: 12px;
 	--statusbar-height: 28px;
 	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -456,9 +462,22 @@ body.app-shell {
 	overflow: hidden;
 }
 
+/* While mobile shell editor is active, freeze outer page scrolling so only the
+   editor content scrolls. This avoids dual-scroll behavior on iOS Safari. */
+body.mobile-shell-active {
+	overscroll-behavior: none;
+	overflow: hidden;
+	position: fixed;
+	inset: 0;
+	width: 100%;
+}
+
 body.note-body-monospace,
 body.note-body-monospace .editor-preview {
 	font-family: 'Cascadia Mono', monospace;
+}
+.editor-preview {
+	font-family: var(--font-family-note, inherit);
 }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; border: none; background: none; }
@@ -709,6 +728,133 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	gap: 8px;
 }
 
+/* ===== Upload Modal ===== */
+.upload-modal-card {
+	width: min(440px, 100%);
+	gap: 14px;
+	padding: 18px;
+}
+.upload-modal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.upload-close-btn {
+	font-size: 18px;
+	padding: 2px 6px;
+	line-height: 1;
+	border-radius: 6px;
+	color: var(--text-dim);
+	background: transparent;
+	border: none;
+	cursor: pointer;
+}
+.upload-close-btn:hover { color: var(--text); background: var(--bg-hover); }
+.upload-drop-zone {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	padding: 24px 16px;
+	border: 2px dashed var(--border);
+	border-radius: 10px;
+	text-align: center;
+	transition: border-color 0.15s, background 0.15s;
+	background: var(--bg);
+}
+.upload-drop-zone.drag-over {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+.upload-drop-icon {
+	font-size: 32px;
+	line-height: 1;
+	opacity: 0.7;
+}
+.upload-drop-text {
+	margin: 0;
+	font-size: 14px;
+	color: var(--text-dim);
+}
+.upload-drop-or {
+	margin: 0;
+	font-size: 12px;
+	color: var(--text-dim);
+	opacity: 0.6;
+}
+.upload-file-list {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-height: 180px;
+	overflow-y: auto;
+}
+.upload-file-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	transition: background 0.15s;
+}
+.upload-file-item.done { border-color: var(--accent); }
+.upload-file-item.error { border-color: var(--danger); opacity: 0.8; }
+.upload-file-name {
+	flex: 1;
+	font-size: 13px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text);
+}
+.upload-file-size {
+	font-size: 11px;
+	color: var(--text-dim);
+	flex-shrink: 0;
+}
+.upload-file-status {
+	font-size: 11px;
+	font-weight: 600;
+	flex-shrink: 0;
+	min-width: 48px;
+	text-align: right;
+}
+.upload-file-status.ok { color: var(--accent); }
+.upload-file-status.err { color: var(--danger); }
+.upload-progress-bar {
+	width: 100%;
+	height: 3px;
+	border-radius: 2px;
+	background: var(--border);
+	overflow: hidden;
+	margin-top: 4px;
+}
+.upload-progress-bar-fill {
+	height: 100%;
+	background: var(--accent);
+	transition: width 0.2s;
+	border-radius: 2px;
+}
+.upload-file-del {
+	flex-shrink: 0;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: none;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--text-dim);
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.upload-file-del:hover { color: var(--danger); background: var(--bg-hover); }
+
 .trash-folder-empty {
 	flex-shrink: 0;
 	color: var(--danger);
@@ -730,14 +876,20 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: stretch;
 	justify-content: center;
 	background: var(--bg);
+	padding: 24px;
+	gap: 0;
 }
 .code-modal-inner {
 	display: flex;
 	flex-direction: column;
-	width: 100%;
+	flex: 1;
 	max-width: 960px;
-	padding: 16px;
+	padding: 20px;
 	gap: 12px;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: var(--bg-side);
+	box-shadow: 0 18px 40px var(--shadow);
 }
 .code-modal-header {
 	display: flex;
@@ -1116,6 +1268,15 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	flex-wrap: wrap;
 }
 
+/* Legacy custom toolbar is only used for markdown mode.
+   Rich mode uses TinyMCE's built-in toolbar on both desktop and mobile. */
+body.editor-rich-mode .editor-toolbar {
+	display: none;
+}
+body.editor-markdown-mode .editor-toolbar {
+	display: flex;
+}
+
 .tb {
 	display: inline-flex;
 	align-items: center;
@@ -1141,6 +1302,18 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 /* Editor body (hidden textarea, used as sync target for form submission) */
 .editor-body {
 	display: none;
+	flex: 1;
+	min-height: 0;
+	resize: none;
+	border: none;
+	outline: none;
+	background: var(--bg);
+	color: var(--text);
+	font-family: 'Cascadia Mono', monospace;
+	font-size: var(--font-size-markdown);
+	line-height: 1.6;
+	padding: 16px 20px;
+	overflow-y: auto;
 }
 
 /* CodeMirror host */
@@ -1148,7 +1321,198 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	flex: 1;
 	overflow: hidden;
 	min-height: 0;
+	font-size: var(--font-size-markdown);
 }
+
+/* TinyMCE host — persistent, positioned by JS over #tinymce-slot */
+#tinymce-editor { display: none; }
+.tinymce-host {
+	position: fixed;
+	z-index: 5;
+	display: none;
+	flex-direction: column;
+	background: var(--bg);
+}
+.tinymce-host.tinymce-host-visible { display: flex; }
+.tinymce-slot {
+	flex: 1;
+	min-height: 0;
+}
+.tox-tinymce,
+.tox-tinymce--focused {
+	flex: 1 !important;
+	min-height: 0 !important;
+	height: 100% !important;
+	border: none !important;
+	border-radius: 0 !important;
+	box-shadow: none !important;
+	outline: none !important;
+}
+.tox-tinymce .tox-editor-container,
+.tox-tinymce .tox-edit-area,
+.tox-tinymce .tox-edit-area__iframe {
+	flex: 1 !important;
+	min-height: 0 !important;
+	height: 100% !important;
+}
+.tox-statusbar { display: none !important; }
+.tox .tox-edit-area,
+.tox .tox-edit-area__iframe {
+	background: var(--bg) !important;
+}
+
+/* TinyMCE theme integration — toolbar tinted per-theme via accent color */
+.tox .tox-toolbar-overlord,
+.tox .tox-toolbar,
+.tox .tox-toolbar__primary {
+	background-color: color-mix(in srgb, var(--accent) 10%, var(--bg)) !important;
+	background-image: none !important;
+}
+.tox .tox-editor-header {
+	position: sticky !important;
+	top: 0 !important;
+	z-index: 10 !important;
+	background-color: color-mix(in srgb, var(--accent) 10%, var(--bg)) !important;
+}
+.tox .tox-tbtn {
+	color: var(--text-dim) !important;
+	background: transparent !important;
+	background-color: transparent !important;
+	background-image: none !important;
+	border: none !important;
+	box-shadow: none !important;
+}
+.tox .tox-tbtn svg {
+	fill: var(--text-dim) !important;
+}
+.tox .tox-tbtn:hover {
+	background: var(--bg-hover) !important;
+	background-color: var(--bg-hover) !important;
+	color: var(--text) !important;
+}
+.tox .tox-tbtn:hover svg {
+	fill: var(--text) !important;
+}
+.tox .tox-tbtn--active,
+.tox .tox-tbtn--enabled,
+.tox .tox-tbtn--enabled:hover {
+	background: var(--bg-active) !important;
+	background-color: var(--bg-active) !important;
+	color: var(--accent) !important;
+}
+.tox .tox-tbtn--active svg,
+.tox .tox-tbtn--enabled svg,
+.tox .tox-tbtn--enabled:hover svg {
+	fill: var(--accent) !important;
+}
+.tox .tox-toolbar__group {
+	border-right-color: var(--border) !important;
+}
+/* Select-style toolbar buttons + fields (e.g. "Paragraph" format menu, list
+ * split-buttons). The oxide-dark skin gives these a default blue background;
+ * neutralize to match the app theme. */
+.tox .tox-tbtn--select,
+.tox .tox-split-button,
+.tox .tox-tbtn--bespoke,
+.tox .tox-listboxfield .tox-listbox--select,
+.tox .tox-selectfield select,
+.tox .tox-toolbar__primary .tox-split-button .tox-tbtn {
+	background: transparent !important;
+	background-color: transparent !important;
+	background-image: none !important;
+	color: var(--text-dim) !important;
+	border-color: var(--border) !important;
+}
+.tox .tox-tbtn--select:hover,
+.tox .tox-split-button:hover,
+.tox .tox-tbtn--bespoke:hover,
+.tox .tox-split-button:focus,
+.tox .tox-tbtn--select:focus {
+	background: var(--bg-hover) !important;
+	background-color: var(--bg-hover) !important;
+	color: var(--text) !important;
+}
+.tox .tox-tbtn--select.tox-tbtn--active,
+.tox .tox-tbtn--select.tox-tbtn--enabled,
+.tox .tox-split-button.tox-tbtn--active,
+.tox .tox-split-button.tox-tbtn--enabled {
+	background: var(--bg-active) !important;
+	background-color: var(--bg-active) !important;
+	color: var(--accent) !important;
+}
+.tox .tox-tbtn__select-label,
+.tox .tox-tbtn__select-chevron,
+.tox .tox-split-button__chevron,
+.tox .tox-tbtn--bespoke .tox-tbtn__select-label {
+	color: var(--text-dim) !important;
+}
+.tox .tox-tbtn__select-chevron svg,
+.tox .tox-split-button__chevron svg {
+	fill: var(--text-dim) !important;
+}
+.tox .tox-tbtn--select:hover .tox-tbtn__select-label,
+.tox .tox-split-button:hover .tox-tbtn__select-chevron svg,
+.tox .tox-tbtn--select:hover .tox-tbtn__select-chevron svg {
+	color: var(--text) !important;
+	fill: var(--text) !important;
+}
+/* Dropdown menus, context menus, popups */
+.tox .tox-menu,
+.tox .tox-collection--list,
+.tox .tox-collection--toolbar,
+.tox .tox-collection--grid {
+	background: var(--bg-side) !important;
+	border-color: var(--border) !important;
+}
+.tox .tox-collection__item {
+	color: var(--text-dim) !important;
+}
+.tox .tox-collection__item--active,
+.tox .tox-collection__item:hover {
+	background: var(--bg-hover) !important;
+	color: var(--text) !important;
+}
+.tox .tox-collection__item--enabled {
+	background: var(--bg-active) !important;
+	color: var(--accent) !important;
+}
+.tox .tox-collection__group-label {
+	color: var(--text-muted) !important;
+}
+
+/* TinyMCE codesample plugin uses Prism classes; force app theme colors over default blue */
+.tox-edit-area pre[class*="language-"],
+.tox-edit-area pre.language-markup,
+.tox-edit-area pre.language-javascript,
+.tox-edit-area pre.language-css,
+.tox-edit-area pre.language-html,
+.tox-edit-area pre.language-typescript {
+	background: var(--bg-hover) !important;
+	border: 1px solid var(--border) !important;
+	border-radius: 6px !important;
+	color: var(--text) !important;
+}
+.tox-edit-area code[class*="language-"] { background: transparent !important; }
+.tox-edit-area pre[class*="language-"] > code {
+	background: transparent !important;
+	padding: 0 !important;
+	border-radius: 0 !important;
+}
+.tox-edit-area pre[class*="language-"] .hljs-keyword,
+.tox-edit-area pre[class*="language-"] .hljs-selector-tag,
+.tox-edit-area pre[class*="language-"] .hljs-built_in { color: #c678dd !important; }
+.tox-edit-area pre[class*="language-"] .hljs-string,
+.tox-edit-area pre[class*="language-"] .hljs-attr,
+.tox-edit-area pre[class*="language-"] .hljs-addition { color: #98c379 !important; }
+.tox-edit-area pre[class*="language-"] .hljs-number,
+.tox-edit-area pre[class*="language-"] .hljs-literal,
+.tox-edit-area pre[class*="language-"] .hljs-symbol { color: #d19a66 !important; }
+.tox-edit-area pre[class*="language-"] .hljs-title,
+.tox-edit-area pre[class*="language-"] .hljs-title.function_ { color: #61afef !important; }
+.tox-edit-area pre[class*="language-"] .hljs-type,
+.tox-edit-area pre[class*="language-"] .hljs-title.class_ { color: #e5c07b !important; }
+.tox-edit-area pre[class*="language-"] .hljs-comment,
+.tox-edit-area pre[class*="language-"] .hljs-quote { color: var(--text-dim) !important; font-style: italic; }
 .cm-host .cm-editor {
 	height: 100%;
 	background: transparent;
@@ -1258,7 +1622,9 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	font-size: var(--font-size-code);
 }
 .editor-preview pre {
-	background: var(--bg-hover);
+	background: #1f2329;
+	border: 1px solid #343a40;
+	color: #e6edf3;
 	padding: 28px 16px 12px;
 	border-radius: 6px;
 	overflow-x: auto;
@@ -1266,7 +1632,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	font-family: 'Cascadia Mono', monospace;
 	font-size: var(--font-size-code);
 }
-.editor-preview pre code { background: none; padding: 0; }
+.editor-preview pre code { background: none; padding: 0; color: inherit; }
 /* highlight.js token colors (One Dark inspired, matches CM6 theme) */
 .editor-preview .hljs-keyword,
 .editor-preview .hljs-selector-tag,
@@ -1282,19 +1648,19 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .editor-preview .hljs-type,
 .editor-preview .hljs-title.class_ { color: #e5c07b; }
 .editor-preview .hljs-comment,
-.editor-preview .hljs-quote { color: var(--text-dim); font-style: italic; }
+.editor-preview .hljs-quote { color: #8b949e; font-style: italic; }
 .editor-preview .hljs-variable,
 .editor-preview .hljs-template-variable { color: #e06c75; }
 .editor-preview .hljs-operator { color: #56b6c2; }
 .editor-preview .hljs-property { color: #e06c75; }
 .editor-preview .hljs-attribute { color: #d19a66; }
-.editor-preview .hljs-meta { color: var(--text-dim); }
+.editor-preview .hljs-meta { color: #8b949e; }
 .editor-preview .hljs-deletion { color: #e06c75; }
 .editor-preview .hljs-section { color: #61afef; font-weight: bold; }
 .editor-preview .hljs-name { color: #e06c75; }
 .editor-preview .hljs-selector-class,
 .editor-preview .hljs-selector-id { color: #e5c07b; }
-.editor-preview .hljs-punctuation { color: var(--text); }
+.editor-preview .hljs-punctuation { color: #e6edf3; }
 .editor-preview blockquote {
 	border-left: 3px solid var(--accent);
 	margin: 1em 0;
@@ -1306,13 +1672,32 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .editor-preview li { margin: 0.25em 0; }
 .editor-preview .md-checkbox {
 	margin: 0.25em 0;
+	padding-left: 0.9em;
 	display: flex;
 	align-items: baseline;
 	gap: 0.35em;
 }
-.editor-preview .md-checkbox.checked { opacity: 0.85; }
-.editor-preview .md-checkbox .md-cb-icon { font-size: 1.1em; font-weight: bold; text-decoration: none; flex-shrink: 0; line-height: 1; }
-.editor-preview .md-checkbox.checked .md-cb-icon { color: var(--accent); opacity: 1; }
+.editor-preview .md-checkbox::before {
+	content: '';
+	display: inline-block;
+	width: 16px;
+	height: 16px;
+	border: 1.5px solid var(--accent);
+	border-radius: 3px;
+	flex-shrink: 0;
+	background: transparent;
+	box-sizing: border-box;
+}
+.editor-preview .md-checkbox.checked::before {
+	background: var(--accent);
+	border-color: var(--accent);
+	content: '✓';
+	color: var(--bg);
+	font-size: 11px;
+	font-weight: bold;
+	line-height: 16px;
+	text-align: center;
+}
 .preview-img { display: block; max-width: 100%; height: auto; border-radius: 6px; margin: 12px 0; cursor: default; }
 .editor-preview[contenteditable="true"] .preview-img { cursor: nwse-resize; border: 1px solid transparent; }
 .editor-preview[contenteditable="true"] .preview-img:hover { border-color: var(--accent); opacity: 0.95; }
@@ -2238,6 +2623,8 @@ select.login-input option {
 	.editor-toolbar::-webkit-scrollbar { height: 3px; }
 	.editor-toolbar .tb { min-width: 46px; height: 46px; padding: 0 12px; font-size: 18px; border-radius: 10px; flex: 0 0 auto; }
 	.editor-toolbar .tb-div { margin: 0 5px; height: 24px; flex: 0 0 auto; }
+	.editor-toolbar .tb[data-format="h1"],
+	.editor-toolbar .tb[data-format="h2"] { display: none; }
 	.cm-host .cm-content {
 		padding: 10px 12px;
 	}
@@ -2451,10 +2838,13 @@ select.login-input option {
 		-webkit-overflow-scrolling: touch;
 		overscroll-behavior: contain;
 	}
+	/* Editor body must not scroll at the outer level — TinyMCE scrolls internally.
+	   overflow:hidden + overscroll-behavior:none kills iOS rubber-band on the shell. */
 	.mobile-editor-body {
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+		overscroll-behavior: none;
 		min-width: 0;
 		position: relative;
 	}
@@ -2722,6 +3112,16 @@ body.force-mobile .mobile-app {
 	background: var(--bg);
 }
 body.force-mobile .mobile-fab { display: flex; }
+
+/* Hide the custom toolbar in mobile rich (TinyMCE) mode — applies at any viewport width.
+   TinyMCE's own built-in toolbar is rendered inside the editor host instead.
+   In markdown/preview mode body.mobile-markdown-mode is set, restoring it. */
+#mobile-editor-body .editor-toolbar {
+	display: none;
+}
+body.mobile-markdown-mode #mobile-editor-body .editor-toolbar {
+	display: flex;
+}
 
 body.force-desktop .mobile-app { display: none !important; }
 body.force-desktop .mobile-fab { display: none !important; }

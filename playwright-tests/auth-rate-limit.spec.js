@@ -1,19 +1,10 @@
 'use strict';
 
 const { test, expect } = require('@playwright/test');
-const { openSettings } = require('./helpers');
-
-const ADMIN_EMAIL = process.env.PLAYWRIGHT_ADMIN_EMAIL || process.env.PLAYWRIGHT_EMAIL || '';
-const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD || process.env.PLAYWRIGHT_PASSWORD || '';
+const { hasAdminCredentials, login, openSettings } = require('./helpers');
 
 const loginAsAdmin = async page => {
-	await page.goto('/login');
-	await expect(page.getByRole('heading', { name: 'Joplock' })).toBeVisible();
-	await page.getByPlaceholder('Email').fill(ADMIN_EMAIL);
-	await page.locator('#login-password').fill(ADMIN_PASSWORD);
-	await page.getByRole('button', { name: 'Login' }).click();
-	await page.waitForURL(/\/$/);
-	await expect(page.locator('body.app-shell')).toBeVisible();
+	await login(page);
 };
 
 const saveAuthRateLimit = async (page, value) => {
@@ -44,7 +35,7 @@ const submitBadLogin = async (page, email, password) => {
 test.describe('Auth rate limit UI', () => {
 	test('admin-configured limit blocks repeated bad logins and can be restored', async ({ page, browser }, testInfo) => {
 		test.skip(testInfo.project.name !== 'desktop');
-		test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, 'Set PLAYWRIGHT_ADMIN_EMAIL and PLAYWRIGHT_ADMIN_PASSWORD for admin UI tests.');
+		test.skip(!hasAdminCredentials(), 'Set JOPLOCK_ADMIN_EMAIL/JOPLOCK_ADMIN_PASSWORD (or PLAYWRIGHT_ADMIN_*) for admin UI tests.');
 
 		await loginAsAdmin(page);
 		await openSettings(page);

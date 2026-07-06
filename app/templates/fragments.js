@@ -290,8 +290,6 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 			</div>
 		</div>` : '';
 	const bodyDisplay = vaultProtected ? ' style="display:none"' : '';
-	const cmDisplay = vaultProtected ? ' style="display:none"' : '';
-	const toolbarDisplay = vaultProtected ? ' style="display:none"' : '';
 	return `<form class="editor-form" id="note-editor-form"
 		hx-put="/fragments/editor/${encodeURIComponent(note.id)}"
 		hx-trigger="joplock:save"
@@ -313,12 +311,12 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 			<span id="autosave-status"></span>
 			<button type="button" id="undo-save-btn" class="btn btn-sm btn-secondary undo-save-btn" title="Undo last save (Ctrl+Shift+Z)" onclick="undoSnapshot()" hidden>Undo</button>
 			<span id="autosave-indicator" class="htmx-indicator">Saving...</span>
+			<button type="button" class="btn btn-sm" id="markdown-toggle" title="Markdown source" onclick="setEditorMode('markdown')">MD</button>
+			<button type="button" class="btn btn-icon active" id="preview-toggle" title="Rendered view" onclick="setEditorMode('rich')">&#128065;</button>
 			${note.deletedTime ? `<button type="button" class="btn btn-sm" title="Restore from trash"
 				hx-post="/fragments/notes/${encodeURIComponent(note.id)}/restore"
 				hx-target="#nav-panel"
 				hx-swap="innerHTML">Restore</button>` : ''}
-			<button type="button" class="btn btn-icon mode-toggle-btn" title="Markdown" id="markdown-toggle" onclick="setEditorMode('markdown')"${vaultProtected ? ' style="display:none"' : ''}>MD</button>
-			<button type="button" class="btn btn-icon mode-toggle-btn" title="Rendered Markdown" id="preview-toggle" onclick="setEditorMode('preview')"${vaultProtected ? ' style="display:none"' : ''}>&#128065;</button>
 			${vaultProtected ? `<button type="button" class="btn btn-icon" title="Unlock note" id="lock-toggle-btn" onclick="toggleNoteLock('${escapeHtml(note.id)}')">${svgLockClosed}</button>` : ''}
 			<button type="button" class="btn btn-icon btn-danger" title="Delete"
 				hx-delete="/fragments/notes/${encodeURIComponent(note.id)}"
@@ -327,33 +325,33 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 				hx-params="none"
 				${note.deletedTime ? 'hx-confirm="Permanently delete this note?"' : 'data-confirm-trash="Move this note to trash?"'}>&#128465;</button>
 		</div>
-		<div class="editor-toolbar" id="editor-toolbar"${toolbarDisplay}>
-			<button type="button" class="tb" data-format="bold" title="Bold (Ctrl+B)" onclick="wrapSel('**','**')"><b>B</b></button>
-			<button type="button" class="tb" data-format="italic" title="Italic (Ctrl+I)" onclick="wrapSel('*','*')"><i>I</i></button>
-			<button type="button" class="tb" data-format="underline" title="Underline" onclick="wrapSel('++','++')"><u>U</u></button>
-			<button type="button" class="tb" data-format="strikethrough" title="Strikethrough" onclick="wrapSel('~~','~~')"><s>S</s></button>
+		<div class="editor-toolbar" id="editor-toolbar"${vaultProtected ? ' style="display:none"' : ''}>
+			<button type="button" class="tb" data-format="bold" title="Bold (Ctrl+B)" onclick="tinyMCEFormat('bold')"><b>B</b></button>
+			<button type="button" class="tb" data-format="italic" title="Italic (Ctrl+I)" onclick="tinyMCEFormat('italic')"><i>I</i></button>
+			<button type="button" class="tb" data-format="underline" title="Underline" onclick="tinyMCEFormat('underline')"><u>U</u></button>
+			<button type="button" class="tb" data-format="strikethrough" title="Strikethrough" onclick="tinyMCEFormat('strikethrough')"><s>S</s></button>
 			<span class="tb-div"></span>
-			<button type="button" class="tb" data-format="h1" title="Heading 1" onclick="insertPfx('# ')">H1</button>
-			<button type="button" class="tb" data-format="h2" title="Heading 2" onclick="insertPfx('## ')">H2</button>
-			<button type="button" class="tb" data-format="h3" title="Heading 3" onclick="insertPfx('### ')">H3</button>
+			<button type="button" class="tb" data-format="h1" title="Heading 1" onclick="tinyMCEFormatBlock('h1')">H1</button>
+			<button type="button" class="tb" data-format="h2" title="Heading 2" onclick="tinyMCEFormatBlock('h2')">H2</button>
+			<button type="button" class="tb" data-format="h3" title="Heading 3" onclick="tinyMCEFormatBlock('h3')">H3</button>
 			<span class="tb-div"></span>
-			<button type="button" class="tb" title="Bullet list" onclick="insertPfx('- ')">&#8226;</button>
-			<button type="button" class="tb" title="Numbered list" onclick="insertPfx('1. ')">1.</button>
-			<button type="button" class="tb" title="Checkbox" onclick="insertPfx('- [ ] ')">&#9744;</button>
+			<button type="button" class="tb" title="Bullet list" onclick="tinyMCEFormat('InsertUnorderedList')">&#8226;</button>
+			<button type="button" class="tb" title="Numbered list" onclick="tinyMCEFormat('InsertOrderedList')">1.</button>
+			<button type="button" class="tb" title="Checkbox" onclick="tinyMCEInsertCheckbox()">&#9744;</button>
 			<span class="tb-div"></span>
-			<button type="button" class="tb" data-format="inline-code" title="Inline code" onclick="wrapSel('\`','\`')">&lt;/&gt;</button>
-			<button type="button" class="tb" title="Code block" onclick="openCodeModal()">{ }</button>
-			<button type="button" class="tb" title="Quote" onclick="insertPfx('> ')">&#8220;</button>
-			<button type="button" class="tb" title="Horizontal rule" onclick="insertTxt('\\n---\\n')">&#8212;</button>
+			<button type="button" class="tb" data-format="inline-code" title="Inline code" onclick="tinyMCEFormat('code')">&lt;/&gt;</button>
+			<button type="button" class="tb" title="Code block" onclick="tinyMCEFormat('mceCodeSample')">{ }</button>
+			<button type="button" class="tb" title="Quote" onclick="tinyMCEFormatBlock('blockquote')">&#8220;</button>
+			<button type="button" class="tb" title="Horizontal rule" onclick="tinyMCEFormat('InsertHorizontalRule')">&#8212;</button>
 			<span class="tb-div"></span>
-			<button type="button" class="tb" title="Insert date" onclick="insertStamp('date')">Date</button>
-			<button type="button" class="tb" title="Insert date and time" onclick="insertStamp('datetime')">DateTime</button>
+			<button type="button" class="tb" title="Insert date" onclick="tinyMCEInsertDate()">Date</button>
+			<button type="button" class="tb" title="Insert date and time" onclick="tinyMCEInsertDateTime()">DateTime</button>
 			<span class="tb-div"></span>
-			<button type="button" class="tb" title="Clear formatting" onclick="clearFormat()">&#119899;<sub>x</sub></button>
+			<button type="button" class="tb" title="Clear formatting" onclick="tinyMCEFormat('removeformat')">&#119899;<sub>x</sub></button>
 			<span class="tb-div"></span>
-			<button type="button" class="tb" title="Link" onclick="insertLink()">&#128279;</button>
-			<button type="button" class="tb" title="Image" onclick="insertImg()">&#128247;</button>
-			<button type="button" class="tb" title="Upload file" onclick="openFilePicker()">&#128206;</button>
+			<button type="button" class="tb" title="Link" onclick="tinyMCEFormat('mceLink')">&#128279;</button>
+			<button type="button" class="tb" title="Image" onclick="tinyMCEFormat('mceImage')">&#128247;</button>
+			<button type="button" class="tb" title="Upload file" onclick="openUploadModal()">&#128206;</button>
 			<input type="file" id="file-upload" style="display:none" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" multiple onchange="handleFilePicker(this)" />
 			<span class="tb-div"></span>
 			<button type="button" class="tb" title="Note history" onclick="openHistoryModal('${escapeHtml(note.id)}')">&#128336;</button>
@@ -372,10 +370,8 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 		</div>
 		${lockedView}
 		<textarea name="body" class="editor-body" id="note-body"${bodyDisplay}>${escapeHtml(note.body || '')}</textarea>
-		<div class="cm-host" id="cm-host"${cmDisplay}
-			ondrop="handleDrop(event)" ondragover="event.preventDefault()"></div>
-		<div class="editor-preview" id="note-preview" contenteditable="true"
-			ondrop="handleDrop(event)" ondragover="event.preventDefault()">${vaultProtected ? '' : renderMarkdown(note.body || '')}</div>
+		<div id="cm-host" class="cm-host" style="display:none"></div>
+		<div id="tinymce-slot" class="tinymce-slot" data-rendered-body="${vaultProtected ? '' : escapeHtml(renderMarkdown(note.body || ''))}"${vaultProtected ? ' data-locked="1"' : ''}></div>
 	</form>${noteMetaFragment(note)}`;
 };
 
@@ -383,8 +379,9 @@ const mobileEditorFragment = (note, folders, currentFolderId = '') => editorFrag
 	.replace(/<div class="editor-titlebar">([\s\S]*?)<\/div>\s*<div class="editor-toolbar"/, (_m, titlebarInner) => {
 		const folderSelectMatch = titlebarInner.match(/<select name="parentId"[\s\S]*?<\/select>/);
 		const hiddenSelect = folderSelectMatch ? folderSelectMatch[0].replace('class="editor-folder-select"', 'class="editor-folder-select mobile-hidden-folder-select"') : '';
-		// Keep title fields hidden so autoTitle + save work; hide visual titlebar
-		return `${hiddenSelect}<input type="hidden" name="currentFolderId" value="${escapeHtml(currentFolderId || '')}" /><input type="hidden" name="title" class="editor-title-hidden" value="${escapeHtml(stripMarkdownForTitle(note.title || ''))}" /><div class="editor-title" style="display:none" data-placeholder="Note title">${escapeHtml(stripMarkdownForTitle(note.title || ''))}</div><div class="editor-toolbar"`;
+		// Keep title fields hidden so autoTitle + save work; hide visual titlebar.
+		// Also keep #autosave-status and #autosave-indicator (hidden) because form hx-target and hx-indicator point to them — removing them causes htmx:targetError and hx-indicator selector warnings on save.
+		return `${hiddenSelect}<input type="hidden" name="currentFolderId" value="${escapeHtml(currentFolderId || '')}" /><input type="hidden" name="title" class="editor-title-hidden" value="${escapeHtml(stripMarkdownForTitle(note.title || ''))}" /><div class="editor-title" style="display:none" data-placeholder="Note title">${escapeHtml(stripMarkdownForTitle(note.title || ''))}</div><span id="autosave-status" style="display:none"></span><span id="autosave-indicator" class="htmx-indicator" style="display:none">Saving...</span><div class="editor-toolbar"`;
 	})
 	.replace(/\s*<div class="search-nav-bar" id="search-nav-bar" hidden>[\s\S]*?<\/div>\s*/,'')
 	.replace(' hx-swap-oob="outerHTML"', '');

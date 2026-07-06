@@ -19,7 +19,7 @@ const summarizeCompressionUsage = rows => {
 };
 
 const handle = async (url, request, response, ctx) => {
-	const { sendHtml, authenticatedUser, settingsService, adminService, database, isJoplockAdmin, backupService, maintenance } = ctx;
+	const { sendHtml, authenticatedUser, settingsService, adminService, database, isJoplockAdmin, backupService, maintenance, itemService, debug } = ctx;
 
 	// GET /settings
 	if (url.pathname === '/settings' && request.method === 'GET') {
@@ -31,6 +31,7 @@ const handle = async (url, request, response, ctx) => {
 		let dbCompression = null;
 		let adminUsers = null;
 		let backups = [];
+		let orphanedResources = null;
 		if (isAdmin) {
 			try {
 				const users = await adminService.listUsers();
@@ -90,6 +91,9 @@ const handle = async (url, request, response, ctx) => {
 					dbCompression = { pgVersion, supported: false, current: '', available: [], usage: null };
 				}
 			} catch {}
+			try {
+				orphanedResources = await itemService.countOrphanedResources(auth.user.id);
+			} catch {}
 		}
 		const userTotpSeed = await settingsService.getTotpSeed(auth.user.id);
 		const userTotpEnabled = !!userTotpSeed;
@@ -100,6 +104,7 @@ const handle = async (url, request, response, ctx) => {
 		sendHtml(response, 200, templates.settingsPage({
 			user: auth.user,
 			settings,
+			debug,
 			userTotpEnabled,
 			userTotpSetupSeed,
 			userTotpSetupQr,
@@ -112,6 +117,7 @@ const handle = async (url, request, response, ctx) => {
 			maintenanceMode: maintenance && maintenance.isEnabled ? maintenance.isEnabled() : false,
 			activeOperation: maintenance && maintenance.reason ? maintenance.reason() : '',
 			dbCompression,
+			orphanedResources,
 			appSettings,
 			flash: savedParam === '1' ? 'Settings saved.' : (savedParam || (url.searchParams.get('mfaEnabled') === '1' ? 'MFA enabled successfully.' : '')),
 			flashError: url.searchParams.get('error') || '',

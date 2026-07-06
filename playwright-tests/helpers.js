@@ -2,14 +2,39 @@
 
 const { expect } = require('@playwright/test');
 
-const DEV_EMAIL = process.env.PLAYWRIGHT_EMAIL || 'admin@localhost';
-const DEV_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || 'admin';
+// Admin credentials are read from the environment only — never hardcoded.
+// The dev container (docker-compose.dev.yml / .env) provisions the admin
+// account via JOPLOCK_ADMIN_EMAIL / JOPLOCK_ADMIN_PASSWORD, so tests use those
+// by default. PLAYWRIGHT_* variables override them (e.g. for CI or a staging
+// account). If none are set, login() fails loudly rather than silently trying
+// a bogus credential.
+const DEV_EMAIL =
+	process.env.PLAYWRIGHT_ADMIN_EMAIL ||
+	process.env.PLAYWRIGHT_EMAIL ||
+	process.env.JOPLOCK_ADMIN_EMAIL ||
+	'';
+const DEV_PASSWORD =
+	process.env.PLAYWRIGHT_ADMIN_PASSWORD ||
+	process.env.PLAYWRIGHT_PASSWORD ||
+	process.env.JOPLOCK_ADMIN_PASSWORD ||
+	'';
+
+function requireCredentials() {
+	if (!DEV_EMAIL || !DEV_PASSWORD) {
+		throw new Error(
+			'Missing admin credentials. Set JOPLOCK_ADMIN_EMAIL/JOPLOCK_ADMIN_PASSWORD ' +
+			'(as the dev container does) or PLAYWRIGHT_ADMIN_EMAIL/PLAYWRIGHT_ADMIN_PASSWORD. ' +
+			'Credentials are never hardcoded in the test suite.',
+		);
+	}
+}
 
 const slug = prefix => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const desktopEditor = page => page.locator('#editor-panel #note-editor-form');
 const mobileEditor = page => page.locator('#mobile-editor-body #note-editor-form');
 
 async function login(page) {
+	requireCredentials();
 	await page.goto('/login');
 	await expect(page.getByRole('heading', { name: 'Joplock' })).toBeVisible();
 	await page.getByPlaceholder('Email').fill(DEV_EMAIL);
@@ -165,6 +190,9 @@ async function openMobileNote(page, noteTitle) {
 
 module.exports = {
 	acceptDialogs,
+	ADMIN_EMAIL: DEV_EMAIL,
+	ADMIN_PASSWORD: DEV_PASSWORD,
+	hasAdminCredentials: () => !!(DEV_EMAIL && DEV_PASSWORD),
 	createDesktopNote,
 	createNotebook,
 	deleteNotebook,

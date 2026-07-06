@@ -129,7 +129,10 @@ const defaultSettings = Object.freeze({
 	noteFontSize: 15,
 	mobileNoteFontSize: 17,
 	codeFontSize: 12,
+	markdownFontSize: 14,
 	noteMonospace: false,
+	noteFontFamily: 'sans',
+	newlineBehavior: 'block',
 	noteOpenMode: 'preview',
 	resumeLastNote: true,
 	lastNoteId: '',
@@ -155,6 +158,8 @@ const APP_SETTINGS_ROW_ID = '__app__';
 
 const defaultAppSettings = Object.freeze({
 	authRateLimitAttempts: 20,
+	maxUploadMb: 200,
+	debugLogging: null, // null = inherit env DEBUG default; true/false = explicit admin override
 });
 
 const validUiModes = ['auto', 'mobile', 'desktop'];
@@ -164,6 +169,14 @@ const normalizeInteger = (value, fallback, min, max) => {
 	const numeric = Number.parseInt(`${value}`, 10);
 	if (Number.isNaN(numeric)) return fallback;
 	return Math.max(min, Math.min(max, numeric));
+};
+
+// Tri-state: null = inherit (use env default), true/false = explicit override.
+const normalizeTristate = value => {
+	if (value === null || value === undefined || value === '' || value === 'inherit') return null;
+	if (value === true || value === 'true' || value === 1 || value === '1' || value === 'on') return true;
+	if (value === false || value === 'false' || value === 0 || value === '0' || value === 'off') return false;
+	return null;
 };
 
 const normalizeTextExpanders = entries => {
@@ -193,6 +206,7 @@ const normalizeSettings = settings => ({
 	noteFontSize: normalizeInteger(settings.noteFontSize, defaultSettings.noteFontSize, 12, 24),
 	mobileNoteFontSize: normalizeInteger(settings.mobileNoteFontSize, normalizeInteger(settings.noteFontSize, defaultSettings.noteFontSize, 12, 24) + 2, 12, 28),
 	codeFontSize: normalizeInteger(settings.codeFontSize, defaultSettings.codeFontSize, 10, 22),
+	markdownFontSize: normalizeInteger(settings.markdownFontSize, defaultSettings.markdownFontSize, 12, 24),
 	noteMonospace: !!Number(settings.noteMonospace) || settings.noteMonospace === true || settings.noteMonospace === '1',
 	noteOpenMode: settings.noteOpenMode === 'markdown' ? 'markdown' : defaultSettings.noteOpenMode,
 	resumeLastNote: !!Number(settings.resumeLastNote) || settings.resumeLastNote === true || settings.resumeLastNote === '1',
@@ -203,6 +217,8 @@ const normalizeSettings = settings => ({
 	autoLogout: !!Number(settings.autoLogout) || settings.autoLogout === true || settings.autoLogout === '1',
 	autoLogoutMinutes: normalizeInteger(settings.autoLogoutMinutes, defaultSettings.autoLogoutMinutes, 1, 480),
 	theme: validThemes.includes(settings.theme) ? settings.theme : defaultSettings.theme,
+	noteFontFamily: (settings.noteFontFamily === 'mono' || settings.noteFontFamily === 'serif') ? settings.noteFontFamily : defaultSettings.noteFontFamily,
+	newlineBehavior: (settings.newlineBehavior === 'linebreak' || settings.newlineBehavior === 'invert') ? settings.newlineBehavior : defaultSettings.newlineBehavior,
 	liveSearch: !!Number(settings.liveSearch) || settings.liveSearch === true || settings.liveSearch === '1',
 	highlightActiveLine: settings.highlightActiveLine !== false && settings.highlightActiveLine !== '0' && settings.highlightActiveLine !== 0,
 	confirmTrash: settings.confirmTrash !== false && settings.confirmTrash !== '0' && settings.confirmTrash !== 0,
@@ -217,6 +233,8 @@ const normalizeSettings = settings => ({
 
 const normalizeAppSettings = settings => ({
 	authRateLimitAttempts: normalizeInteger(settings.authRateLimitAttempts, defaultAppSettings.authRateLimitAttempts, 1, 1000),
+	maxUploadMb: normalizeInteger(settings.maxUploadMb, defaultAppSettings.maxUploadMb, 1, 2000),
+	debugLogging: normalizeTristate(settings.debugLogging),
 });
 
 const createSettingsService = database => {
@@ -363,6 +381,7 @@ module.exports = {
 	defaultSettings,
 	normalizeAppSettings,
 	normalizeSettings,
+	normalizeTristate,
 	validDateFormats,
 	validDatetimeFormats,
 	validThemes,

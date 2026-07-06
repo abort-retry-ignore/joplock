@@ -8,7 +8,7 @@ const templates = require('../templates');
 
 const handle = async (url, request, response, ctx) => {
 	const { sendHtml, sessionService, settingsService, itemWriteService, upstreamRequestContext,
-		joplinServerOrigin, configuredPublicUrl, ignoreAdminMfa, adminEmail,
+		joplinServerOrigin, joplinServerPublicUrl, configuredPublicUrl, ignoreAdminMfa, adminEmail,
 		ensureStarterContent, debug, rateLimitService, sessionCookieMaxAge } = ctx;
 
 	const clientIp = rateLimitService.clientIpFromRequest(request);
@@ -152,7 +152,9 @@ const handle = async (url, request, response, ctx) => {
 			}
 			const apiUrl = new URL('/api/sessions', joplinServerOrigin);
 			const requestContext = upstreamRequestContext(request);
-			const origin = `${requestContext.protocol}://${requestContext.host}`;
+			const publicUrl = new URL(joplinServerPublicUrl);
+			const origin = publicUrl.origin;
+			const referer = `${publicUrl.origin}${publicUrl.pathname.replace(/\/$/, '')}/login`;
 			const payload = JSON.stringify({ email, password });
 			const loginResult = await new Promise((resolve, reject) => {
 				const upstreamRequest = http.request({
@@ -165,7 +167,7 @@ const handle = async (url, request, response, ctx) => {
 						'Content-Length': Buffer.byteLength(payload),
 						Host: requestContext.host,
 						Origin: origin,
-						Referer: `${origin}/login`,
+						Referer: referer,
 						'X-Forwarded-Host': requestContext.host,
 						'X-Forwarded-Proto': requestContext.protocol,
 					},

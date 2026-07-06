@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createSettingsService, defaultAppSettings, defaultSettings, normalizeAppSettings, normalizeSettings, AI_PROVIDERS, normalizeAiProfiles, normalizeTextExpanders, defaultAiProfiles } = require('../app/settingsService');
+const { createSettingsService, defaultAppSettings, defaultSettings, normalizeAppSettings, normalizeSettings, normalizeTristate, AI_PROVIDERS, normalizeAiProfiles, normalizeTextExpanders, defaultAiProfiles } = require('../app/settingsService');
 
 test('settingsService returns defaults when row is missing', async () => {
 	const queries = [];
@@ -163,6 +163,35 @@ test('normalizeAppSettings clamps authRateLimitAttempts', () => {
 	assert.equal(normalizeAppSettings({ authRateLimitAttempts: 2000 }).authRateLimitAttempts, 1000);
 	assert.equal(normalizeAppSettings({ authRateLimitAttempts: 'abc' }).authRateLimitAttempts, 20);
 	assert.equal(normalizeAppSettings({ authRateLimitAttempts: 25 }).authRateLimitAttempts, 25);
+});
+
+test('normalizeAppSettings clamps and defaults maxUploadMb', () => {
+	assert.equal(normalizeAppSettings({}).maxUploadMb, 200);
+	assert.equal(normalizeAppSettings({ maxUploadMb: 0 }).maxUploadMb, 1);
+	assert.equal(normalizeAppSettings({ maxUploadMb: 5000 }).maxUploadMb, 2000);
+	assert.equal(normalizeAppSettings({ maxUploadMb: 'abc' }).maxUploadMb, 200);
+	assert.equal(normalizeAppSettings({ maxUploadMb: 50 }).maxUploadMb, 50);
+});
+
+test('normalizeTristate maps truthy/falsy/inherit correctly', () => {
+	assert.equal(normalizeTristate(undefined), null);
+	assert.equal(normalizeTristate(null), null);
+	assert.equal(normalizeTristate(''), null);
+	assert.equal(normalizeTristate('inherit'), null);
+	assert.equal(normalizeTristate('on'), true);
+	assert.equal(normalizeTristate('true'), true);
+	assert.equal(normalizeTristate('1'), true);
+	assert.equal(normalizeTristate(true), true);
+	assert.equal(normalizeTristate('off'), false);
+	assert.equal(normalizeTristate('false'), false);
+	assert.equal(normalizeTristate('0'), false);
+	assert.equal(normalizeTristate(false), false);
+});
+
+test('normalizeAppSettings debugLogging defaults to null (inherit env)', () => {
+	assert.equal(normalizeAppSettings({}).debugLogging, null);
+	assert.equal(normalizeAppSettings({ debugLogging: 'on' }).debugLogging, true);
+	assert.equal(normalizeAppSettings({ debugLogging: false }).debugLogging, false);
 });
 
 test('AI_PROVIDERS has 8 entries with expected provider ids', () => {

@@ -284,6 +284,11 @@ const createItemWriteService = options => {
 			await putBinaryItem(sessionId, serialized.blobPath, binaryBuffer, resource.mime || 'application/octet-stream', requestContext);
 			return { id: serialized.id };
 		},
+
+		async deleteResource(sessionId, resourceId, requestContext) {
+			await deleteItem(sessionId, resourceMetaPath(resourceId), requestContext);
+			await deleteItem(sessionId, resourceBlobPath(resourceId), requestContext);
+		},
 	};
 };
 

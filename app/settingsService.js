@@ -1,4 +1,4 @@
-const validThemes = ['matrix','matrix-blue','matrix-purple','matrix-amber','matrix-orange','dark-grey','dark-red','dark','light','oled-dark','solarized-light','solarized-dark','nord','dracula','aritim-dark'];
+const validThemes = ['matrix','matrix-blue','matrix-purple','matrix-amber','matrix-orange','dark-grey','dark-red','dark','light','oled-dark','solarized-light','solarized-dark','nord','dracula','aritim-dark','grey','fruit','dark-fruit'];
 
 // Provider templates — preset URL and default model per service.
 // 'custom' allows any OpenAI-compatible URL.

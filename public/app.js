@@ -653,6 +653,24 @@ function _applyTinyMCEReadonly(editor){
 		if(editor.mode&&editor.mode.set)editor.mode.set(_tinymceReadonly?'readonly':'design');
 		else if(editor.setMode)editor.setMode(_tinymceReadonly?'readonly':'design');
 	}catch(_e){}
+	// TinyMCE's readonly mode can still let a tap focus the iframe body, which
+	// raises the mobile soft keyboard even though typing is blocked. Force the
+	// body non-editable + unfocusable while read-only and blur it so tapping to
+	// scroll/read never opens the keyboard.
+	try{
+		var body=editor.getBody&&editor.getBody();
+		if(body){
+			if(_tinymceReadonly){
+				body.setAttribute('contenteditable','false');
+				body.setAttribute('tabindex','-1');
+				if(editor.getDoc&&editor.getDoc()&&editor.getDoc().activeElement===body&&body.blur)body.blur();
+			}else{
+				body.removeAttribute('tabindex');
+				// Editable state is restored by mode.set('design'); don't force
+				// contenteditable here so TinyMCE keeps managing it.
+			}
+		}
+	}catch(_e){}
 	// Reflect state on the edit toggle button (active = editable).
 	if(typeof _jopEditBtnApi!=='undefined'&&_jopEditBtnApi){try{_jopEditBtnApi.setActive(!_tinymceReadonly)}catch(_e){}}
 }
@@ -1082,6 +1100,8 @@ function initPersistentTinyMCE(){
 			// Code block init is deferred to _setTinyMCEContent so it runs after
 			// TinyMCE's codesample plugin has finished processing the content.
 			editor.on('focus',function(){
+				// In read-only mode a tap must not raise the mobile soft keyboard.
+				if(_tinymceReadonly){try{editor.getBody&&editor.getBody().blur&&editor.getBody().blur()}catch(_e){}return;}
 				document.body.dispatchEvent(new CustomEvent('joplock:editor-focus',{detail:{source:'tinymce'}}));
 			});
 			editor.on('blur',function(){

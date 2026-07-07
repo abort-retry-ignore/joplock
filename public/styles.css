@@ -182,6 +182,90 @@
 	color-scheme: dark;
 }
 
+/* ===== Theme: Grey ===== */
+.theme-grey {
+	--bg: #1e1e1e;
+	--theme-color: #252525;
+	--bg-side: #252525;
+	--bg-list: #1e1e1e;
+	--bg-editor: #1e1e1e;
+	--bg-elevated: rgba(255,255,255,0.05);
+	--bg-input: rgba(255,255,255,0.06);
+	--bg-hover: rgba(255,255,255,0.08);
+	--bg-active: rgba(255,255,255,0.12);
+	--overlay: rgba(0,0,0,0.5);
+	--shadow: rgba(0,0,0,0.3);
+	--text: #e0e0e0;
+	--text-dim: #8a8a8a;
+	--text-muted: #7a7a7a;
+	--text-heading: #ffffff;
+	--text-on-accent: #ffffff;
+	--accent: #4a6572;
+	--border: rgba(255,255,255,0.10);
+	--border-focus: rgba(255,255,255,0.30);
+	--danger: #ef5350;
+	--toolbar-bg: #252525;
+	--scrollbar: rgba(255,255,255,0.12);
+	--statusbar-bg: #1a1a1a;
+	color-scheme: dark;
+}
+
+/* ===== Theme: Fruit (Apple Notes) ===== */
+.theme-fruit {
+	--bg: #f5f5f0;
+	--theme-color: #f5f5f0;
+	--bg-side: #f0f0eb;
+	--bg-list: #ffffff;
+	--bg-editor: #ffffff;
+	--bg-elevated: rgba(0,0,0,0.03);
+	--bg-input: rgba(0,0,0,0.04);
+	--bg-hover: rgba(0,0,0,0.04);
+	--bg-active: rgba(0,0,0,0.06);
+	--overlay: rgba(0,0,0,0.2);
+	--shadow: rgba(0,0,0,0.08);
+	--text: #1c1c1e;
+	--text-dim: #6e6e73;
+	--text-muted: #8e8e93;
+	--text-heading: #000000;
+	--text-on-accent: #ffffff;
+	--accent: #c8a02e;
+	--border: rgba(0,0,0,0.08);
+	--border-focus: rgba(0,0,0,0.20);
+	--danger: #ff3b30;
+	--toolbar-bg: #f0f0eb;
+	--scrollbar: rgba(0,0,0,0.12);
+	--statusbar-bg: #e8e8e3;
+	color-scheme: light;
+}
+
+/* ===== Theme: Dark Fruit (Apple Notes dark) ===== */
+.theme-dark-fruit {
+	--bg: #000000;
+	--theme-color: #000000;
+	--bg-side: #1c1c1e;
+	--bg-list: #2c2c2e;
+	--bg-editor: #000000;
+	--bg-elevated: rgba(255,255,255,0.05);
+	--bg-input: rgba(255,255,255,0.06);
+	--bg-hover: rgba(255,255,255,0.06);
+	--bg-active: rgba(255,255,255,0.10);
+	--overlay: rgba(0,0,0,0.5);
+	--shadow: rgba(0,0,0,0.4);
+	--text: #e5e5e5;
+	--text-dim: #8e8e93;
+	--text-muted: #6e6e73;
+	--text-heading: #ffffff;
+	--text-on-accent: #000000;
+	--accent: #c8a02e;
+	--border: rgba(255,255,255,0.08);
+	--border-focus: rgba(255,255,255,0.25);
+	--danger: #ff453a;
+	--toolbar-bg: #1c1c1e;
+	--scrollbar: rgba(255,255,255,0.12);
+	--statusbar-bg: #000000;
+	color-scheme: dark;
+}
+
 /* ===== Theme: Dark Red ===== */
 .theme-dark-red {
 	--bg: #0b0607;
@@ -1263,7 +1347,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	gap: 1px;
 	padding: 2px 12px 4px;
 	border-bottom: 1px solid var(--border);
-	background: var(--toolbar-bg);
+	background: color-mix(in srgb, var(--accent) 10%, var(--bg));
 	flex-shrink: 0;
 	flex-wrap: wrap;
 }

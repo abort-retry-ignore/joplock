@@ -145,6 +145,9 @@ test('normalizeSettings accepts new matrix theme variants', () => {
 	assert.equal(normalizeSettings({ theme: 'matrix-purple' }).theme, 'matrix-purple');
 	assert.equal(normalizeSettings({ theme: 'matrix-amber' }).theme, 'matrix-amber');
 	assert.equal(normalizeSettings({ theme: 'matrix-orange' }).theme, 'matrix-orange');
+	assert.equal(normalizeSettings({ theme: 'grey' }).theme, 'grey');
+	assert.equal(normalizeSettings({ theme: 'fruit' }).theme, 'fruit');
+	assert.equal(normalizeSettings({ theme: 'dark-fruit' }).theme, 'dark-fruit');
 	assert.equal(normalizeSettings({ theme: 'not-a-theme' }).theme, 'matrix');
 });
 

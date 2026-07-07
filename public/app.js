@@ -523,6 +523,8 @@ function initTinyMCECodeCopyButtons(editor){
 			pre.setAttribute('data-jop-code-edit-bound','1');
 			var _openCodeSample=function(e){
 				if(e.target&&e.target.closest&&e.target.closest('.pre-copy-btn')){return;}
+				// Read-only mode blocks opening the code editor modal.
+				if(_tinymceReadonly){return;}
 				e.preventDefault();
 				e.stopPropagation();
 				tinyMCEInsertCodeBlock(pre);
@@ -627,7 +629,7 @@ function _syncTinyMCEThemeVars(){
 	}catch(_e){}
 }
 function _tinyMCEToolbarSpec(){
-	return 'bold italic underline strikethrough | blocks | bullist numlist jop_checkbox | code jop_code blockquote hr | jop_date jop_datetime | removeformat | link image jop_upload | jop_spellcheck jop_history';
+	return 'jop_edit | bold italic underline strikethrough | blocks | bullist numlist jop_checkbox | code jop_code blockquote hr | jop_date jop_datetime | removeformat | link image jop_upload | jop_spellcheck jop_history';
 }
 // Spellcheck state (client-only, persisted in localStorage). Default off so
 // shared browsers don't leak note text to remote spellcheck services.
@@ -637,6 +639,28 @@ function _spellcheckEnabled(){
 function _setSpellcheckEnabled(on){
 	try{localStorage.setItem('_joplockSpellcheck',on?'1':'0')}catch(_e){}
 }
+// Read-only mode. Mobile notes open read-only by default so a tap scrolls/
+// reads without accidentally editing; the jop_edit toolbar toggle enters edit
+// mode. Desktop opens editable. State lives per editor session (not persisted).
+var _tinymceReadonly=false;
+function _tinymceReadonlyDefault(){return isMobileShellMode()}
+// Push the current _tinymceReadonly flag into the live editor + sync the
+// jop_edit toggle button. Safe to call before/after init.
+function _applyTinyMCEReadonly(editor){
+	editor=editor||_tinymceEditor;
+	if(!editor)return;
+	try{
+		if(editor.mode&&editor.mode.set)editor.mode.set(_tinymceReadonly?'readonly':'design');
+		else if(editor.setMode)editor.setMode(_tinymceReadonly?'readonly':'design');
+	}catch(_e){}
+	// Reflect state on the edit toggle button (active = editable).
+	if(typeof _jopEditBtnApi!=='undefined'&&_jopEditBtnApi){try{_jopEditBtnApi.setActive(!_tinymceReadonly)}catch(_e){}}
+}
+function _setTinyMCEReadonly(on){
+	_tinymceReadonly=!!on;
+	_applyTinyMCEReadonly(_tinymceEditor);
+}
+var _jopEditBtnApi=null;
 // Apply the current spellcheck state to the live TinyMCE iframe body.
 function _applyTinyMCESpellcheck(editor){
 	if(!editor)return;
@@ -658,7 +682,7 @@ function initPersistentTinyMCE(){
 		target:textarea,
 		license_key:'gpl',
 		menubar:false,
-		newline_behavior:document.body.dataset.newlineBehavior||'block',
+		newline_behavior:document.body.dataset.newlineBehavior||'linebreak',
 		toolbar:_tinyMCEToolbarSpec(),
 		toolbar_mode:'sliding',
 		height:'100%',
@@ -790,7 +814,39 @@ function initPersistentTinyMCE(){
 					return function(){};
 				}
 			});
+			// Edit toggle. Notes open read-only on mobile so tapping scrolls/reads
+			// without accidental edits; tapping this pencil enters edit mode.
+			// Active (highlighted) = editable, inactive = read-only.
+			editor.ui.registry.addIcon('jop_edit','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 20h4l10-10-4-4L4 16v4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>');
+			editor.ui.registry.addToggleButton('jop_edit',{
+				tooltip:'Toggle edit mode',
+				icon:'jop_edit',
+				// Keep this button enabled in read-only mode so it can toggle back
+				// to editable (default TinyMCE buttons are disabled in readonly).
+				context:'any',
+				onAction:function(api){
+					var goEditable=_tinymceReadonly; // about to turn edit ON
+					_setTinyMCEReadonly(!_tinymceReadonly);
+					api.setActive(!_tinymceReadonly);
+					if(goEditable){
+						// Entering edit mode: honor the saved note-open preference,
+						// which may be markdown (read-only always shows rendered).
+						if(_defaultNoteOpenMode==='markdown'&&_editorMode!=='markdown'){setEditorMode('markdown');}
+						else{try{editor.focus()}catch(_e){}}
+					}else{
+						// Leaving edit mode: always drop back to rendered (read-only)
+						// so a subsequent tap scrolls/reads rather than edits markdown.
+						if(_editorMode==='markdown'){setEditorMode('rich');}
+					}
+				},
+				onSetup:function(api){
+					_jopEditBtnApi=api;
+					api.setActive(!_tinymceReadonly);
+					return function(){if(_jopEditBtnApi===api)_jopEditBtnApi=null};
+				}
+			});
 			editor.on('keydown',function(e){
+				if(_tinymceReadonly){e.preventDefault();return;}
 				if(e.key!=='Enter')return;
 				if(e.shiftKey)return;
 				var selNode=editor.selection&&editor.selection.getNode?editor.selection.getNode():null;
@@ -872,6 +928,8 @@ function initPersistentTinyMCE(){
 				return pre&&pre.nodeName==='PRE'?pre:null;
 			}
 			function _openTinyMCECodeBlock(pre){
+				// Read-only mode blocks opening the code editor modal.
+				if(_tinymceReadonly)return;
 				normalizeTinyMCECodeSampleClasses(editor);
 				tinyMCEInsertCodeBlock(pre);
 			}
@@ -882,6 +940,7 @@ function initPersistentTinyMCE(){
 			function _cancelLongPress(){if(_lpTimer){clearTimeout(_lpTimer);_lpTimer=null;}_lpPre=null;}
 			editor.on('touchstart',function(e){
 				_lpFired=false;
+				if(_tinymceReadonly)return;
 				var t=e&&e.target?e.target:null;
 				if(t&&t.closest&&t.closest('.pre-copy-btn'))return;
 				var pre=_resolveTinyMCEPre(t);
@@ -907,6 +966,8 @@ function initPersistentTinyMCE(){
 				var cb=target.closest('.md-checkbox');
 				if(cb){
 					e.preventDefault();
+					// Read-only mode blocks toggling checkboxes.
+					if(_tinymceReadonly)return;
 					var checked=!cb.classList.contains('checked');
 					cb.classList.toggle('checked',checked);
 					onEdit();
@@ -970,6 +1031,7 @@ function initPersistentTinyMCE(){
 			});
 			function onEdit(){
 				if(_tinymceSuppressEdits)return;
+				if(_tinymceReadonly)return;
 				var form=activeEditorForm();
 				if(!form)return;
 				if(form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1')return;
@@ -1057,6 +1119,7 @@ function initPersistentTinyMCE(){
 				_syncTinyMCEThemeVars();
 				_tinymceSuppressEdits=false;
 				_applyTinyMCESpellcheck(editor);
+				_applyTinyMCEReadonly(editor);
 				refreshTinyMCEForActiveNote();
 			});
 		}
@@ -1194,6 +1257,7 @@ function refreshTinyMCEForActiveNote(){
 	if(renderedFromServer&&!(form.dataset.encrypted==='1')){
 		_setTinyMCEContent(renderedFromServer);
 		showTinyMCEHost();
+		_applyTinyMCEReadonly(_tinymceEditor);
 		return;
 	}
 	// Encrypted-and-now-unlocked: server sent no useful HTML. Re-render from plaintext.
@@ -1201,6 +1265,7 @@ function refreshTinyMCEForActiveNote(){
 		if(!_tinymceEditor)return;
 		_setTinyMCEContent(h);
 		showTinyMCEHost();
+		_applyTinyMCEReadonly(_tinymceEditor);
 	});
 }
 // Reposition on resize / scroll / htmx swaps.
@@ -2708,9 +2773,10 @@ function setEditorMode(mode){
 	var ta=getTA();
 	var form=activeEditorForm();
 	if(form)form.dataset.editorMode=mode;
-	// Persist user's last-used mode so it sticks across refreshes.
-	_defaultNoteOpenMode=(mode==='markdown'||mode==='md')?'markdown':'preview';
-	fetch('/api/web/settings',{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'noteOpenMode='+encodeURIComponent(_defaultNoteOpenMode)}).catch(function(){});
+	// View/mode switches are transient: looking at one note in markdown does
+	// not mean you want markdown for every note. The persisted note-open
+	// preference is changed only in Settings. Track the current view locally so
+	// entering edit mode can honor the preference, but never write it back.
 	if(mode==='markdown'||mode==='md'){
 		// Markdown mode: sync latest rich content back to the textarea, then mount CM6.
 		tinyMCESyncToTA();
@@ -2736,7 +2802,8 @@ function setEditorMode(mode){
 		if(!_tinymceEditor)return;
 		_setTinyMCEContent(h);
 		showTinyMCEHost();
-		_tinymceEditor.focus();
+		_applyTinyMCEReadonly(_tinymceEditor);
+		if(!_tinymceReadonly)_tinymceEditor.focus();
 	});
 }
 // Mount (or remount) the CodeMirror 6 markdown editor into #cm-host, seeded from `content`.
@@ -2987,7 +3054,7 @@ function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_l
 function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
 function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_resetRingBuffer('note-switch');_log('initEditorPanel',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
 e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+1;ta.dispatchEvent(new Event('input',{bubbles:true}))}else{// Enter = new paragraph (\n\n)
-e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+2;ta.dispatchEvent(new Event('input',{bubbles:true}))}})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';/* Persistent TinyMCE: refresh content for this note (skip locked encrypted notes) */if(form.dataset.encrypted!=='1'){_editorMode=_defaultNoteOpenMode==='markdown'?'markdown':'rich';syncEditorModeButtons();if(_editorMode==='markdown'){hideTinyMCEHost();applyEditorModeVisibility('markdown');var mdta=getTA();mountMarkdownEditor(mdta?mdta.value:'');initPersistentTinyMCE()}else{initPersistentTinyMCE();refreshTinyMCEForActiveNote()}}else{hideTinyMCEHost()}}
+e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+2;ta.dispatchEvent(new Event('input',{bubbles:true}))}})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';/* Persistent TinyMCE: refresh content for this note (skip locked encrypted notes) */if(form.dataset.encrypted!=='1'){var _mobileRO=_tinymceReadonlyDefault();_editorMode=(_mobileRO?false:_defaultNoteOpenMode==='markdown')?'markdown':'rich';_tinymceReadonly=_mobileRO;syncEditorModeButtons();if(_editorMode==='markdown'){hideTinyMCEHost();applyEditorModeVisibility('markdown');var mdta=getTA();mountMarkdownEditor(mdta?mdta.value:'');initPersistentTinyMCE()}else{initPersistentTinyMCE();refreshTinyMCEForActiveNote()}}else{hideTinyMCEHost()}}
 function applySearchHighlight(){var term=activeSearchTerm();var bar=document.getElementById('search-nav-bar');if(bar)bar.hidden=true;_searchMarks=[];_searchMarkIdx=0;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);if(!term||!term.trim()){clearCodeMirrorSearch();return}term=term.trim();if(_editorMode==='preview'&&pv){clearCodeMirrorSearch();var savedHandler=pv.oninput;pv.oninput=null;highlightInPreview(pv,term);pv.oninput=savedHandler}else if(_editorMode==='markdown'&&_cmView&&window.CM&&window.CM.SearchQuery&&window.CM.setSearchQuery){			window.CM.openSearchPanel(_cmView);var q=new window.CM.SearchQuery({search:term,caseSensitive:false});_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)});_cmSearchMatches=collectCodeMirrorSearchMatches(q);if(_cmSearchMatches.length)setCodeMirrorSearchActive(0);else searchNavShow(0,0)}}
 function escapeRegex(s){var specials=['.','+','*','?','^','$','(',')','{','}','[',']','|','\\'];return s.split('').map(function(c){return specials.indexOf(c)>=0?'\\'+c:c}).join('')}
 var _searchMarks=[];var _searchMarkIdx=0;

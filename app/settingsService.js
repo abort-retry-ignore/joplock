@@ -132,7 +132,7 @@ const defaultSettings = Object.freeze({
 	markdownFontSize: 14,
 	noteMonospace: false,
 	noteFontFamily: 'sans',
-	newlineBehavior: 'block',
+	newlineBehavior: 'linebreak',
 	noteOpenMode: 'preview',
 	resumeLastNote: true,
 	lastNoteId: '',

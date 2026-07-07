@@ -108,7 +108,7 @@ const layoutPage = (options = {}) => {
 	<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 	<title>Joplock</title>
 </head>
-<body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${noteFontFamilyCSS(settings)==="'Cascadia Mono',monospace"?' note-body-monospace':''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;" data-newline-behavior="${escapeHtml(settings.newlineBehavior || 'block')}">
+<body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${noteFontFamilyCSS(settings)==="'Cascadia Mono',monospace"?' note-body-monospace':''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;" data-newline-behavior="${escapeHtml(settings.newlineBehavior || 'linebreak')}">
 	<div id="note-loading-overlay" aria-hidden="true">
 		<div class="note-loading-ring"></div>
 		<div class="note-loading-label">Loading note…</div>

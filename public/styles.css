@@ -184,11 +184,11 @@
 
 /* ===== Theme: Grey ===== */
 .theme-grey {
-	--bg: #1e1e1e;
-	--theme-color: #252525;
-	--bg-side: #252525;
-	--bg-list: #1e1e1e;
-	--bg-editor: #1e1e1e;
+	--bg: #222222;
+	--theme-color: #0d0d0d;
+	--bg-side: #0d0d0d;
+	--bg-list: #0d0d0d;
+	--bg-editor: #222222;
 	--bg-elevated: rgba(255,255,255,0.05);
 	--bg-input: rgba(255,255,255,0.06);
 	--bg-hover: rgba(255,255,255,0.08);
@@ -204,9 +204,9 @@
 	--border: rgba(255,255,255,0.10);
 	--border-focus: rgba(255,255,255,0.30);
 	--danger: #ef5350;
-	--toolbar-bg: #252525;
+	--toolbar-bg: #222222;
 	--scrollbar: rgba(255,255,255,0.12);
-	--statusbar-bg: #1a1a1a;
+	--statusbar-bg: #0d0d0d;
 	color-scheme: dark;
 }
 

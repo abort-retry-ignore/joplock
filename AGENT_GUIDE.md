@@ -418,6 +418,29 @@ These screens are shown/hidden by inline JS in `layoutPage()` using class change
 4. If needed, inject the normalized setting into `layoutPage()` / `public/app.js`
 5. Rebuild with `./scripts/rebuild-dev.sh`
 
+### Adding or editing a theme
+
+Themes are CSS-only. Each theme is a class on `<body>` that sets a shared set of CSS custom properties.
+
+**Files to touch:**
+
+1. **`public/styles.css`** — Add/edit a `.theme-<slug>` block that defines the same set of custom properties used by every other theme.
+   - Minimum properties that must be defined: `--bg`, `--theme-color`, `--bg-side`, `--bg-list`, `--bg-editor`, `--bg-hover`, `--bg-active`, `--text`, `--text-dim`, `--text-muted`, `--text-heading`, `--accent`, `--border`, `--border-focus`, `--danger`, `--toolbar-bg`, `--scrollbar`, `--statusbar-bg`, and `color-scheme` (`light` or `dark`).
+   - Keep numbers and hover/active states neutral unless the theme intentionally uses color.
+   - The markdown toolbar and the TinyMCE toolbar both share `color-mix(in srgb, var(--accent) 10%, var(--bg))`. Setting a sensible `--accent` and `--bg` is enough; no extra toolbar work needed.
+
+2. **`app/settingsService.js`** — Add the theme slug to the `validThemes` array at the top of the file.
+
+3. **`app/templates/shared.js`** — Add `[<slug>, <displayName>]` to `themeOptions` so it appears in the status bar picker and the settings page.
+
+4. **`tests/settingsService.test.js`** — Add an assertion that `normalizeSettings({ theme: '<slug>' }).theme` is preserved and not normalized back to the default.
+
+5. **`public/service-worker.js`** — Bump `CACHE_NAME` (e.g., `joplock-shell-vN-...`) whenever theme CSS changes. The PWA can cache old `styles.css` aggressively, and the cache-name change forces browsers to fetch the new stylesheet.
+
+6. Rebuild with `./scripts/rebuild-dev.sh`.
+
+No changes are needed in `pages.js`, `app.js`, or `settings.js`: those all read `themeOptions` or apply `theme-${settings.theme}` dynamically.
+
 ## Route Notes
 
 Useful route groups in `app/createServer.js`:

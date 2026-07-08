@@ -1615,8 +1615,8 @@ test('GET /api/web/notes/headers returns minimal note headers', async () => {
 		assert.equal(res.statusCode, 200);
 		const payload = JSON.parse(res.body);
 		assert.deepEqual(payload.items, [
-			{ id: 'n1', title: 'Note 1' },
-			{ id: 'n2', title: 'Note 2' }
+			{ id: 'n1', title: 'Note 1', parentId: 'f1' },
+			{ id: 'n2', title: 'Note 2', parentId: 'f1' }
 		]);
 	});
 });

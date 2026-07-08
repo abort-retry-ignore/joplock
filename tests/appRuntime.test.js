@@ -53,6 +53,12 @@ function makeTurndownCtx() {
 
 // Run a snippet of code and the named functions it depends on, in a fresh ctx.
 function runWithDeps(ctx, ...fns) {
+	// tinymceToMarkdown / htmlToMarkdown now delegate to _applyHeadingSpacing;
+	// pull it in automatically so callers don't each have to list it.
+	if ((fns.includes('tinymceToMarkdown') || fns.includes('htmlToMarkdown')) && !fns.includes('_applyHeadingSpacing')) {
+		fns = [...fns];
+		fns.splice(fns.indexOf('getTurndown') >= 0 ? fns.indexOf('getTurndown') + 1 : 0, 0, '_applyHeadingSpacing');
+	}
 	for (const fn of fns) vm.runInContext(extractFn(fn), ctx);
 }
 
@@ -135,6 +141,26 @@ test('tinymceToMarkdown returns empty string for empty input', () => {
 	const result = vm.runInContext('tinymceToMarkdown("")', ctx);
 	assert.equal(typeof result, 'string');
 	assert.equal(result.trim(), '');
+});
+
+test('tinymceToMarkdown preserves a blank line INSIDE a code block (C #include is not a heading)', () => {
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	// This is what TinyMCE getContent() produces for the reported code block.
+	const html = '<pre class="language-c"><code>#include &lt;stdio.h&gt;\n\nint main() {\n    return 0;\n}\n</code></pre>';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	// The blank line between the #include and int main() MUST survive — the
+	// heading-gap collapse must not treat `#include` as a markdown heading.
+	assert.ok(/#include <stdio\.h>\n\nint main/.test(result),
+		`blank line inside code block must be preserved, got: ${JSON.stringify(result)}`);
+});
+
+test('tinymceToMarkdown still collapses a blank line after a real ATX heading', () => {
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const result = vm.runInContext('tinymceToMarkdown("<h1>Title</h1><p>Body text</p>")', ctx);
+	assert.ok(/^# Title\nBody text/.test(result),
+		`heading collapse must still apply outside code, got: ${JSON.stringify(result)}`);
 });
 
 // ---------------------------------------------------------------------------

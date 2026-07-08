@@ -6,12 +6,12 @@ const {
 	acceptDialogs,
 	createDesktopNote,
 	createNotebook,
-	deleteNotebook,
 	hasAdminCredentials,
 	login,
 	logout,
 	setNoteBody,
 	setNoteTitle,
+	teardownTestData,
 	waitForSaved,
 } = require('./helpers');
 
@@ -29,15 +29,8 @@ test.describe('Resource lifecycle', () => {
 
 		// --- helper to clean up even on failure ---
 		async function runCleanup() {
-			try {
-				// Delete any orphaned resources left by this test
-				await page.evaluate(async () => {
-					const res = await fetch('/admin/orphaned-resources/cleanup', { method: 'POST', credentials: 'same-origin' });
-				}).catch(() => {});
-			} catch {}
-			try {
-				await deleteNotebook(page, folderName).catch(() => {});
-			} catch {}
+			// Purge the test notebook's notes + the notebook + any orphaned resources.
+			await teardownTestData(page, { folders: [folderName] });
 			try {
 				await logout(page).catch(() => {});
 			} catch {}
@@ -55,7 +48,7 @@ test.describe('Resource lifecycle', () => {
 
 		// 2. Set initial note body in markdown mode
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await setNoteBody(page, 'Resource test anchor text.');
 		await waitForSaved(page);
 
@@ -71,9 +64,12 @@ test.describe('Resource lifecycle', () => {
 		// 5. Wait for upload to complete (insert button enabled)
 		await expect(page.locator('#upload-insert-btn')).not.toBeDisabled({ timeout: 15000 });
 
-		// 6. Insert the uploaded file
-		await page.locator('#upload-insert-btn').click();
-		await expect(page.locator('#upload-modal')).toBeHidden({ timeout: 5000 });
+		// 6. Insert the uploaded file. On full success the modal auto-dismisses
+		// (and inserts) on its own; only click Insert if it is still open.
+		if (await page.locator('#upload-modal').isVisible()) {
+			await page.locator('#upload-insert-btn').click().catch(() => {});
+		}
+		await expect(page.locator('#upload-modal')).toBeHidden({ timeout: 10000 });
 
 		// 7. Force save via mode toggle (syncs TinyMCE -> markdown -> save)
 		await page.waitForTimeout(4000);
@@ -86,7 +82,7 @@ test.describe('Resource lifecycle', () => {
 
 		// 8. Switch to markdown mode and verify the resource reference is in the body
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		const bodyText = await page.locator('#editor-panel #note-body').inputValue();
 		const resourceMatch = bodyText.match(/!\[[^\]]*\]\(:\/([0-9a-fA-F]{32})\)/);
 		expect(resourceMatch, 'Note body should contain a resource reference like ![...](:/<32-hex>)').toBeTruthy();

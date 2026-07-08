@@ -107,9 +107,35 @@ const previewRoundTrip = markdown => {
 	md = md.split(`<br>${nl}`).join(nl);
 	while (md.includes('<br><br>')) md = md.split('<br><br>').join(`<br>${nl}`);
 	md = md.replace(/^-\s{2,}/gm, '- ');
-	md = md.replace(headingLeadRe, `$1${nl}$2`);
+	// Heading spacing collapse must NOT touch fenced code blocks (mirror the app's
+	// _applyHeadingSpacing). A C `#include` line is not a markdown heading.
+	const applyHeadingSpacing = s => {
+		const fix = seg => seg.replace(headingLeadRe, `$1${nl}$2`);
+		const fenceRe = /```[\s\S]*?```/g;
+		let acc = '';
+		let last = 0;
+		let mm;
+		while ((mm = fenceRe.exec(s)) !== null) {
+			acc += fix(s.slice(last, mm.index)) + mm[0];
+			last = mm.index + mm[0].length;
+		}
+		return acc + fix(s.slice(last));
+	};
+	md = applyHeadingSpacing(md);
 	md = md.replace(/^(\d+)\.\s+/gm, '$1. ');
-	md = md.replace(headingGapRe, `$1${nl}`);
+	// headingGapRe, also masked around code blocks.
+	{
+		const fixGap = seg => seg.replace(headingGapRe, `$1${nl}`);
+		const fenceRe = /```[\s\S]*?```/g;
+		let acc = '';
+		let last = 0;
+		let mm;
+		while ((mm = fenceRe.exec(md)) !== null) {
+			acc += fixGap(md.slice(last, mm.index)) + mm[0];
+			last = mm.index + mm[0].length;
+		}
+		md = acc + fixGap(md.slice(last));
+	}
 	md = md.replace(new RegExp(`${nl}${nl}<br>$`), '');
 	// Replace runs of blank-line placeholders: count them, emit \n\n + one extra \n per placeholder
 	md = md.replace(/\n*(?:\x00BL\x00\n*)+/g, m => {
@@ -264,6 +290,15 @@ test('preview round-trip does not pad around reloaded subheadings', () => {
 test('preview round-trip preserves fenced code block line breaks', () => {
 	const body = '```\nline one\nline two\n```';
 	assert.equal(previewRoundTrip(body), body);
+});
+
+test('preview round-trip preserves a blank line inside a code block', () => {
+	// A C #include line must not be treated as a markdown heading whose trailing
+	// blank line gets collapsed. The blank line between the two code lines stays.
+	const body = '```c\n#include <stdio.h>\n\nint main() {\n    return 0;\n}\n```';
+	const out = previewRoundTrip(body);
+	assert.ok(/#include <stdio\.h>\n\nint main/.test(out),
+		`blank line inside code block must survive, got: ${JSON.stringify(out)}`);
 });
 
 test('preview round-trip ignores injected code block copy buttons', () => {
@@ -455,4 +490,40 @@ test('logged in layout has persistent TinyMCE host outside editor-panel and outs
 	const appCloseIdx = html.indexOf('</div>\n\t</div>', appOpenIdx);
 	assert.ok(appCloseIdx !== -1, '.app closing tag structure must be recognisable');
 	assert.ok(hostIdx > appCloseIdx, '#tinymce-host must be outside .app so mobile media query does not hide it');
+});
+
+// Attachment blank-line separators must survive the markdown<->render round-trip
+// so that stacked attachments stay individually deletable in rendered mode.
+const RID_A = 'a'.repeat(32);
+const RID_B = 'b'.repeat(32);
+
+test('a blank line between two images renders as a deletable empty paragraph', () => {
+	// This is what a drop produces: image, blank line, image.
+	const md = `![one](:/${RID_A})\n\n\n![two](:/${RID_B})`;
+	const html = renderMarkdown(md);
+	// The blank line becomes a real md-blank-line paragraph between the images.
+	assert.ok(/class="md-blank-line"/.test(html),
+		`expected a md-blank-line separator paragraph, got: ${html}`);
+	const firstImg = html.indexOf(`/resources/${RID_A}`);
+	const blank = html.indexOf('md-blank-line');
+	const secondImg = html.indexOf(`/resources/${RID_B}`);
+	assert.ok(firstImg < blank && blank < secondImg,
+		'blank-line paragraph must sit between the two images');
+});
+
+test('round-trip: blank line between two images is preserved (attachments stay separable)', () => {
+	const md = `![one](:/${RID_A})\n\n\n![two](:/${RID_B})`;
+	const out = previewRoundTrip(md);
+	// A blank line == a run of three newlines between the two image refs.
+	assert.ok(out.includes(`:/${RID_A})\n\n\n![two](:/${RID_B})`),
+		`blank line between images must survive the round-trip, got: ${JSON.stringify(out)}`);
+});
+
+test('round-trip: blank lines between three stacked attachments survive', () => {
+	const md = `![one](:/${RID_A})\n\n\n[doc](:/${RID_B})\n\n\n![three](:/${'c'.repeat(32)})`;
+	const out = previewRoundTrip(md);
+	assert.ok(out.includes(`:/${RID_A})\n\n\n[doc](:/${RID_B})`),
+		`gap between image and document must survive, got: ${JSON.stringify(out)}`);
+	assert.ok(out.includes(`:/${RID_B})\n\n\n![three]`),
+		`gap between document and image must survive, got: ${JSON.stringify(out)}`);
 });

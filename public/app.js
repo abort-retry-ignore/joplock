@@ -288,6 +288,23 @@ function queryActiveEditor(selector){var form=activeEditorForm();return form&&fo
 function activeEditorMeta(){if(isMobileShellMode()){var mobileBody=document.getElementById('mobile-editor-body');var mobileMeta=mobileBody&&mobileBody.querySelector?mobileBody.querySelector('#note-meta'):null;if(mobileMeta)return mobileMeta}return document.getElementById('status-note-meta')}
 function setSaveState(html,text){var s=queryActiveEditor('#autosave-status');if(s)s.innerHTML=html||'';var mobile=document.getElementById('mobile-editor-status');if(mobile)mobile.innerHTML=text?html:''}
 function markEdited(){setSaveState('<span class="autosave-edited">Edited</span>','Edited');_log('markEdited')}
+// After a programmatic mode switch, the markdown<->HTML round-trip fires
+// synthetic input events (and can be slightly lossy). If, once the switch has
+// settled, the form content still matches the last saved hash, the note is not
+// actually dirty — reset the status to "Saved" instead of leaving a spurious
+// "Edited". If the hash genuinely differs (e.g. an upload happened just before
+// the switch), leave the edited/autosave flow alone so the change still saves.
+function _reconcileSaveStateAfterModeSwitch(){
+	var apply=function(){
+		var form=activeEditorForm();if(!form)return;
+		if(typeof _activeEditorIsDirty==='function'?!_activeEditorIsDirty():formHash(form)===_savedHash){
+			if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}
+			setSaveState('<span class="autosave-ok">Saved</span>','Saved');
+		}
+	};
+	if(typeof requestAnimationFrame==='function'){requestAnimationFrame(function(){setTimeout(apply,0)})}
+	else{setTimeout(apply,50)}
+}
 function renderNoteMeta(){var src=document.getElementById('note-meta');var mobileBody=document.getElementById('mobile-editor-body');if(isMobileShellMode()&&mobileBody){src=mobileBody.querySelector('#note-meta')||src}var target;if(isMobileShellMode()){target=src}else{target=document.getElementById('status-note-meta');if(src&&target){target.setAttribute('data-created-time',src.getAttribute('data-created-time')||'0');target.setAttribute('data-updated-time',src.getAttribute('data-updated-time')||'0')}}if(!target)return;var c=Number(target.getAttribute('data-created-time')||0),u=Number(target.getAttribute('data-updated-time')||0);if(!c&&!u){target.textContent='';return}var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var fmt=function(ts){if(!ts)return '';var d=new Date(ts);return String(d.getDate()).padStart(2,'0')+'-'+months[d.getMonth()]+'-'+String(d.getFullYear()).slice(-2)};target.textContent='Created '+fmt(c)+' | Edited '+fmt(u)}
 var _folderMenuState={id:'',title:''};
 function closeFolderContextMenu(){var menu=document.getElementById('folder-context-menu');if(menu)menu.hidden=true}
@@ -1010,6 +1027,21 @@ function initPersistentTinyMCE(){
 				e.preventDefault();
 				e.stopPropagation();
 				_openTinyMCECodeBlock(pre);
+			});
+			// Double-click an image or attachment link → open the in-app lightbox
+			// (desktop only). Suppresses TinyMCE's built-in image dialog on dblclick.
+			editor.on('dblclick',function(e){
+				if(!isDesktopMode())return;
+				var target=e&&e.target?e.target:null;
+				if(!target||!target.closest)return;
+				var el=target.closest('img[data-resource-id],a[data-resource-id]');
+				if(!el)return;
+				var resourceId=el.getAttribute('data-resource-id')||'';
+				if(!resourceId)return;
+				e.preventDefault();
+				e.stopPropagation();
+				if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+				_openResourceLightbox(resourceId);
 			});
 			// Drag-and-drop file upload directly into the note (no modal).
 			// We handle ALL dropped files ourselves (images + other files) and stop
@@ -2452,6 +2484,30 @@ function _escapeHtmlAttr(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&q
 function _maxUploadBytes(){var mb=(window._joplockConfig&&window._joplockConfig.maxUploadMb)||200;return Math.min(mb,200)*1024*1024}
 function _fileTooLarge(file){return!!(file&&typeof file.size==='number'&&file.size>_maxUploadBytes())}
 function _tooLargeMsg(file){var mb=Math.round((file&&file.size||0)/1048576);var lim=Math.round(_maxUploadBytes()/1048576);return'"'+((file&&file.name)||'file')+'" is too large ('+mb+'MB). Maximum upload size is '+lim+'MB.'}
+// Canonical deletable blank line for rendered (TinyMCE) mode. This exact shape
+// is what injectBlankLineBlocks() emits and tinymceToMarkdown() pre-normalizes,
+// so it survives markdown<->render round-trips as a real empty paragraph the
+// user can delete between stacked attachments.
+var _MD_BLANK_LINE_P='<p class="md-blank-line"><br></p>';
+function _isBlankLineBlock(el){return !!(el&&el.nodeType===1&&el.classList&&el.classList.contains('md-blank-line'))}
+// Wrap an attachment (image/link HTML) in its own <p> with a blank (deletable)
+// line before and after so it is isolated and easy to remove — for BOTH images
+// and documents. "Smart": skip a side when the caret block is already empty or
+// already next to a blank-line paragraph, so gaps don't pile up. When the
+// selection API isn't available (unit tests) both sides are added.
+function _tinyMCEBlockAttachmentHtml(editor,inner){
+	var leading=true,trailing=true;
+	try{
+		var node=editor&&editor.selection&&editor.selection.getNode?editor.selection.getNode():null;
+		if(node){
+			var block=node.closest?(node.closest('p,div,li,blockquote,h1,h2,h3,h4,h5,h6')||node):node;
+			if(_isBlankLineBlock(block)||!(block.textContent||'').trim())leading=false;
+			if(_isBlankLineBlock(block&&block.previousElementSibling))leading=false;
+			if(_isBlankLineBlock(block&&block.nextElementSibling))trailing=false;
+		}
+	}catch(_e){}
+	return (leading?_MD_BLANK_LINE_P:'')+'<p>'+inner+'</p>'+(trailing?_MD_BLANK_LINE_P:'');
+}
 function _uploadFileToTinyMCE(file,editor){
 	if(!file)return Promise.resolve();
 	if(_fileTooLarge(file)){alert(_tooLargeMsg(file));return Promise.reject(new Error('File too large'))}
@@ -2467,15 +2523,15 @@ function _uploadFileToTinyMCE(file,editor){
 		.then(function(data){
 			var id=data.resourceId;
 			var name=_escapeHtmlAttr(file.name||'file');
+			var inner;
 			if(file.type&&file.type.startsWith('image/')){
-				// Insert the image on its own line/paragraph and ALWAYS follow it
-				// with a blank paragraph, so the caret lands on a fresh empty line
-				// and typed text is never glued to the image. The trailing empty
-				// <p> serialises to a blank markdown line via the emptyP rule.
-				editor.insertContent('<p><img src="/resources/'+id+'" data-resource-id="'+id+'" alt="'+name+'" /></p><p></p>');
+				inner='<img src="/resources/'+id+'" data-resource-id="'+id+'" alt="'+name+'" />';
 			}else{
-				editor.insertContent('<a href="/resources/'+id+'" data-resource-id="'+id+'">'+name+'</a>');
+				inner='<a href="/resources/'+id+'" data-resource-id="'+id+'">'+name+'</a>';
 			}
+			// Pad the attachment with a blank (deletable) line before and after so
+			// consecutive attachments stay individually removable in rendered mode.
+			editor.insertContent(_tinyMCEBlockAttachmentHtml(editor,inner));
 			// Sync textarea immediately so the source-of-truth (note-body) has
 			// the resource reference even if onEdit fires asynchronously.
 			var ta=getTA();
@@ -2501,12 +2557,14 @@ function _uploadFileToCM(file){
 			if(data&&data.error){alert(data.error);throw new Error(data.error)}
 			var isImage=!!(file.type&&file.type.indexOf('image/')===0);
 			var md=data.markdown||((isImage?'!':'')+'['+(file.name||'file')+'](:/'+data.resourceId+')');
-			// Always add a blank line after an inserted image so the caret lands on
-			// a fresh empty line and typed text is never glued to the image.
-			if(isImage)md=md+'\n\n';
 			if(_cmView){
 				var pos=_cmView.state.selection.main.head;
-				_cmView.dispatch({changes:{from:pos,insert:md},selection:{anchor:pos+md.length}});
+				// Pad the attachment (image AND document) with a blank line before
+				// and after so it sits on its own line and stays easy to delete.
+				var doc=_cmView.state.doc.toString();
+				var pre=(pos>0&&!/\n\n$/.test(doc.slice(0,pos)))?(doc.charAt(pos-1)==='\n'?'\n':'\n\n'):'';
+				var insert=pre+md+'\n\n';
+				_cmView.dispatch({changes:{from:pos,insert:insert},selection:{anchor:pos+insert.length}});
 				cmSyncToTA();
 			}
 		});
@@ -2732,6 +2790,28 @@ function getTurndown(){
 	// Each one = one extra blank line → \x00BL\x00 sentinel → post-processing converts to \n\n\n.
 	td.addRule('emptyP',{filter:function(n){return n.nodeName==='P'&&!n.querySelector('img')&&(!n.textContent.trim()||n.innerHTML==='<br>'||n.innerHTML==='\u2764BR\u2764')},replacement:function(){return '\x00BL\x00'}});
 	_tdService=td;return td}
+// Collapse a blank line immediately after / before an ATX heading, but ONLY
+// outside fenced code blocks. A code line like `#include <stdio.h>` (C) or
+// `# comment` (bash) is NOT a markdown heading, and its following blank line
+// must be preserved verbatim — otherwise round-tripping through rendered mode
+// eats blank lines inside code. We mask ``` fenced ``` regions, apply the
+// heading spacing fixes to the rest, then restore the code untouched.
+function _applyHeadingSpacing(md){
+	var nl=String.fromCharCode(10);
+	var headingGapRe=new RegExp('^(#{1,6}[^'+nl+']*)'+nl+'{2,}(?=\\S)','gm');
+	var headingLeadRe=new RegExp('([^'+nl+'])'+nl+'{2,}(#{1,6}\\s)','g');
+	// Split on fenced code blocks (```lang ... ```), keeping the fences.
+	var fenceRe=/```[\s\S]*?```/g;
+	var out='';var last=0;var m;
+	var fix=function(seg){return seg.replace(headingLeadRe,'$1'+nl+'$2').replace(headingGapRe,'$1'+nl)};
+	while((m=fenceRe.exec(md))!==null){
+		out+=fix(md.slice(last,m.index));
+		out+=m[0]; // code block passes through unchanged
+		last=m.index+m[0].length;
+	}
+	out+=fix(md.slice(last));
+	return out;
+}
 function htmlToMarkdown(el){
 	var root=el.cloneNode(true);
 	root.querySelectorAll('.pre-copy-btn').forEach(function(btn){btn.remove()});
@@ -2742,13 +2822,10 @@ function htmlToMarkdown(el){
 	var nbsp=String.fromCharCode(160);
 	while(md.indexOf(nbsp)>=0)md=md.split(nbsp).join('&nbsp;');
 	var nl=String.fromCharCode(10);
-	var headingGapRe=new RegExp('^(#{1,6}[^'+nl+']*)'+nl+'{2,}(?=\\S)','gm');
-	var headingLeadRe=new RegExp('([^'+nl+'])'+nl+'{2,}(#{1,6}\\s)','g');
 	md=md.split('<br/>').join('<br>');
 	md=md.split('<br>'+nl).join(nl);
 	while(md.indexOf('<br><br>')>=0)md=md.split('<br><br>').join('<br>'+nl);
-	md=md.replace(headingLeadRe,'$1'+nl+'$2');
-	md=md.replace(headingGapRe,'$1'+nl);
+	md=_applyHeadingSpacing(md);
 	md=md.replace(new RegExp(nl+nl+'<br>$'),'');
 	md=md.replace(/\n*(?:\x00BL\x00\n*)+/g,function(m){var count=(m.match(/\x00BL\x00/g)||[]).length;return nl+nl+Array(count+1).join(nl)});
 	var out='';
@@ -2783,10 +2860,7 @@ function tinymceToMarkdown(html){
 	var td=getTurndown();
 	var md=td.turndown(html);
 	var nl=String.fromCharCode(10);
-	var headingGapRe=new RegExp('^(#{1,6}[^'+nl+']*)'+nl+'{2,}(?=\\S)','gm');
-	var headingLeadRe=new RegExp('([^'+nl+'])'+nl+'{2,}(#{1,6}\\s)','g');
-	md=md.replace(headingLeadRe,'$1'+nl+'$2');
-	md=md.replace(headingGapRe,'$1'+nl);
+	md=_applyHeadingSpacing(md);
 	// Normalise blank-line sentinels (md-blank-line divs + empty paragraphs)
 	md=md.replace(/\n*(?:\x00BL\x00\n*)+/g,function(m){var count=(m.match(/\x00BL\x00/g)||[]).length;return nl+nl+Array(count+1).join(nl)});
 	// Restore line-break sentinels as \n (soft breaks within paragraphs)
@@ -2814,6 +2888,9 @@ function setEditorMode(mode){
 		mountMarkdownEditor(ta?ta.value:'');
 		_editorMode='markdown';
 		syncEditorModeButtons();
+		// The round-trip may have fired a spurious "Edited"; reset to "Saved" if
+		// the note is not actually dirty (but keep a real pending change/save).
+		_reconcileSaveStateAfterModeSwitch();
 		if(_searchSessionActive())setTimeout(applySearchHighlight,0);
 		return;
 	}
@@ -2857,7 +2934,7 @@ function mountMarkdownEditor(content){
 		if(_cmView.focus)_cmView.focus();
 	}
 }
-document.addEventListener('keydown',function(e){if(e.key==='Escape'){var codeModal=document.getElementById('code-modal');if(codeModal&&!codeModal.hidden){closeCodeModal();return}closeFolderContextMenu();closeFolderModal();closeLinkModal();closeNewFolderModal();closeVaultModal();closeHistoryModal();closeEmptyTrashModal();var bar=document.getElementById('search-nav-bar');if(bar&&!bar.hidden){searchNavDismiss();return}var navSearch=document.getElementById('nav-search');if(navSearch&&navSearch.value){navSearch.value='';htmx.trigger(navSearch,'search-submit');return}}if(!getTA()&&!getPV()&&!getCM())return;if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='Space'){e.preventDefault();requestManualProseCompletion();return}if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();wrapSel('**','**')}if((e.ctrlKey||e.metaKey)&&e.key==='i'){e.preventDefault();wrapSel('*','*')}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();if(_editorMode==='preview'&&_searchMarks.length){searchNavStep(1)}else{applySearchHighlight()}}});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){var resViewer=document.getElementById('resource-viewer');if(resViewer){_closeResourceViewer();return}var codeModal=document.getElementById('code-modal');if(codeModal&&!codeModal.hidden){closeCodeModal();return}closeFolderContextMenu();closeFolderModal();closeLinkModal();closeNewFolderModal();closeVaultModal();closeHistoryModal();closeEmptyTrashModal();var bar=document.getElementById('search-nav-bar');if(bar&&!bar.hidden){searchNavDismiss();return}var navSearch=document.getElementById('nav-search');if(navSearch&&navSearch.value){navSearch.value='';htmx.trigger(navSearch,'search-submit');return}}if(!getTA()&&!getPV()&&!getCM())return;if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='Space'){e.preventDefault();requestManualProseCompletion();return}if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();wrapSel('**','**')}if((e.ctrlKey||e.metaKey)&&e.key==='i'){e.preventDefault();wrapSel('*','*')}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();if(_editorMode==='preview'&&_searchMarks.length){searchNavStep(1)}else{applySearchHighlight()}}});
 document.addEventListener('click',function(e){var menu=document.getElementById('folder-context-menu');if(menu&&!menu.hidden&&!menu.contains(e.target))closeFolderContextMenu()});
 function highlightCodeBlocks(container){if(!window.hljs||!container)return;container.querySelectorAll('pre code[class*="language-"]').forEach(function(el){if(el.dataset.highlighted)return;window.hljs.highlightElement(el)})}
 function ensureEditableAfterPre(pv){if(!pv)return;var pres=pv.querySelectorAll('pre');pres.forEach(function(pre){var next=pre.nextElementSibling;if(!next){var p=document.createElement('p');p.innerHTML='<br>';p.dataset.pvTrail='1';pv.appendChild(p)}})}
@@ -2950,6 +3027,22 @@ function _openResourceViewer(blob,mime,filename){
 	else {var msg=document.createElement('div');msg.className='resource-viewer-msg';msg.textContent='This file type cannot be previewed. Use Save to download it.';body.appendChild(msg)}
 	overlay.appendChild(bar);overlay.appendChild(body);
 	document.body.appendChild(overlay);
+	// Close on backdrop click (clicks on the media/body do nothing).
+	overlay.addEventListener('click',function(e){if(e.target===overlay||e.target===body)_closeResourceViewer()});
+	// Own Escape handler + focus so the overlay closes even when the prior focus
+	// was inside the TinyMCE iframe (whose key events never reach document).
+	overlay.setAttribute('tabindex','-1');
+	overlay.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();e.stopPropagation();_closeResourceViewer()}});
+	try{closeBtn.focus()}catch(_e){}
+}
+// Double-click entry point: open a resource in the in-app lightbox overlay.
+// Viewable types (image/pdf/text) render inline; anything else falls back to download.
+function _openResourceLightbox(resourceId){
+	var id=resourceId||'';if(!id)return;
+	_fetchResourceMeta(id).then(function(meta){
+		if(meta&&!_canPreviewResourceMime(meta.mime)){_triggerResourceDownload(id);return}
+		_fetchResourceBlob(id).then(function(r){_openResourceViewer(r.blob,r.mime,r.filename)}).catch(function(){_triggerResourceDownload(id)});
+	}).catch(function(){_triggerResourceDownload(id)});
 }
 var _resourceActionViewportHandler=null;
 function _positionResourceActions(anchorEl){
@@ -3053,8 +3146,9 @@ function activatePV(pv){if(!pv)return;pv.contentEditable='true';initImgResize(pv
 	pv.addEventListener('blur',function(){_resetRingBuffer('pv-blur')});
 	pv.addEventListener('click',function(){hideRenderAutocompletePopup()});
 	pv.addEventListener('blur',function(){setTimeout(hideRenderAutocompletePopup,200)});
-	pv.addEventListener('click',function(e){var img=e.target.closest('img.preview-img[data-resource-id]');if(!img||!pv.contains(img))return;if(e.target.closest('.preview-img-download-btn'))return;if(!isDesktopMode())return;var resourceId=img.getAttribute('data-resource-id')||'';if(!resourceId)return;e.preventDefault();_openResourceView(resourceId)});
-	pv.addEventListener('click',function(e){var link=e.target.closest('a');if(link&&pv.contains(link)){var resId=link.getAttribute('data-resource-id')||'';if(resId&&_shouldUseResourceActions()){e.preventDefault();presentResourceActions(resId,link);return}var href=link.getAttribute('href')||'';if(href){e.preventDefault();window.open(href,'_blank','noopener');return}}});
+	// Desktop: double-click an image or attachment link → open the in-app lightbox.
+	pv.addEventListener('dblclick',function(e){if(!isDesktopMode())return;var el=e.target.closest('img.preview-img[data-resource-id],a[data-resource-id]');if(!el||!pv.contains(el))return;if(e.target.closest('.preview-img-download-btn'))return;var resourceId=el.getAttribute('data-resource-id')||'';if(!resourceId)return;e.preventDefault();_openResourceLightbox(resourceId)});
+	pv.addEventListener('click',function(e){var link=e.target.closest('a');if(link&&pv.contains(link)){var resId=link.getAttribute('data-resource-id')||'';if(resId){if(isDesktopMode()){e.preventDefault();return}if(_shouldUseResourceActions()){e.preventDefault();presentResourceActions(resId,link);return}}var href=link.getAttribute('href')||'';if(href){e.preventDefault();window.open(href,'_blank','noopener');return}}});
 	// Click checkbox icon to toggle checked state
 	pv.addEventListener('click',function(e){var cb=e.target.closest('.md-checkbox');if(!cb)return;var iconEl=cb.querySelector('.md-cb-icon');if(!iconEl){var txt=cb.firstChild;if(!txt||txt.nodeType!==3)return;var icon=txt.textContent.charAt(0);if(icon!=='\u2610'&&icon!=='\u2611')return;var r=document.createRange();r.setStart(txt,0);r.setEnd(txt,Math.min(2,txt.textContent.length));var iconRect=r.getBoundingClientRect();if(e.clientX>iconRect.right)return;e.preventDefault();var checked=!cb.classList.contains('checked');cb.classList.toggle('checked',checked);txt.textContent=(checked?'\u2611':'\u2610')+txt.textContent.slice(1);syncPV();return}var iconRect=iconEl.getBoundingClientRect();if(e.clientX>iconRect.right)return;e.preventDefault();var checked=!cb.classList.contains('checked');cb.classList.toggle('checked',checked);iconEl.textContent=checked?'\u2611':'\u2610';syncPV()});
 	// Enter inside code blocks should stay in the same block; Enter after checkbox creates new checkbox
@@ -3078,7 +3172,7 @@ var _formHashExclude={baseUpdatedTime:true,forceSave:true,createCopy:true};funct
 var _savedHash=0;
 var _saveTimer=null;
 var _saveTitleTimer=null;
-function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal','empty-trash-modal','upload-modal','vault-modal','new-folder-modal'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
+function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal','empty-trash-modal','upload-modal','vault-modal','new-folder-modal','resource-viewer'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
 function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
 function scheduleSaveTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(mobileTitle&&document.activeElement===mobileTitle)return;// Don't save while user is still editing title
 if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}

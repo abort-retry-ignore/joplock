@@ -6,6 +6,7 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5445';
 
 module.exports = defineConfig({
 	testDir: './playwright-tests',
+	globalTeardown: require.resolve('./playwright-tests/global-teardown.js'),
 	fullyParallel: false,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,

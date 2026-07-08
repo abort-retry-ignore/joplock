@@ -762,6 +762,39 @@ test('app script uses iOS-safe resource download helper', () => {
 	assert.ok(appJs.includes('function _openResourceViewer(blob,mime,filename){'));
 });
 
+test('double-click opens image/attachment in the in-app lightbox (desktop)', () => {
+	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+	// Lightbox entry point: viewable -> in-app viewer, else download.
+	assert.ok(appJs.includes('function _openResourceLightbox(resourceId){'));
+	assert.ok(appJs.includes('if(meta&&!_canPreviewResourceMime(meta.mime)){_triggerResourceDownload(id);return}'));
+	assert.ok(appJs.includes('_fetchResourceBlob(id).then(function(r){_openResourceViewer(r.blob,r.mime,r.filename)})'));
+	// TinyMCE (desktop rendered mode) dblclick wiring on img/attachment link.
+	assert.ok(appJs.includes("editor.on('dblclick',function(e){"));
+	assert.ok(appJs.includes("var el=target.closest('img[data-resource-id],a[data-resource-id]');"));
+	// Preview/contenteditable dblclick wiring, desktop-only, no single-click open.
+	assert.ok(appJs.includes("pv.addEventListener('dblclick',function(e){if(!isDesktopMode())return;var el=e.target.closest('img.preview-img[data-resource-id],a[data-resource-id]');"));
+	assert.ok(!appJs.includes('e.preventDefault();_openResourceView(resourceId)}'), 'desktop single-click image open removed');
+	// Esc closes the lightbox first; lightbox counts as an open modal.
+	assert.ok(appJs.includes("var resViewer=document.getElementById('resource-viewer');if(resViewer){_closeResourceViewer();return}"));
+	assert.ok(appJs.includes("'new-folder-modal','resource-viewer'"));
+	// Overlay owns its own Escape + focus so it closes even when focus was in the
+	// TinyMCE iframe (whose key events never reach the document handler).
+	assert.ok(appJs.includes("overlay.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();e.stopPropagation();_closeResourceViewer()}});"));
+});
+
+test('mode switch reconciles away the spurious "Edited" from the content round-trip', () => {
+	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+	// The reconcile helper exists and is invoked after switching to markdown.
+	assert.ok(appJs.includes('function _reconcileSaveStateAfterModeSwitch(){'));
+	assert.ok(appJs.includes('_reconcileSaveStateAfterModeSwitch();'));
+	// It only resets to "Saved" when the note is NOT actually dirty, so a real
+	// pending change (e.g. an upload right before the switch) still saves.
+	assert.ok(appJs.includes("if(typeof _activeEditorIsDirty==='function'?!_activeEditorIsDirty():formHash(form)===_savedHash){"));
+	assert.ok(appJs.includes('setSaveState(\'<span class="autosave-ok">Saved</span>\',\'Saved\');'));
+	// The form listeners are NOT globally gated (that would suppress real saves).
+	assert.ok(appJs.includes("form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()})"));
+});
+
 test('searchResultsFragment renders note items', () => {
 	const notes = [{ id: 'n1', title: 'My Note', body: '', bodyPreview: '', parentId: 'f1', deletedTime: 0 }];
 	const html = searchResultsFragment(notes);

@@ -320,7 +320,7 @@ const handle = async (url, request, response, ctx) => {
 			const auth = await authenticatedUser(request);
 			if (auth.error) { sendJson(response, 401, { error: auth.error }); return true; }
 			const headers = await itemService.noteHeadersByUserId(auth.user.id);
-			const minimalHeaders = headers.map(h => ({ id: h.id, title: h.title }));
+			const minimalHeaders = headers.map(h => ({ id: h.id, title: h.title, parentId: h.parentId }));
 			sendJson(response, 200, { items: minimalHeaders });
 		} catch (error) {
 			sendJson(response, 500, { error: error.message || `${error}` });

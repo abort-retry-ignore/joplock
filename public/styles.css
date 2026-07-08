@@ -1889,7 +1889,7 @@ body.editor-markdown-mode .editor-toolbar {
 	.resource-action-sheet { right: auto; }
 }
 
-/* --- Resource viewer (PWA in-app preview) --- */
+/* --- Resource viewer (in-app preview: PWA action sheet + desktop image/attachment double-click) --- */
 .resource-viewer {
 	position: fixed; inset: 0; z-index: 10020;
 	display: flex; flex-direction: column;

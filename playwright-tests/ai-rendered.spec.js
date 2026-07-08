@@ -15,12 +15,14 @@
 const { test, expect } = require('@playwright/test');
 const {
 	login,
+	logout,
 	createNotebook,
 	createDesktopNote,
 	setNoteTitle,
 	acceptDialogs,
 	hasAdminCredentials,
 	slug,
+	teardownTestData,
 } = require('./helpers');
 
 const IFRAME = 'iframe.tox-edit-area__iframe';
@@ -56,44 +58,49 @@ test.describe('AI prose completion (rendered / TinyMCE mode)', () => {
 		if (!(await aiConfigured(page))) test.skip(true, 'no keyed AI profile configured');
 
 		const folderName = slug('pw-ai-folder');
-		await createNotebook(page, folderName);
-		await createDesktopNote(page, folderName);
-		await setNoteTitle(page, slug('pw ai note'));
+		try {
+			await createNotebook(page, folderName);
+			await createDesktopNote(page, folderName);
+			await setNoteTitle(page, slug('pw ai note'));
 
-		await page.locator('#editor-panel #preview-toggle').click();
-		const body = page.frameLocator(IFRAME).locator('body');
-		await expect(page.locator(IFRAME)).toBeVisible({ timeout: 15000 });
+			await page.locator('#editor-panel #preview-toggle').click();
+			const body = page.frameLocator(IFRAME).locator('body');
+			await expect(page.locator(IFRAME)).toBeVisible({ timeout: 15000 });
 
-		await body.click();
-		await page.keyboard.type(PROMPT);
-		const seeded = (await body.innerText()).length;
+			await body.click();
+			await page.keyboard.type(PROMPT);
+			const seeded = (await body.innerText()).length;
 
-		// Ctrl-Space -> popup appears (provider round-trip).
-		await page.keyboard.press('Control+Space');
-		await expect(page.locator(POPUP)).toBeVisible({ timeout: 60000 });
-		// Nothing inserted yet.
-		expect((await body.innerText()).length).toBeLessThanOrEqual(seeded + 1);
+			// Ctrl-Space -> popup appears (provider round-trip).
+			await page.keyboard.press('Control+Space');
+			await expect(page.locator(POPUP)).toBeVisible({ timeout: 60000 });
+			// Nothing inserted yet.
+			expect((await body.innerText()).length).toBeLessThanOrEqual(seeded + 1);
 
-		// Esc discards the suggestion.
-		await page.keyboard.press('Escape');
-		await expect(page.locator(POPUP)).toBeHidden();
-		expect((await body.innerText()).length).toBeLessThanOrEqual(seeded + 1);
+			// Esc discards the suggestion.
+			await page.keyboard.press('Escape');
+			await expect(page.locator(POPUP)).toBeHidden();
+			expect((await body.innerText()).length).toBeLessThanOrEqual(seeded + 1);
 
-		// Request again and accept with Enter.
-		await body.click();
-		await page.keyboard.press('End');
-		await page.keyboard.press('Control+Space');
-		await expect(page.locator(POPUP)).toBeVisible({ timeout: 60000 });
-		await page.keyboard.press('Enter');
-		await expect(page.locator(POPUP)).toBeHidden();
-		await expect
-			.poll(async () => (await body.innerText()).length, { timeout: 10000 })
-			.toBeGreaterThan(seeded + 3);
-		expect(await body.innerText()).toContain('quick brown fox');
+			// Request again and accept with Enter.
+			await body.click();
+			await page.keyboard.press('End');
+			await page.keyboard.press('Control+Space');
+			await expect(page.locator(POPUP)).toBeVisible({ timeout: 60000 });
+			await page.keyboard.press('Enter');
+			await expect(page.locator(POPUP)).toBeHidden();
+			await expect
+				.poll(async () => (await body.innerText()).length, { timeout: 10000 })
+				.toBeGreaterThan(seeded + 3);
+			expect(await body.innerText()).toContain('quick brown fox');
 
-		// Accepted text synced into the markdown source of truth.
-		const noteBodyLen = await page.locator('#editor-panel #note-body').evaluate(el => el.value.length);
-		expect(noteBodyLen).toBeGreaterThan(0);
+			// Accepted text synced into the markdown source of truth.
+			const noteBodyLen = await page.locator('#editor-panel #note-body').evaluate(el => el.value.length);
+			expect(noteBodyLen).toBeGreaterThan(0);
+		} finally {
+			await teardownTestData(page, { folders: [folderName] });
+			await logout(page).catch(() => {});
+		}
 	});
 
 	test('AI-action Expander trigger shows the popup and inserts on accept', async ({ page }, testInfo) => {
@@ -109,27 +116,41 @@ test.describe('AI prose completion (rendered / TinyMCE mode)', () => {
 		await expect(page.locator('body.app-shell')).toBeVisible();
 
 		const folderName = slug('pw-ai-trig-folder');
-		await createNotebook(page, folderName);
-		await createDesktopNote(page, folderName);
-		await setNoteTitle(page, slug('pw ai trigger note'));
+		try {
+			await createNotebook(page, folderName);
+			await createDesktopNote(page, folderName);
+			await setNoteTitle(page, slug('pw ai trigger note'));
 
-		await page.locator('#editor-panel #preview-toggle').click();
-		const body = page.frameLocator(IFRAME).locator('body');
-		await expect(page.locator(IFRAME)).toBeVisible({ timeout: 15000 });
+			await page.locator('#editor-panel #preview-toggle').click();
+			const body = page.frameLocator(IFRAME).locator('body');
+			await expect(page.locator(IFRAME)).toBeVisible({ timeout: 15000 });
 
-		await body.click();
-		await page.keyboard.type(PROMPT);
-		const seeded = (await body.innerText()).length;
+			await body.click();
+			await page.keyboard.type(PROMPT);
+			const seeded = (await body.innerText()).length;
 
-		// Typing the trigger fires the AI action on keyup: trigger removed, popup shown.
-		await page.keyboard.type(';;ai');
-		await expect(page.locator(POPUP)).toBeVisible({ timeout: 60000 });
-		await expect.poll(async () => await body.innerText()).not.toContain(';;ai');
+			// Typing the trigger fires the AI action on keyup: trigger removed, popup shown.
+			await page.keyboard.type(';;ai');
+			await expect(page.locator(POPUP)).toBeVisible({ timeout: 60000 });
+			await expect.poll(async () => await body.innerText()).not.toContain(';;ai');
 
-		await page.keyboard.press('Enter');
-		await expect(page.locator(POPUP)).toBeHidden();
-		await expect
-			.poll(async () => (await body.innerText()).length, { timeout: 10000 })
-			.toBeGreaterThan(seeded);
+			await page.keyboard.press('Enter');
+			await expect(page.locator(POPUP)).toBeHidden();
+			await expect
+				.poll(async () => (await body.innerText()).length, { timeout: 10000 })
+				.toBeGreaterThan(seeded);
+		} finally {
+			// Reset the AI expander we added, then purge the notebook + resources.
+			await page.evaluate(async () => {
+				await fetch('/api/web/settings', {
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					credentials: 'same-origin',
+					body: JSON.stringify({ textExpanders: [] }),
+				}).catch(() => {});
+			}).catch(() => {});
+			await teardownTestData(page, { folders: [folderName] });
+			await logout(page).catch(() => {});
+		}
 	});
 });

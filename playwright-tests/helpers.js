@@ -188,6 +188,88 @@ async function openMobileNote(page, noteTitle) {
 	await expect(mobileEditor(page)).toBeVisible();
 }
 
+// Best-effort id of the note currently open in the editor (desktop or mobile),
+// read from the editor form's hx-put target. Returns '' if none.
+async function getActiveNoteId(page) {
+	const form = page.locator('#editor-panel #note-editor-form, #mobile-editor-body #note-editor-form').first();
+	if (!(await form.count())) return '';
+	const hxPut = (await form.getAttribute('hx-put')) || '';
+	const id = hxPut.split('/').pop() || '';
+	return /^[0-9a-fA-F]{32}$/.test(id) ? id : '';
+}
+
+// Permanently remove test-created data so runs never leave notes/notebooks/
+// resources in the shared Joplin DB. Best-effort: never throws, safe to call in
+// a finally block even after a failed test. Requires an authenticated page.
+//
+// It deletes:
+//   - every non-deleted note whose parent is one of `folders` (matched by name)
+//     OR whose title matches one of `titlePrefixes`; each note is trashed then
+//     permanently deleted (DELETE /fragments/notes/:id twice).
+//   - the named `folders` themselves (DELETE /api/web/folders/:id).
+//   - any resources left orphaned afterwards (admin cleanup).
+//
+// NOTE: deleting a notebook in the app moves its notes to "General" rather than
+// removing them, which is why we purge the notes explicitly BEFORE the folders.
+async function teardownTestData(page, { folders = [], folderPrefixes = [], titlePrefixes = [], noteIds = [] } = {}) {
+	try {
+		await page.evaluate(async ({ folderNames, folderPrefixes, prefixes, ids }) => {
+			const j = async (url, opts) => {
+				try {
+					const res = await fetch(url, { credentials: 'same-origin', ...opts });
+					const text = await res.text();
+					try { return { status: res.status, data: JSON.parse(text) }; }
+					catch { return { status: res.status, data: null }; }
+				} catch { return { status: 0, data: null }; }
+			};
+
+			// Resolve target folders by exact name or name-prefix.
+			const folderRes = await j('/api/web/folders');
+			const allFolders = (folderRes.data && folderRes.data.items) || [];
+			const targetFolderIds = new Set(
+				allFolders
+					.filter(f =>
+						folderNames.includes(f.title) ||
+						folderPrefixes.some(p => p && typeof f.title === 'string' && f.title.startsWith(p)),
+					)
+					.map(f => f.id),
+			);
+
+			// Find notes to purge: explicit ids, notes in a target folder, or
+			// notes whose title matches a prefix.
+			const headerRes = await j('/api/web/notes/headers');
+			const notes = (headerRes.data && headerRes.data.items) || [];
+			const doomed = new Set(ids || []);
+			for (const n of notes) {
+				if (doomed.has(n.id)) continue;
+				if ((n.parentId && targetFolderIds.has(n.parentId)) ||
+					prefixes.some(p => p && typeof n.title === 'string' && n.title.startsWith(p))) {
+					doomed.add(n.id);
+				}
+			}
+
+			// Trash then permanently delete each note (DELETE twice).
+			for (const id of doomed) {
+				await j('/fragments/notes/' + encodeURIComponent(id), { method: 'DELETE' });
+				await j('/fragments/notes/' + encodeURIComponent(id), { method: 'DELETE' });
+			}
+
+			// Purge anything else already sitting in Trash from this run.
+			await j('/fragments/trash/empty', { method: 'POST' });
+
+			// Delete the test folders.
+			for (const id of targetFolderIds) {
+				await j('/api/web/folders/' + encodeURIComponent(id), { method: 'DELETE' });
+			}
+
+			// Remove now-orphaned resources (uploaded images/files).
+			await j('/admin/orphaned-resources/cleanup', { method: 'POST' });
+		}, { folderNames: folders, folderPrefixes, prefixes: titlePrefixes, ids: noteIds });
+	} catch {
+		// best-effort cleanup — never fail a test because teardown hiccuped
+	}
+}
+
 module.exports = {
 	acceptDialogs,
 	ADMIN_EMAIL: DEV_EMAIL,
@@ -203,11 +285,13 @@ module.exports = {
 	openMobileFolder,
 	openMobileNote,
 	openSettings,
+	getActiveNoteId,
 	searchDesktop,
 	setNoteBody,
 	setNoteTitle,
 	setUiMode,
 	slug,
+	teardownTestData,
 	trashDesktopNote,
 	waitForSaved,
 };

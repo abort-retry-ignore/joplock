@@ -325,11 +325,14 @@ test('CM6 mounts into #cm-host and syncs both ways with #note-body', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Drag-and-drop image insertion: ALWAYS add a blank line after the image
+// Drag-and-drop attachment insertion: a BLANK LINE before and after
 // ---------------------------------------------------------------------------
-// Requirement: when an image is dropped into a note, a blank line must follow
-// so the caret lands on a fresh empty line and typed text is never glued to the
-// image. This must hold in both markdown mode (CM6) and rendered mode (TinyMCE).
+// Requirement: when an image OR a document is dropped/pasted into a note, it is
+// placed on its own line with a blank (empty, deletable) line before and after.
+// The blank line lets the user remove a single attachment even when several sit
+// one after another in rendered mode, and it must survive markdown<->render
+// round-trips. This holds in both markdown mode (CM6) and rendered mode
+// (TinyMCE). "Smart": existing blank lines are topped up, not stacked.
 
 const RID = 'a'.repeat(32);
 
@@ -351,8 +354,9 @@ function makeUploadCtx() {
 		},
 		dispatch(tr) {
 			if (tr.changes) {
-				const { from, insert } = tr.changes;
-				doc = doc.slice(0, from) + insert + doc.slice(from);
+				const { from, to, insert } = tr.changes;
+				const end = typeof to === 'number' ? to : from;
+				doc = doc.slice(0, from) + insert + doc.slice(end);
 			}
 		},
 	};
@@ -378,45 +382,44 @@ function makeUploadCtx() {
 	vm.runInContext(extractFn('_fileTooLarge'), ctx);
 	vm.runInContext(extractFn('_tooLargeMsg'), ctx);
 	vm.runInContext(extractFn('_escapeHtmlAttr'), ctx);
+	vm.runInContext(extractFn('_normalizeUploadInsert'), ctx);
 	vm.runInContext(extractFn('_uploadFileToCM'), ctx);
 	return ctx;
 }
 
-test('markdown mode: dropping an image inserts markdown followed by a blank line', async () => {
+test('markdown mode: dropping an image into an empty doc adds a trailing blank line', async () => {
 	const ctx = makeUploadCtx();
-	// A fake image File-like object (name + image mime).
 	ctx.file = { name: 'cat.png', type: 'image/png', size: 10 };
 	await vm.runInContext('_uploadFileToCM(file)', ctx);
 	const doc = ctx._getDoc();
 	assert.equal(doc, '![cat.png](:/' + RID + ')\n\n',
-		`image insert must end with a blank line (\\n\\n), got: ${JSON.stringify(doc)}`);
-	assert.ok(doc.endsWith('\n\n'), 'inserted image markdown must be followed by a blank line');
+		`image insert must end with a blank line, got: ${JSON.stringify(doc)}`);
 });
 
-test('markdown mode: dropping an image before existing text keeps a blank line between them', async () => {
+test('markdown mode: dropping an image after text pads it with a blank line before and after', async () => {
 	const ctx = makeUploadCtx();
-	// Pre-seed the doc so the cursor is at the end, text already present is at start.
 	vm.runInContext('_cmView.dispatch({changes:{from:0,insert:"existing text"}})', ctx);
 	ctx.file = { name: 'pic.jpg', type: 'image/jpeg', size: 10 };
 	await vm.runInContext('_uploadFileToCM(file)', ctx);
 	const doc = ctx._getDoc();
-	assert.equal(doc, 'existing text![pic.jpg](:/' + RID + ')\n\n',
-		`got: ${JSON.stringify(doc)}`);
-	// The image reference must be followed by a blank line (nothing glued after it).
-	assert.ok(/\]\(:\/[a-f0-9]{32}\)\n\n$/.test(doc), 'image must be trailed by a blank line');
+	assert.equal(doc, 'existing text\n\n![pic.jpg](:/' + RID + ')\n\n',
+		`image must be padded above and below, got: ${JSON.stringify(doc)}`);
 });
 
-test('markdown mode: dropping a NON-image file does NOT add a blank line', async () => {
+test('markdown mode: dropping a NON-image file also gets padded above and below', async () => {
 	const ctx = makeUploadCtx();
+	vm.runInContext('_cmView.dispatch({changes:{from:0,insert:"existing text"}})', ctx);
 	ctx.file = { name: 'doc.pdf', type: 'application/pdf', size: 10 };
 	await vm.runInContext('_uploadFileToCM(file)', ctx);
 	const doc = ctx._getDoc();
-	assert.equal(doc, '[doc.pdf](:/' + RID + ')',
-		`non-image link must NOT get a trailing blank line, got: ${JSON.stringify(doc)}`);
+	assert.equal(doc, 'existing text\n\n[doc.pdf](:/' + RID + ')\n\n',
+		`non-image link must also be padded above and below, got: ${JSON.stringify(doc)}`);
 });
 
-test('rendered mode: _uploadFileToTinyMCE wraps image in its own <p> and adds a trailing empty <p>', async () => {
-	// Drive the real helper with a mock editor that records insertContent().
+// Build a TinyMCE upload context with a mock editor. `selNode` is what
+// editor.selection.getNode() returns (null => selection API unavailable, both
+// blank-line paragraphs are added).
+function makeTinyMCECtx(selNode) {
 	const dom = new JSDOM('<!DOCTYPE html><body></body>', { url: 'https://joplock.test' });
 	const ctx = vm.createContext({
 		document: dom.window.document,
@@ -430,41 +433,77 @@ test('rendered mode: _uploadFileToTinyMCE wraps image in its own <p> and adds a 
 	vm.runInContext(extractFn('_fileTooLarge'), ctx);
 	vm.runInContext(extractFn('_tooLargeMsg'), ctx);
 	vm.runInContext(extractFn('_escapeHtmlAttr'), ctx);
+	// _MD_BLANK_LINE_P is a top-level `var`; inject it directly.
+	vm.runInContext('var _MD_BLANK_LINE_P=\'<p class="md-blank-line"><br></p>\';', ctx);
+	vm.runInContext(extractFn('_isBlankLineBlock'), ctx);
+	vm.runInContext(extractFn('_tinyMCEBlockAttachmentHtml'), ctx);
 	vm.runInContext(extractFn('_uploadFileToTinyMCE'), ctx);
+	vm.runInContext('function getTA(){return null}function tinymceToMarkdown(h){return h}', ctx);
 	const inserted = [];
-	vm.runInContext("function getTA(){return null}function tinymceToMarkdown(h){return h}", ctx);
-	ctx.ed = { insertContent(html) { inserted.push(html); }, getContent() { return inserted.join(""); } };
+	ctx.ed = {
+		insertContent(html) { inserted.push(html); },
+		getContent() { return inserted.join(''); },
+		selection: selNode ? { getNode: () => selNode } : undefined,
+	};
+	ctx._inserted = inserted;
+	ctx.dom = dom;
+	return ctx;
+}
+
+test('rendered mode: dropping an image wraps it in its own <p> with a blank line before and after', async () => {
+	const ctx = makeTinyMCECtx(null);
 	ctx.file = { name: 'cat.png', type: 'image/png', size: 10 };
 	await vm.runInContext('_uploadFileToTinyMCE(file, ed)', ctx);
-	assert.equal(inserted.length, 1, 'exactly one insertContent call');
-	const html = inserted[0];
+	assert.equal(ctx._inserted.length, 1, 'exactly one insertContent call');
+	const html = ctx._inserted[0];
 	assert.ok(/<p><img [^>]*src="\/resources\/a{32}"[^>]*><\/p>/.test(html),
 		`image must be wrapped in its own <p>, got: ${html}`);
-	assert.ok(/<\/p><p><\/p>$/.test(html),
-		`image paragraph must be followed by an empty <p> (the blank line), got: ${html}`);
+	assert.ok(/^<p class="md-blank-line"><br><\/p><p><img/.test(html),
+		`image must be preceded by a blank-line paragraph, got: ${html}`);
+	assert.ok(/<\/p><p class="md-blank-line"><br><\/p>$/.test(html),
+		`image must be followed by a blank-line paragraph, got: ${html}`);
 });
 
-test('rendered mode: _uploadFileToTinyMCE does NOT add a trailing empty <p> for non-images', async () => {
-	const dom = new JSDOM('<!DOCTYPE html><body></body>', { url: 'https://joplock.test' });
-	const ctx = vm.createContext({
-		document: dom.window.document,
-		window: dom.window,
-		alert: () => {},
-		Promise,
-		FormData: function FormData() { this.append = () => {}; },
-		fetch: () => Promise.resolve({ json: () => Promise.resolve({ resourceId: RID }) }),
-	});
-	vm.runInContext(extractFn('_maxUploadBytes'), ctx);
-	vm.runInContext(extractFn('_fileTooLarge'), ctx);
-	vm.runInContext(extractFn('_tooLargeMsg'), ctx);
-	vm.runInContext(extractFn('_escapeHtmlAttr'), ctx);
-	vm.runInContext(extractFn('_uploadFileToTinyMCE'), ctx);
-	const inserted = [];
-	vm.runInContext("function getTA(){return null}function tinymceToMarkdown(h){return h}", ctx);
-	ctx.ed = { insertContent(html) { inserted.push(html); }, getContent() { return inserted.join(""); } };
+test('rendered mode: dropping a NON-image file also gets a blank line before and after', async () => {
+	const ctx = makeTinyMCECtx(null);
 	ctx.file = { name: 'doc.pdf', type: 'application/pdf', size: 10 };
 	await vm.runInContext('_uploadFileToTinyMCE(file, ed)', ctx);
-	assert.ok(/^<a href="\/resources\/a{32}"/.test(inserted[0]),
-		`non-image must be an anchor, got: ${inserted[0]}`);
-	assert.ok(!/<p><\/p>/.test(inserted[0]), 'non-image must NOT get a trailing empty <p>');
+	const html = ctx._inserted[0];
+	assert.ok(/<p><a href="\/resources\/a{32}"[^>]*>doc\.pdf<\/a><\/p>/.test(html),
+		`non-image must be wrapped in its own <p>, got: ${html}`);
+	assert.ok(html.startsWith('<p class="md-blank-line"><br></p><p><a '),
+		`non-image must be preceded by a blank-line paragraph, got: ${html}`);
+	assert.ok(html.endsWith('</p><p class="md-blank-line"><br></p>'),
+		`non-image must be followed by a blank-line paragraph, got: ${html}`);
 });
+
+test('rendered mode: does not add a leading blank line when the caret block is empty', async () => {
+	const ctx = makeTinyMCECtx(null);
+	// An empty paragraph as the caret block acts as its own leading gap.
+	const emptyP = ctx.dom.window.document.createElement('p');
+	ctx.ed.selection = { getNode: () => emptyP };
+	ctx.file = { name: 'cat.png', type: 'image/png', size: 10 };
+	await vm.runInContext('_uploadFileToTinyMCE(file, ed)', ctx);
+	const html = ctx._inserted[0];
+	assert.ok(!/^<p class="md-blank-line">/.test(html),
+		`empty caret block should not get an extra leading blank line, got: ${html}`);
+	assert.ok(/<\/p><p class="md-blank-line"><br><\/p>$/.test(html),
+		`trailing blank-line paragraph still required, got: ${html}`);
+});
+
+test('rendered mode: does not stack a blank line next to an existing blank-line paragraph', async () => {
+	const ctx = makeTinyMCECtx(null);
+	const doc = ctx.dom.window.document;
+	// Caret block has text, but the previous sibling is already a blank-line <p>.
+	const container = doc.createElement('div');
+	const prev = doc.createElement('p'); prev.className = 'md-blank-line'; prev.innerHTML = '<br>';
+	const block = doc.createElement('p'); block.textContent = 'hello';
+	container.appendChild(prev); container.appendChild(block);
+	ctx.ed.selection = { getNode: () => block };
+	ctx.file = { name: 'cat.png', type: 'image/png', size: 10 };
+	await vm.runInContext('_uploadFileToTinyMCE(file, ed)', ctx);
+	const html = ctx._inserted[0];
+	assert.ok(!/^<p class="md-blank-line">/.test(html),
+		`should not add a leading blank line next to an existing one, got: ${html}`);
+});
+

@@ -77,7 +77,7 @@ test.describe('Desktop UI', () => {
 
 		await setNoteTitle(page, noteTitle);
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await setNoteBody(page, noteBody);
 		await waitForSaved(page);
 		await expect(statusMeta).toBeVisible();
@@ -130,7 +130,7 @@ test.describe('Desktop UI', () => {
 			await createDesktopNote(page, folderName);
 		await setNoteTitle(page, noteTitle);
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await setNoteBody(page, USER_NOTE_BODY);
 		await waitForSaved(page);
 		const noteIdA = await page.locator('#editor-panel #note-editor-form').evaluate(form => form.dataset.noteId || '');
@@ -144,7 +144,7 @@ test.describe('Desktop UI', () => {
 			await expect(page.frameLocator('iframe.tox-edit-area__iframe').locator('body')).toContainText('second paragraph, seems to');
 
 			await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await expect(noteBody).toHaveValue(USER_NOTE_BODY);
 
 		await page.locator('#editor-panel #preview-toggle').click();
@@ -169,7 +169,7 @@ test.describe('Desktop UI', () => {
 		await createDesktopNote(page, folderName);
 		await setNoteTitle(page, noteTitleA);
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await setNoteBody(page, USER_NOTE_BODY);
 		await waitForSaved(page);
 		const noteIdA = await page.locator('#editor-panel #note-editor-form').evaluate(form => form.dataset.noteId || '');
@@ -192,7 +192,7 @@ test.describe('Desktop UI', () => {
 		await createDesktopNote(page, folderName);
 		await setNoteTitle(page, noteTitleB);
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await setNoteBody(page, 'temporary switch note');
 		await waitForSaved(page);
 
@@ -206,7 +206,7 @@ test.describe('Desktop UI', () => {
 		expect(afterSwitchLayout).toEqual(beforeSwitchLayout);
 
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await expect(page.locator('#editor-panel #note-body')).toHaveValue(USER_NOTE_BODY);
 
 		await deleteNotebook(page, folderName);
@@ -224,7 +224,7 @@ test.describe('Desktop UI', () => {
 		await createDesktopNote(page, folderName);
 		await setNoteTitle(page, noteTitle);
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await setNoteBody(page, USER_NOTE_BODY);
 		await waitForSaved(page);
 
@@ -284,7 +284,7 @@ test.describe('Desktop UI', () => {
 		await createDesktopNote(page, folderName);
 		await setNoteTitle(page, noteTitle);
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await setNoteBody(page, `Before code.\n\n${fence}yaml\n${yamlCode}\n${fence}\n\nAfter code.`);
 		await waitForSaved(page);
 
@@ -296,19 +296,25 @@ test.describe('Desktop UI', () => {
 
 		const codePre = iframeBody.locator('pre.language-yaml').first();
 		await codePre.click();
-		const codeDialog = page.locator('.tox-dialog[role="dialog"]').filter({ hasText: /code sample/i }).last();
-		await expect(codeDialog).toBeVisible({ timeout: 15000 });
-		await codeDialog.getByRole('combobox', { name: 'Language' }).click();
-		await page.getByRole('option', { name: /^JavaScript$/ }).click();
-		await codeDialog.getByRole('textbox', { name: 'Code view' }).fill('const answer = 42;\nconsole.log(answer);');
-		await codeDialog.getByRole('button', { name: /^Save$/ }).click();
+		// Rendered-mode <pre> editing opens the custom full-screen CM6 code modal
+		// (#code-modal), NOT TinyMCE's built-in codesample dialog.
+		const codeModal = page.locator('#code-modal');
+		await expect(codeModal).toBeVisible({ timeout: 15000 });
+		await codeModal.locator('#code-lang').selectOption('javascript');
+		const codeInput = codeModal.locator('#code-input .cm-content');
+		await codeInput.click();
+		await page.keyboard.press('Control+A');
+		await page.keyboard.press('Delete');
+		await page.keyboard.type('const answer = 42;\nconsole.log(answer);');
+		await codeModal.locator('#code-modal-submit').click();
+		await expect(codeModal).toBeHidden({ timeout: 15000 });
 
 		await expect.poll(async () => iframeBody.evaluate(body => !!body.querySelector('pre.language-javascript')), { timeout: 15000 }).toBe(true);
 		await expect(iframeBody).toContainText('const answer = 42;');
 
 		await page.locator('#editor-panel #markdown-toggle').click();
 		const noteBody = page.locator('#editor-panel #note-body');
-		await expect(noteBody).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await expect.poll(async () => noteBody.inputValue(), { timeout: 15000 }).toContain('```javascript');
 		await expect.poll(async () => noteBody.inputValue(), { timeout: 15000 }).toContain('const answer = 42;');
 		await expect.poll(async () => noteBody.inputValue(), { timeout: 15000 }).not.toContain('```yaml');
@@ -488,7 +494,7 @@ test.describe('Desktop UI', () => {
 		await createDesktopNote(page, folderName);
 		await setNoteTitle(page, noteTitle);
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		await setNoteBody(page, 'anchor line');
 		await waitForSaved(page);
 
@@ -552,7 +558,7 @@ test.describe('Desktop UI', () => {
 		// And the underlying markdown must reflect that we now have a third
 		// paragraph on its own line — not just extra <br>s stuck to paragraph 2.
 		await page.locator('#editor-panel #markdown-toggle').click();
-		await expect(page.locator('#editor-panel #note-body')).toBeVisible();
+		await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
 		const bodyValue = await page.locator('#editor-panel #note-body').inputValue();
 		const lines = bodyValue.split('\n');
 		const thirdIdx = lines.findIndex(l => l.trim() === 'third');

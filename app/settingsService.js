@@ -217,7 +217,7 @@ const normalizeSettings = settings => ({
 	autoLogout: !!Number(settings.autoLogout) || settings.autoLogout === true || settings.autoLogout === '1',
 	autoLogoutMinutes: normalizeInteger(settings.autoLogoutMinutes, defaultSettings.autoLogoutMinutes, 1, 480),
 	theme: validThemes.includes(settings.theme) ? settings.theme : defaultSettings.theme,
-	noteFontFamily: (settings.noteFontFamily === 'mono' || settings.noteFontFamily === 'serif') ? settings.noteFontFamily : defaultSettings.noteFontFamily,
+	noteFontFamily: (['mono', 'serif', 'rounded', 'humanist'].includes(settings.noteFontFamily)) ? settings.noteFontFamily : defaultSettings.noteFontFamily,
 	newlineBehavior: (settings.newlineBehavior === 'linebreak' || settings.newlineBehavior === 'invert') ? settings.newlineBehavior : defaultSettings.newlineBehavior,
 	liveSearch: !!Number(settings.liveSearch) || settings.liveSearch === true || settings.liveSearch === '1',
 	highlightActiveLine: settings.highlightActiveLine !== false && settings.highlightActiveLine !== '0' && settings.highlightActiveLine !== 0,

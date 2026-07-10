@@ -558,7 +558,7 @@ body.mobile-shell-active {
 
 body.note-body-monospace,
 body.note-body-monospace .editor-preview {
-	font-family: 'Cascadia Mono', monospace;
+	font-family: 'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace;
 }
 .editor-preview {
 	font-family: var(--font-family-note, inherit);

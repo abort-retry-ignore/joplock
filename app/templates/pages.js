@@ -14,7 +14,11 @@ const ASSET_VERSION = '20260706cm6-markdown2';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';
-	return f === 'mono' ? "'Cascadia Mono',monospace" : f === 'serif' ? "Georgia,'Times New Roman',serif" : '';
+	if (f === 'mono') return "'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace";
+	if (f === 'serif') return "Georgia,'Times New Roman',Times,serif";
+	if (f === 'rounded') return "'SF Pro Rounded',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif";
+	if (f === 'humanist') return "Optima,Candara,'Segoe UI',Calibri,sans-serif";
+	return "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Helvetica Neue',sans-serif";
 };
 
 const formatBytes = value => {
@@ -56,7 +60,7 @@ const layoutPage = (options = {}) => {
 	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<title>Joplock</title>
 </head>
-<body class="theme-dark-grey${noteFontFamilyCSS(settings)==="'Cascadia Mono',monospace"?' note-body-monospace':''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;">
+<body class="theme-dark-grey${noteFontFamilyCSS(settings)==="'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace"?' note-body-monospace':''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;">
 	<script>
 	(function(){
 		var keys=['joplock-theme','joplock-nav-collapsed','joplock-nav-folders'];
@@ -108,7 +112,7 @@ const layoutPage = (options = {}) => {
 	<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 	<title>Joplock</title>
 </head>
-<body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${noteFontFamilyCSS(settings)==="'Cascadia Mono',monospace"?' note-body-monospace':''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;" data-newline-behavior="${escapeHtml(settings.newlineBehavior || 'linebreak')}">
+<body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${noteFontFamilyCSS(settings)==="'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace"?' note-body-monospace':''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;" data-newline-behavior="${escapeHtml(settings.newlineBehavior || 'linebreak')}">
 	<div id="note-loading-overlay" aria-hidden="true">
 		<div class="note-loading-ring"></div>
 		<div class="note-loading-label">Loading note…</div>

@@ -207,8 +207,10 @@ const settingsPage = (options = {}) => {
 						<label class="settings-field">
 							<span>Note font</span>
 							<select id="settings-note-font-family" class="login-input" onchange="saveSetting('noteFontFamily',this.value)">
-								<option value="sans"${!settings.noteFontFamily||settings.noteFontFamily==='sans'?' selected':''}>System (sans-serif)</option>
-								<option value="serif"${settings.noteFontFamily==='serif'?' selected':''}>Serif</option>
+								<option value="sans"${!settings.noteFontFamily||settings.noteFontFamily==='sans'?' selected':''}>System Sans</option>
+								<option value="serif"${settings.noteFontFamily==='serif'?' selected':''}>System Serif</option>
+								<option value="rounded"${settings.noteFontFamily==='rounded'?' selected':''}>Rounded</option>
+								<option value="humanist"${settings.noteFontFamily==='humanist'?' selected':''}>Humanist</option>
 								<option value="mono"${settings.noteFontFamily==='mono'?' selected':''}>Monospace (Cascadia Mono)</option>
 							</select>
 						</label>
@@ -599,7 +601,7 @@ const settingsPage = (options = {}) => {
 		function dlog(){if(DEBUG){try{console.log.apply(console,['[joplock]'].concat([].slice.call(arguments)))}catch(_){}}}
 		dlog('settings script loaded');
 		function bindRange(inputId,valueId,cssVar){var input=document.getElementById(inputId);var value=document.getElementById(valueId);if(!input||!value)return;document.body.style.setProperty(cssVar,input.value+'px');value.textContent=input.value+'px';input.addEventListener('input',function(){document.body.style.setProperty(cssVar,this.value+'px');value.textContent=this.value+'px'})}
-		function bindFont(){var input=document.getElementById('settings-note-font-family');if(!input)return;function apply(v){document.body.style.setProperty('--font-family-note',v==='mono'?"'Cascadia Mono',monospace":v==='serif'?"Georgia,'Times New Roman',serif":'');document.body.classList.toggle('note-body-monospace',v==='mono')}apply(input.value);input.addEventListener('change',function(){apply(this.value)})}
+		function bindFont(){var input=document.getElementById('settings-note-font-family');if(!input)return;function apply(v){var stacks={mono:"'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace",serif:"Georgia,'Times New Roman',Times,serif",rounded:"'SF Pro Rounded',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif",humanist:"Optima,Candara,'Segoe UI',Calibri,sans-serif",sans:"-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Helvetica Neue',sans-serif"};document.body.style.setProperty('--font-family-note',stacks[v]||'');document.body.classList.toggle('note-body-monospace',v==='mono')}apply(input.value);input.addEventListener('change',function(){apply(this.value)})}
 		bindRange('settings-note-font','settings-note-font-value','--font-size-note');
 		bindRange('settings-markdown-font','settings-markdown-font-value','--font-size-markdown');
 		bindRange('settings-mobile-note-font','settings-mobile-note-font-value','--font-size-note-mobile');

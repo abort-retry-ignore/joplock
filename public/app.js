@@ -348,24 +348,41 @@ function openNavFolderAndFirstNote(id){
 	if(isMobileShellMode())return;
 	var el=document.querySelector('.nav-folder[data-folder-id="'+id.replace(/"/g,'\\"')+'"]');
 	if(!el)return;
-	var alreadyOpen=!el.classList.contains('collapsed');
-	toggleNavFolder(id,true);
-	// After notes are loaded, click the first one
-	function clickFirst(notesDiv){
-		var first=notesDiv.querySelector('.notelist-item');
-		if(first)first.click();
+	if(!el.classList.contains('collapsed')){
+		// Folder is already expanded — this must be a real toggle (collapse),
+		// not another forced-open. Without this branch, toggleNavFolder(id,true)
+		// below always forces collapsed=false, so an open folder like "Examples"
+		// could never be closed again via its title text (only the tiny chevron
+		// button, which calls toggleNavFolder with no force arg, worked).
+		toggleNavFolder(id,false);
+		return;
 	}
 	var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');
+	// Capture BEFORE toggling: toggleNavFolder() sets data-loaded="1" itself
+	// (synchronously, before its htmx fetch) whenever it lazy-loads notes, so
+	// checking data-loaded only after the call below can't distinguish
+	// "already loaded from a previous expand" from "just started loading now".
+	var wasLoaded=!!(notesDiv&&notesDiv.getAttribute('data-loaded'));
+	toggleNavFolder(id,true);
+	// After notes are loaded, click the first one
+	function clickFirst(){
+		var first=notesDiv&&notesDiv.querySelector('.notelist-item');
+		if(first)first.click();
+	}
 	if(!notesDiv)return;
-	if(alreadyOpen&&notesDiv.getAttribute('data-loaded')){
-		// Notes already present — click immediately
-		clickFirst(notesDiv);
+	if(wasLoaded){
+		// Notes were already loaded from an earlier expand (e.g. this folder was
+		// last collapsed via the chevron button rather than reloaded) —
+		// toggleNavFolder() won't issue an htmx fetch, so no htmx:afterSettle
+		// will ever fire for this notesDiv. Click immediately instead.
+		clickFirst();
 	} else {
-		// Wait for htmx swap into this notesDiv to settle, then click first note
+		// First expand: wait for the lazy-load htmx swap into this notesDiv to
+		// settle, then click first note.
 		function onSettle(e){
 			if(e.detail&&e.detail.target===notesDiv){
 				document.body.removeEventListener('htmx:afterSettle',onSettle);
-				clickFirst(notesDiv);
+				clickFirst();
 			}
 		}
 		document.body.addEventListener('htmx:afterSettle',onSettle);
@@ -3368,7 +3385,75 @@ document.addEventListener('visibilitychange',function(){if(document.hidden){_log
 window.addEventListener('load',function(){if(isMobileShellMode())return;initNavPanel();initEditorPanel()});
 window.addEventListener('resize',applyMobileTitleMode);
 document.addEventListener('keydown',function(e){var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoSnapshot()}});
-	function flushSave(callback){var form=activeEditorForm();if(!form){_log('flushSave skip (no form)');if(callback)callback(true);return}if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}if(_pvSyncTimer){clearTimeout(_pvSyncTimer);_pvSyncTimer=null;_syncPVInFlight=true;syncPV();_syncPVInFlight=false}else{var pv=getPV();if(pv&&_previewDirty)syncPV();else if(!pv&&_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA()}syncTitleToHidden({silent:true});var h=formHash(form);if(h===_savedHash){_log('flushSave skip (hash unchanged)',h);if(callback)callback(true);return}setSaveState('<span class="autosave-saving">Saving...</span>','Saving...');var restoreReq=function(){};buildFlushRequest(form).then(function(req){if(!req){if(callback)callback(true);return}restoreReq=req.restore||restoreReq;_log('flushSave',req.url);return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){restoreReq();_log('flushSave ok',html.slice(0,80));snapshotHash();window._mobileNewNoteId=null;setSaveState('<span class="autosave-ok">Saved</span>','Saved');if(callback)callback(true)})}).catch(function(err){restoreReq();_log('flushSave error',err);showOffline();if(callback)callback(false)})}
+	function flushSave(callback){
+		var form=activeEditorForm();
+		if(!form){_log('flushSave skip (no form)');if(callback)callback(true);return}
+		if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}
+		if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}
+		if(_pvSyncTimer){clearTimeout(_pvSyncTimer);_pvSyncTimer=null;_syncPVInFlight=true;syncPV();_syncPVInFlight=false}else{var pv=getPV();if(pv&&_previewDirty)syncPV();else if(!pv&&_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA()}
+		syncTitleToHidden({silent:true});
+		var run=function(){
+			var h=formHash(form);
+			if(h===_savedHash){_log('flushSave skip (hash unchanged)',h);if(callback)callback(true);return}
+			setSaveState('<span class="autosave-saving">Saving...</span>','Saving...');
+			var restoreReq=function(){};
+			var settled=false;
+			var p;
+			// finish(): the one place that clears the watchdog, releases the
+			// _flushSaveInFlight mutex, and invokes callback exactly once — used
+			// on success, on error, AND on watchdog timeout. Without this, a
+			// fetch() that never settles (dropped connection, server hang) would
+			// (a) leave #note-body's name="body" stripped forever (formHash()
+			// then silently ignores all future body edits — note stuck "Edited",
+			// nothing ever saves again) and (b) never invoke callback, which
+			// permanently freezes the nav-intercept click handler below (clicking
+			// another note in the list would do nothing).
+			var finish=function(ok){
+				if(settled)return;
+				settled=true;
+				clearTimeout(watchdog);
+				if(_flushSaveInFlight===p)_flushSaveInFlight=null;
+				if(callback)callback(ok);
+			};
+			var watchdog=setTimeout(function(){
+				_log('flushSave watchdog fired, forcing restore');
+				restoreReq();
+				showOffline();
+				finish(false);
+			},20000);
+			p=buildFlushRequest(form).then(function(req){
+				if(settled)return;
+				if(!req){finish(true);return}
+				restoreReq=req.restore||restoreReq;
+				_log('flushSave',req.url);
+				return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){
+					if(settled)return;
+					restoreReq();
+					_log('flushSave ok',html.slice(0,80));
+					snapshotHash();
+					window._mobileNewNoteId=null;
+					setSaveState('<span class="autosave-ok">Saved</span>','Saved');
+					finish(true);
+				});
+			}).catch(function(err){
+				if(settled)return;
+				restoreReq();
+				_log('flushSave error',err);
+				showOffline();
+				finish(false);
+			});
+			_flushSaveInFlight=p;
+		};
+		// If an encrypted autosave already owns the textarea's temporary
+		// body-swap (_setOneShotEncryptedBody), wait for it instead of racing a
+		// second swap on the same element — see _encryptedAutosaveInFlight.
+		if(_encryptedAutosaveInFlight){
+			_log('flushSave waiting for in-flight encrypted autosave');
+			_encryptedAutosaveInFlight.then(run,run);
+		}else{
+			run();
+		}
+	}
 	function shouldInterceptNavigationClick(target){var navTarget=target&&target.closest?target.closest('.notelist-item,.sidebar-item,.nav-folder-row,[hx-get],[hx-post],[hx-delete]'):null;if(!navTarget)return null;if(navTarget.closest&&navTarget.closest('#note-editor-form'))return null;if(navTarget.closest&&navTarget.closest('#folder-context-menu,#folder-modal,#link-modal,#history-modal,#code-modal,#new-folder-modal,#vault-modal,#empty-trash-modal'))return null;return navTarget}
 document.addEventListener('click',function(e){var navTarget=shouldInterceptNavigationClick(e.target);if(!navTarget)return;var form=activeEditorForm();var status=queryActiveEditor('#autosave-status');var dirty=status&&status.querySelector('.autosave-edited');if(!form||!dirty)return;_log('navigation click intercepted, flushing save',navTarget.className||navTarget.id||navTarget.tagName);e.preventDefault();e.stopImmediatePropagation();flushSave(function(saved){if(saved){_log('flushSave done, re-clicking navigation target');navTarget.click()}})},true);
 window.joplockLiveSearch=_cfg.liveSearch||false;
@@ -4388,6 +4473,18 @@ function _setOneShotEncryptedBody(form,ciphertext){
 	};
 }
 
+// Mutex guarding #note-body's temporary name-swap (_setOneShotEncryptedBody):
+// the debounced autosave (_triggerEncryptedSave) and the forced flush
+// (flushSave/buildFlushRequest) both rename-then-restore the SAME textarea
+// while encrypting. If both ran concurrently, one's restore() could be
+// skipped/duplicated and name="body" could be left stripped permanently —
+// formHash() only hashes named elements, so body edits would then be
+// invisible to it forever ("hash unchanged" on every keystroke, note stuck
+// on "Edited", edit silently never saved). These flags let each side wait
+// for the other instead of racing it on the same element.
+var _encryptedAutosaveInFlight=null; // Promise<boolean> while _triggerEncryptedSave owns the swap
+var _flushSaveInFlight=null; // Promise<boolean> while flushSave owns the swap
+
 function _triggerEncryptedSave(form,ciphertext){
 	if(!form)return;
 	// Cancel any pending plaintext autosave (e.g. from the change event that
@@ -4399,6 +4496,8 @@ function _triggerEncryptedSave(form,ciphertext){
 	var restore=_setOneShotEncryptedBody(form,ciphertext);
 	var done=false;
 	var cleanupTimer=null;
+	var resolveInFlight=function(){};
+	_encryptedAutosaveInFlight=new Promise(function(res){resolveInFlight=res});
 	var cleanup=function(success){
 		if(done)return;
 		done=true;
@@ -4410,6 +4509,8 @@ function _triggerEncryptedSave(form,ciphertext){
 		// Re-snapshot the form hash after the textarea regains its name attr,
 		// so a subsequent debounced scheduleSave compares apples to apples.
 		if(success)snapshotHash();
+		_encryptedAutosaveInFlight=null;
+		resolveInFlight(success);
 	};
 	var onDone=function(e){
 		if(e.target!==form)return;
@@ -4462,6 +4563,10 @@ scheduleSave=function(){
 		_saveTimer=null;
 		if(_syncPVInFlight||_pvSyncTimer){scheduleSave();return}
 		if(_anyModalOpen()){scheduleSave();return}
+		// A forced flushSave() (e.g. navigating to another note) already owns
+		// the textarea's temporary name-swap — don't race it with a second
+		// encrypt+swap on the same element. Re-check once it's done.
+		if(_flushSaveInFlight){_log('encrypted scheduleSave deferred, flush in flight');scheduleSave();return}
 		if(!form)return;
 		var h=formHash(form);
 		if(h===_savedHash){_log('encrypted scheduleSave skip, hash unchanged',h);return}

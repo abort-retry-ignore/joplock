@@ -1163,6 +1163,31 @@ function initPersistentTinyMCE(){
 					e.preventDefault();
 					try{requestTinyMCEProseCompletion({editor:editor})}catch(err){_clientLog('expander.tinymce.error',{message:String(err&&err.message||err)})}
 				}
+				// In-note find/highlight: the global document keydown handler cannot
+				// see Escape while focus is inside the TinyMCE iframe (separate
+				// browsing context, key events do not bubble to the parent
+				// document), so replicate the two-stage Esc here too:
+				// 1st Esc dismisses the in-note search-nav-bar/highlight,
+				// 2nd Esc clears the nav-search field and exits results.
+				if(e.key==='Escape'){
+					_log('esc:TinyMCE iframe keydown Escape');
+					var bar=document.getElementById('search-nav-bar');
+					var sesActive=_searchSessionActive();
+					_log('esc:TinyMCE bar hidden='+(bar?bar.hidden:'n/a')+' sesActive='+sesActive);
+					if((bar&&!bar.hidden)||sesActive){
+						_log('esc:TinyMCE dismissing search');
+						e.preventDefault();
+						searchNavDismiss();
+					}else{
+						var navSearch=document.getElementById('nav-search');
+						if(navSearch&&navSearch.value){
+							_log('esc:TinyMCE clearing nav-search field');
+							e.preventDefault();
+							navSearch.value='';
+							htmx.trigger(navSearch,'search-submit');
+						}
+					}
+				}
 			});
 			// Code block init is deferred to _setTinyMCEContent so it runs after
 			// TinyMCE's codesample plugin has finished processing the content.

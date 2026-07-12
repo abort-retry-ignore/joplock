@@ -775,7 +775,7 @@ test('double-click opens image/attachment in the in-app lightbox (desktop)', () 
 	assert.ok(appJs.includes("pv.addEventListener('dblclick',function(e){if(!isDesktopMode())return;var el=e.target.closest('img.preview-img[data-resource-id],a[data-resource-id]');"));
 	assert.ok(!appJs.includes('e.preventDefault();_openResourceView(resourceId)}'), 'desktop single-click image open removed');
 	// Esc closes the lightbox first; lightbox counts as an open modal.
-	assert.ok(appJs.includes("var resViewer=document.getElementById('resource-viewer');if(resViewer){_closeResourceViewer();return}"));
+	assert.ok(appJs.includes("var resViewer=document.getElementById('resource-viewer');if(resViewer&&!resViewer.hidden){_closeResourceViewer();return}"));
 	assert.ok(appJs.includes("'new-folder-modal','resource-viewer'"));
 	// Overlay owns its own Escape + focus so it closes even when focus was in the
 	// TinyMCE iframe (whose key events never reach the document handler).

@@ -2913,7 +2913,7 @@ function setEditorMode(mode){
 		mountMarkdownEditor(ta?ta.value:'');
 		_editorMode='markdown';
 		syncEditorModeButtons();
-		// The round-trip may have fired a spurious "Edited"; reset to "Saved" if
+// The round-trip may have fired a spurious "Edited"; reset to "Saved" if
 		// the note is not actually dirty (but keep a real pending change/save).
 		_reconcileSaveStateAfterModeSwitch();
 		if(_searchSessionActive())setTimeout(applySearchHighlight,0);

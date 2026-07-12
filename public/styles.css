@@ -3698,3 +3698,21 @@ mark.search-highlight-active {
 	font-size: 13px;
 	margin-right: 6px;
 }
+
+/* Link-copied toast */
+#link-copied-toast {
+	position: fixed;
+	z-index: 99999;
+	background: var(--accent);
+	color: #fff;
+	font-size: 13px;
+	padding: 4px 10px;
+	border-radius: 4px;
+	pointer-events: none;
+	opacity: 0;
+	transform: translate(-50%, -120%);
+	transition: opacity 0.15s;
+}
+#link-copied-toast.visible {
+	opacity: 1;
+}

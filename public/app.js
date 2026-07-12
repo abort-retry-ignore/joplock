@@ -468,6 +468,7 @@ function tinyMCEInsertDate(){if(_isMarkdownModeActive()){insertStamp('date');ret
 function tinyMCEInsertDateTime(){if(_isMarkdownModeActive()){insertStamp('datetime');return}var ed=getTinyMCE();if(ed){var d=new Date();var s=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');ed.execCommand('mceInsertContent',false,s);ed.focus()}}
 function tinyMCEInsertLink(){if(_isMarkdownModeActive()){insertLink();return}var ed=getTinyMCE();if(ed){ed.execCommand('mceLink');ed.focus()}}
 function tinyMCEInsertImage(){if(_isMarkdownModeActive()){insertImg();return}var ed=getTinyMCE();if(ed){ed.execCommand('mceImage');ed.focus()}}
+function _showLinkCopiedToast(x,y){var el=document.getElementById('link-copied-toast');if(!el){el=document.createElement('div');el.id='link-copied-toast';el.textContent='Link copied';document.body.appendChild(el)}el.style.left=x+'px';el.style.top=y+'px';el.classList.add('visible');setTimeout(function(){el.classList.remove('visible')},1500);}
 function _copyTextToClipboard(text,onDone){
 	if(navigator.clipboard&&navigator.clipboard.writeText){
 		navigator.clipboard.writeText(text).then(function(){if(onDone)onDone(true)}).catch(function(){if(onDone)onDone(false)});
@@ -1033,6 +1034,13 @@ function initPersistentTinyMCE(){
 					var checked=!cb.classList.contains('checked');
 					cb.classList.toggle('checked',checked);
 					onEdit();
+					return;
+				}
+				var link=target.closest('a[href]');
+				if(link&&!link.getAttribute('data-resource-id')){
+					e.preventDefault();
+					var href=link.getAttribute('href')||'';
+					if(href){if(e.ctrlKey||e.metaKey){window.open(href,'_blank','noopener')}else{_copyTextToClipboard(href,function(ok){if(ok)_showLinkCopiedToast(e.clientX,e.clientY)})}}
 					return;
 				}
 				var pre=_resolveTinyMCEPre(target);
@@ -2246,7 +2254,7 @@ function initCM(host,content){
 			C.autocompletion({ override: [manualProseCompletionSource,noteCompletionSource] }),
 			onUpdate,
 			C.EditorView.lineWrapping,
-			C.EditorView.domEventHandlers({click:function(e,view){if(!e.ctrlKey&&!e.metaKey)return false;var pos=view.posAtCoords({x:e.clientX,y:e.clientY});if(pos==null)return false;var line=view.state.doc.lineAt(pos);var text=line.text;var offset=pos-line.from;var m;var linkRe=/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;while((m=linkRe.exec(text))!==null){if(offset>=m.index&&offset<=m.index+m[0].length){window.open(m[2],'_blank','noopener');return true;}}var urlRe=/https?:\/\/[^\s)>\]]+/g;while((m=urlRe.exec(text))!==null){if(offset>=m.index&&offset<=m.index+m[0].length){window.open(m[0],'_blank','noopener');return true;}}return false;}})
+			C.EditorView.domEventHandlers({click:function(e,view){var pos=view.posAtCoords({x:e.clientX,y:e.clientY});if(pos==null)return false;var line=view.state.doc.lineAt(pos);var text=line.text;var offset=pos-line.from;var m;var linkRe=/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;while((m=linkRe.exec(text))!==null){if(offset>=m.index&&offset<=m.index+m[0].length){var url=m[2];if(e.ctrlKey||e.metaKey){window.open(url,'_blank','noopener');return true}_copyTextToClipboard(url,function(ok){if(ok)_showLinkCopiedToast(e.clientX,e.clientY)});return true}}var urlRe=/https?:\/\/[^\s)>\]]+/g;while((m=urlRe.exec(text))!==null){if(offset>=m.index&&offset<=m.index+m[0].length){if(e.ctrlKey||e.metaKey){window.open(m[0],'_blank','noopener');return true}_copyTextToClipboard(m[0],function(ok){if(ok)_showLinkCopiedToast(e.clientX,e.clientY)});return true}}return false;}})
 		]
 		}),
 		parent:host
@@ -3165,7 +3173,7 @@ function activatePV(pv){if(!pv)return;pv.contentEditable='true';initImgResize(pv
 	pv.addEventListener('blur',function(){setTimeout(hideRenderAutocompletePopup,200)});
 	// Desktop: double-click an image or attachment link → open the in-app lightbox.
 	pv.addEventListener('dblclick',function(e){if(!isDesktopMode())return;var el=e.target.closest('img.preview-img[data-resource-id],a[data-resource-id]');if(!el||!pv.contains(el))return;if(e.target.closest('.preview-img-download-btn'))return;var resourceId=el.getAttribute('data-resource-id')||'';if(!resourceId)return;e.preventDefault();_openResourceLightbox(resourceId)});
-	pv.addEventListener('click',function(e){var link=e.target.closest('a');if(link&&pv.contains(link)){var resId=link.getAttribute('data-resource-id')||'';if(resId){if(isDesktopMode()){e.preventDefault();return}if(_shouldUseResourceActions()){e.preventDefault();presentResourceActions(resId,link);return}}var href=link.getAttribute('href')||'';if(href){e.preventDefault();window.open(href,'_blank','noopener');return}}});
+	pv.addEventListener('click',function(e){var link=e.target.closest('a');if(link&&pv.contains(link)){var resId=link.getAttribute('data-resource-id')||'';if(resId){if(isDesktopMode()){e.preventDefault();return}if(_shouldUseResourceActions()){e.preventDefault();presentResourceActions(resId,link);return}}var href=link.getAttribute('href')||'';if(href){e.preventDefault();if(e.ctrlKey||e.metaKey){window.open(href,'_blank','noopener');return}_copyTextToClipboard(href,function(ok){if(ok)_showLinkCopiedToast(e.clientX,e.clientY)});return}}});
 	// Click checkbox icon to toggle checked state
 	pv.addEventListener('click',function(e){var cb=e.target.closest('.md-checkbox');if(!cb)return;var iconEl=cb.querySelector('.md-cb-icon');if(!iconEl){var txt=cb.firstChild;if(!txt||txt.nodeType!==3)return;var icon=txt.textContent.charAt(0);if(icon!=='\u2610'&&icon!=='\u2611')return;var r=document.createRange();r.setStart(txt,0);r.setEnd(txt,Math.min(2,txt.textContent.length));var iconRect=r.getBoundingClientRect();if(e.clientX>iconRect.right)return;e.preventDefault();var checked=!cb.classList.contains('checked');cb.classList.toggle('checked',checked);txt.textContent=(checked?'\u2611':'\u2610')+txt.textContent.slice(1);syncPV();return}var iconRect=iconEl.getBoundingClientRect();if(e.clientX>iconRect.right)return;e.preventDefault();var checked=!cb.classList.contains('checked');cb.classList.toggle('checked',checked);iconEl.textContent=checked?'\u2611':'\u2610';syncPV()});
 	// Enter inside code blocks should stay in the same block; Enter after checkbox creates new checkbox

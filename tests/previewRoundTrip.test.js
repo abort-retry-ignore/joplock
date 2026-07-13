@@ -85,6 +85,32 @@ const previewRoundTrip = markdown => {
 	// blankLine must be registered BEFORE emptyP so the marker paragraph
 	// (<p class="md-blank-line"><br></p>) is matched as a blank-line sentinel
 	// rather than a generic empty paragraph. Mirrors public/app.js.
+	var _tdRef=td;
+	td.addRule('table', {
+		filter: 'table',
+		replacement: (_c, node) => {
+			var rows=Array.from(node.querySelectorAll('tr'));
+			if(!rows.length)return'';
+			var head=node.querySelector('thead'),body=node.querySelector('tbody');
+			var headerRow=rows[0];
+			var bodyRows=body?Array.from(body.querySelectorAll('tr')):(head?rows.slice(1):rows);
+			var headerCells=Array.from(headerRow.querySelectorAll('th,td'));
+			var cols=headerCells.length||1;
+			var cellText=function(cell){
+				var inner=_tdRef.turndown(cell.innerHTML).trim().replace(/\n/g,' ');
+				return inner||(cell.textContent||'').trim();
+			};
+			var lines=[];
+			lines.push('| '+headerCells.map(cellText).join(' | ')+' |');
+			lines.push('| '+Array(cols).fill('---').join(' | ')+' |');
+			(bodyRows.length?bodyRows:rows.slice(head?1:0)).forEach(function(row){
+				var cells=Array.from(row.querySelectorAll('td,th'));
+				if(!cells.length)return;
+				lines.push('| '+cells.map(cellText).join(' | ')+' |');
+			});
+			return lines.join('\n')+'\n';
+		},
+	});
 	td.addRule('blankLine', {
 		filter: node => (node.nodeName === 'DIV' || node.nodeName === 'P') && node.classList.contains('md-blank-line'),
 		replacement: () => '\x00BL\x00',
@@ -209,6 +235,32 @@ const previewHtmlRoundTrip = html => {
 			const href = (node.getAttribute('href') || '').trim();
 			const label = (content || '').trim() || href;
 			return `[${label}](${href})`;
+		},
+	});
+	var _tdRef=td;
+	td.addRule('table', {
+		filter: 'table',
+		replacement: (_c, node) => {
+			var rows=Array.from(node.querySelectorAll('tr'));
+			if(!rows.length)return'';
+			var head=node.querySelector('thead'),body=node.querySelector('tbody');
+			var headerRow=rows[0];
+			var bodyRows=body?Array.from(body.querySelectorAll('tr')):(head?rows.slice(1):rows);
+			var headerCells=Array.from(headerRow.querySelectorAll('th,td'));
+			var cols=headerCells.length||1;
+			var cellText=function(cell){
+				var inner=_tdRef.turndown(cell.innerHTML).trim().replace(/\n/g,' ');
+				return inner||(cell.textContent||'').trim();
+			};
+			var lines=[];
+			lines.push('| '+headerCells.map(cellText).join(' | ')+' |');
+			lines.push('| '+Array(cols).fill('---').join(' | ')+' |');
+			(bodyRows.length?bodyRows:rows.slice(head?1:0)).forEach(function(row){
+				var cells=Array.from(row.querySelectorAll('td,th'));
+				if(!cells.length)return;
+				lines.push('| '+cells.map(cellText).join(' | ')+' |');
+			});
+			return lines.join('\n')+'\n';
 		},
 	});
 	const root = dom.window.document.getElementById('root').cloneNode(true);
@@ -420,6 +472,32 @@ test('preview round-trip does not add blank line after trailing code block', () 
 	// Run previewRoundTrip on the modified DOM's innerHTML.
 	const TurndownService = require('../vendor/turndown-lib/turndown.cjs.js');
 	const td = new TurndownService({ headingStyle: 'atx', hr: '---', codeBlockStyle: 'fenced', bulletListMarker: '-', emDelimiter: '*', strongDelimiter: '**', br: '' });
+	var _tdRef=td;
+	td.addRule('table', {
+		filter: 'table',
+		replacement: (_c, node) => {
+			var rows=Array.from(node.querySelectorAll('tr'));
+			if(!rows.length)return'';
+			var head=node.querySelector('thead'),body=node.querySelector('tbody');
+			var headerRow=rows[0];
+			var bodyRows=body?Array.from(body.querySelectorAll('tr')):(head?rows.slice(1):rows);
+			var headerCells=Array.from(headerRow.querySelectorAll('th,td'));
+			var cols=headerCells.length||1;
+			var cellText=function(cell){
+				var inner=_tdRef.turndown(cell.innerHTML).trim().replace(/\n/g,' ');
+				return inner||(cell.textContent||'').trim();
+			};
+			var lines=[];
+			lines.push('| '+headerCells.map(cellText).join(' | ')+' |');
+			lines.push('| '+Array(cols).fill('---').join(' | ')+' |');
+			(bodyRows.length?bodyRows:rows.slice(head?1:0)).forEach(function(row){
+				var cells=Array.from(row.querySelectorAll('td,th'));
+				if(!cells.length)return;
+				lines.push('| '+cells.map(cellText).join(' | ')+' |');
+			});
+			return lines.join('\n')+'\n';
+		},
+	});
 	td.addRule('blankLine', { filter: n => n.nodeName === 'DIV' && n.classList.contains('md-blank-line') && !n.querySelector('img,a,pre,code,ul,ol,blockquote,table') && !n.textContent.trim(), replacement: () => '\x00BL\x00' });
 	td.addRule('emptyDiv', { filter: n => n.nodeName === 'DIV' && !n.classList.length && !n.querySelector('img,a,pre,code,ul,ol,blockquote,table') && (!n.textContent.trim() || n.innerHTML === '<br>'), replacement: () => '\x00BL\x00' });
 	td.addRule('emptyP', { filter: n => n.nodeName === 'P' && !n.querySelector('img') && (!n.textContent.trim() || n.innerHTML === '<br>'), replacement: () => '\x00BL\x00' });
@@ -519,11 +597,46 @@ test('round-trip: blank line between two images is preserved (attachments stay s
 		`blank line between images must survive the round-trip, got: ${JSON.stringify(out)}`);
 });
 
-test('round-trip: blank lines between three stacked attachments survive', () => {
+	test('round-trip: blank lines between three stacked attachments survive', () => {
 	const md = `![one](:/${RID_A})\n\n\n[doc](:/${RID_B})\n\n\n![three](:/${'c'.repeat(32)})`;
 	const out = previewRoundTrip(md);
 	assert.ok(out.includes(`:/${RID_A})\n\n\n[doc](:/${RID_B})`),
 		`gap between image and document must survive, got: ${JSON.stringify(out)}`);
 	assert.ok(out.includes(`:/${RID_B})\n\n\n![three]`),
 		`gap between document and image must survive, got: ${JSON.stringify(out)}`);
+});
+
+// ---------------------------------------------------------------------------
+// Table round-trip tests
+// ---------------------------------------------------------------------------
+
+test('table: simple markdown table round-trips', () => {
+	const md = '| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |';
+	const out = previewRoundTrip(md + '\n');
+	assert.equal(out, md);
+});
+
+test('table: markdown table with header row round-trips', () => {
+	const md = '| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |';
+	const out = previewRoundTrip(md + '\n');
+	assert.equal(out, md);
+});
+
+test('table: markdown table with mixed content round-trips', () => {
+	const md = '| Item | Price |\n| --- | --- |\n| Widget | $10.00 |\n| Gadget | $24.99 |';
+	const out = previewRoundTrip(md + '\n');
+	assert.equal(out, md);
+});
+
+test('table: html table converts to markdown table', () => {
+	const html = '<table><thead><tr><th>X</th><th>Y</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>';
+	const expected = '| X | Y |\n| --- | --- |\n| 1 | 2 |';
+	assert.equal(previewHtmlRoundTrip(html), expected);
+});
+
+test('table: markdown table with bold and inline code in cells', () => {
+	const md = '| A | B |\n| --- | --- |\n| **bold** | `code` |';
+	const out = previewRoundTrip(md + '\n');
+	assert.ok(out.includes('**bold**'), `bold in table cell must survive: ${JSON.stringify(out)}`);
+	assert.ok(out.includes('`code`'), `inline code in table cell must survive: ${JSON.stringify(out)}`);
 });

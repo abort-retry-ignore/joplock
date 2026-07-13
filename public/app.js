@@ -674,7 +674,7 @@ function _syncTinyMCEThemeVars(){
 	}catch(_e){}
 }
 function _tinyMCEToolbarSpec(){
-	return 'jop_edit | bold italic underline strikethrough | blocks | bullist numlist jop_checkbox | code jop_code blockquote hr | jop_date jop_datetime | removeformat | link image jop_upload | jop_spellcheck jop_history';
+	return 'jop_edit | bold italic underline strikethrough | blocks | bullist numlist jop_checkbox | code jop_code blockquote hr | jop_date jop_datetime | removeformat | link image jop_upload table | jop_spellcheck jop_history';
 }
 // Spellcheck state (client-only, persisted in localStorage). Default off so
 // shared browsers don't leak note text to remote spellcheck services.
@@ -2838,6 +2838,29 @@ function getTurndown(){
 	// md-checkbox divs
 	td.addRule('checkbox',{filter:function(n){return n.nodeName==='DIV'&&n.classList.contains('md-checkbox')},
 		replacement:function(c,n){var checked=n.classList.contains('checked');var txt=c.replace(/^[\u2611\u2610\u2612\u2705\u00a0 ]+/,'');return (checked?'- [x] ':'- [ ] ')+txt+'\n'}});
+	// HTML tables → GFM markdown table syntax
+	td.addRule('table',{filter:'table',replacement:function(_c,node){
+		var rows=Array.from(node.querySelectorAll('tr'));
+		if(!rows.length)return'';
+		var head=node.querySelector('thead'),body=node.querySelector('tbody');
+		var headerRow=rows[0];
+		var bodyRows=body?Array.from(body.querySelectorAll('tr')):(head?rows.slice(1):rows);
+		var headerCells=Array.from(headerRow.querySelectorAll('th,td'));
+		var cols=headerCells.length||1;
+		var cellText=function(cell){
+			var inner=td.turndown(cell.innerHTML).trim().replace(/\n/g,' ');
+			return inner||(cell.textContent||'').trim();
+		};
+		var lines=[];
+		lines.push('| '+headerCells.map(cellText).join(' | ')+' |');
+		lines.push('| '+Array(cols).fill('---').join(' | ')+' |');
+		(bodyRows.length?bodyRows:rows.slice(head?1:0)).forEach(function(row){
+			var cells=Array.from(row.querySelectorAll('td,th'));
+			if(!cells.length)return;
+			lines.push('| '+cells.map(cellText).join(' | ')+' |');
+		});
+		return lines.join('\n')+'\n';
+	}});
 	// Strikethrough
 	td.addRule('strikethrough',{filter:['del','s','strike'],replacement:function(c){return c.trim()?'~~'+c.trim()+'~~':''}});
 	// Underline

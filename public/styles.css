@@ -490,6 +490,62 @@
 	color-scheme: dark;
 }
 
+/* ===== Theme: Swamp Thing ===== */
+.theme-swamp-thing {
+	--bg: #1a1e1a;
+	--theme-color: #1a1e1a;
+	--bg-side: #141814;
+	--bg-list: #1a1e1a;
+	--bg-editor: #1a1e1a;
+	--bg-elevated: #2a332a;
+	--bg-input: rgba(105,255,148,0.06);
+	--bg-hover: rgba(105,255,148,0.12);
+	--bg-active: #2a332a;
+	--overlay: rgba(26,30,26,0.55);
+	--shadow: rgba(0,0,0,0.3);
+	--text: #f0f5f0;
+	--text-dim: #627a64;
+	--text-muted: #627a64;
+	--text-heading: #f0f5f0;
+	--text-on-accent: #1a1e1a;
+	--accent: #69ff94;
+	--border: #69ff94;
+	--border-focus: #69ff94;
+	--danger: #ff5555;
+	--toolbar-bg: #141814;
+	--scrollbar: rgba(240,245,240,0.18);
+	--statusbar-bg: #141814;
+	color-scheme: dark;
+}
+
+/* ===== Theme: Fireball ===== */
+.theme-fireball {
+	--bg: #1e1a16;
+	--theme-color: #1e1a16;
+	--bg-side: #181410;
+	--bg-list: #1e1a16;
+	--bg-editor: #1e1a16;
+	--bg-elevated: #332820;
+	--bg-input: rgba(255,140,40,0.07);
+	--bg-hover: rgba(255,140,40,0.12);
+	--bg-active: #332820;
+	--overlay: rgba(30,26,22,0.55);
+	--shadow: rgba(0,0,0,0.3);
+	--text: #f5f0eb;
+	--text-dim: #807060;
+	--text-muted: #807060;
+	--text-heading: #f5f0eb;
+	--text-on-accent: #1e1a16;
+	--accent: #ff8c28;
+	--border: #ff8c28;
+	--border-focus: #ff8c28;
+	--danger: #ff5555;
+	--toolbar-bg: #181410;
+	--scrollbar: rgba(245,240,235,0.18);
+	--statusbar-bg: #181410;
+	color-scheme: dark;
+}
+
 /* ===== Theme: Joplin Aritim Dark ===== */
 .theme-aritim-dark {
 	--bg: #10151a;

@@ -30,7 +30,7 @@ const md = new MarkdownIt({
 	breaks: false,     // no auto soft-break → <br> (we handle via override below)
 	linkify: false,
 	typographer: false,
-});
+}).enable('table');
 
 // ---------------------------------------------------------------------------
 // Softbreak: single \n within a paragraph → bare <br> (no trailing \n).

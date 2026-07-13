@@ -632,7 +632,7 @@ function _tinyMCEContentFontStyle(){
 	var fontSizeCode=rs.getPropertyValue('--font-size-code').trim()||'13px';
 	return ''
 		+'body{font-family:'+fontFamily+';font-size:'+fontSize+';line-height:1.7;color:var(--text);background:var(--bg)}'
-		+'h1,h2,h3,h4,h5,h6{color:var(--text-heading)}'
+		+'h1,h2,h3,h4,h5,h6{color:var(--accent)}'
 		+'strong{color:var(--text-heading)}'
 		+'a{color:var(--accent)}'
 		+'code{background:var(--bg-hover);padding:2px 5px;border-radius:3px;font-family:"Cascadia Mono",monospace;font-size:'+fontSizeCode+'}'
@@ -758,6 +758,17 @@ function initPersistentTinyMCE(){
 		// toolbar button; browser_spellcheck must be true so TinyMCE does not
 		// force spellcheck="false" on the iframe body.
 		browser_spellcheck:true,
+		// The link plugin's context-menu item resolves to a non-empty value
+		// (a quick "Link" insert action) for ANY editable text, not just real
+		// hyperlinks, so leaving 'link' in the default contextmenu list makes
+		// TinyMCE swap in its own single-item menu on every right-click and
+		// blocks the native browser menu (and its spellcheck suggestions) from
+		// ever showing. Excluding it here restores the native context menu on
+		// plain text while image/table right-clicks still get TinyMCE's own
+		// menus (those only match when actually on an <img>/table element).
+		// Link insertion/editing stays available via the toolbar Link button
+		// and click-to-copy / Ctrl-click-to-open on existing links.
+		contextmenu:'image table',
 		codesample_languages:[
 			{text:'Plain text',value:''},
 			{text:'Bash',value:'bash'},

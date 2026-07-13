@@ -221,6 +221,15 @@ test('tinymce.init wires file_picker_callback through /fragments/upload', () => 
 	assert.ok(region.includes('/resources/'), 'file picker callback must return a /resources/ URL');
 });
 
+test('tinymce.init excludes link from contextmenu so native browser spellcheck suggestions are not blocked', () => {
+	// The link plugin's context-menu resolves to a non-empty value ("Link") for
+	// ANY editable text, not just real hyperlinks, so leaving 'link' in the
+	// default contextmenu makes TinyMCE swap in its own menu on every
+	// right-click and prevents the native browser context menu (and its
+	// spelling suggestions) from ever appearing. Regression coverage for that.
+	assert.ok(appSrc.includes("contextmenu:'image table'"), 'contextmenu must exclude link, keeping only image/table');
+});
+
 test('images_upload_handler posts to /fragments/upload and resolves a /resources/ URL', () => {
 	const idx = appSrc.indexOf('images_upload_handler:');
 	assert.ok(idx !== -1, 'images_upload_handler must exist');

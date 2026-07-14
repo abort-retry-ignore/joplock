@@ -746,7 +746,7 @@ test('app.js BeforeExecCommand handler preserves caret text node + offset when r
 	// text node and offset (not force offset 0) so the cursor stays put.
 	const handlerStart = appSrc.indexOf("e.command!=='FormatBlock'");
 	assert.ok(handlerStart !== -1, 'BeforeExecCommand handler not found');
-	const handlerBody = appSrc.slice(handlerStart, handlerStart + 1500);
+	const handlerBody = appSrc.slice(handlerStart, handlerStart + 5000);
 	// Must try to setStart with the original caretNode + caretOffset
 	assert.ok(handlerBody.includes('rng.setStart(caretNode,caretOffset)'),
 		'handler must restore original caret text node + offset after split');

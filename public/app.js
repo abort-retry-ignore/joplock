@@ -261,11 +261,20 @@ function visualViewportBounds(){var vv=window.visualViewport;return vv?{left:vv.
 var _lastViewportWidth=viewportWidth();
 var _resizeTimer=null;
 var _traceKey='joplock-debug-trace';
-function isMobileShellMode(){if(_uiMode==='mobile')return true;if(_uiMode==='desktop')return false;return viewportWidth()<=_mobileShellMaxWidth}
-function isDesktopMode(){return !isMobileShellMode()}
+// Cached shell mode. All callers use isMobileShellMode() so the value stays
+// consistent within a frame; pass true to force a recompute after something
+// changes it (uiMode change, viewport resize settle, orientation change).
+// Historical bug this prevents: some paths cached the value locally, others
+// recomputed it inline; after a resize they could disagree and cause the
+// toolbar/readonly-default to be out of sync with the shell layout.
+var _mobileShellCached=null;
+function _computeMobileShell(){if(_uiMode==='mobile')return true;if(_uiMode==='desktop')return false;return viewportWidth()<=_mobileShellMaxWidth}
+function isMobileShellMode(recompute){if(recompute||_mobileShellCached===null)_mobileShellCached=_computeMobileShell();return _mobileShellCached}
+function isDesktopMode(recompute){return !isMobileShellMode(recompute)}
 function _trace(){if(!_dbg)return;try{var line='['+new Date().toISOString().slice(11,23)+'] '+Array.prototype.slice.call(arguments).map(function(v){return typeof v==='string'?v:JSON.stringify(v)}).join(' ');var arr=JSON.parse(sessionStorage.getItem(_traceKey)||'[]');arr.push(line);if(arr.length>80)arr=arr.slice(arr.length-80);sessionStorage.setItem(_traceKey,JSON.stringify(arr));console.log('[trace]',line)}catch(_e){}}
 function _traceDump(){if(!_dbg)return;try{var arr=JSON.parse(sessionStorage.getItem(_traceKey)||'[]');for(var i=0;i<arr.length;i++)console.log(arr[i])}catch(_e){}}
 window.joplockTraceDump=_traceDump;
+window.isMobileShellMode=isMobileShellMode;
 if(_dbg)_trace('boot',{w:viewportWidth(),mobile:isMobileShellMode(),startup:!!_mobileStartup});
 function handleViewportResize(){
 	// Immediately disable transitions during resize
@@ -273,6 +282,23 @@ function handleViewportResize(){
 	if(_resizeTimer)clearTimeout(_resizeTimer);
 	_resizeTimer=setTimeout(function(){
 		document.body.classList.remove('resizing');
+		// Recompute cached shell mode now that viewport has settled.
+		var prev=_mobileShellCached;
+		var next=isMobileShellMode(true);
+		// Shell flip (desktop <-> mobile) requires a full page rebuild:
+		// TinyMCE toolbar is baked at init, the mobile screen stack DOM
+		// differs from desktop, and htmx bindings are set up per shell.
+		// Reloading here matches the settings-dropdown flow. Only reloads on
+		// an actual flip, so ordinary resizing is unaffected. Skipped when
+		// there is a dirty note (flushSave first) — losing edits would be
+		// worse than a briefly-stale toolbar.
+		if(prev!==null&&prev!==next){
+			if(typeof _activeEditorIsDirty==='function'&&_activeEditorIsDirty()){
+				if(typeof flushSave==='function'){flushSave(function(){window.location.reload()});return}
+			}
+			window.location.reload();
+			return;
+		}
 		// After resize settles, sync shell mode (defined inside mobile IIFE, exposed via window)
 		if(window._syncResponsiveMode)window._syncResponsiveMode();
 	},200);
@@ -790,7 +816,8 @@ function _syncTinyMCEThemeVars(){
 	}catch(_e){}
 }
 function _tinyMCEToolbarSpec(){
-	return 'jop_edit | bold italic underline strikethrough | blocks | bullist numlist jop_checkbox | code jop_code blockquote hr | jop_date jop_datetime | removeformat | link image jop_upload table | jop_spellcheck jop_history jop_export';
+	var editToggle=isMobileShellMode()?'jop_edit | ':'';
+	return editToggle+'bold italic underline strikethrough | blocks | bullist numlist jop_checkbox | code jop_code blockquote hr | jop_date jop_datetime | removeformat | link image jop_upload table | jop_spellcheck jop_history jop_export';
 }
 // Spellcheck state (client-only, persisted in localStorage). Default off so
 // shared browsers don't leak note text to remote spellcheck services.
@@ -802,7 +829,12 @@ function _setSpellcheckEnabled(on){
 }
 // Read-only mode. Mobile notes open read-only by default so a tap scrolls/
 // reads without accidentally editing; the jop_edit toolbar toggle enters edit
-// mode. Desktop opens editable. State lives per editor session (not persisted).
+// mode. Desktop always opens editable — the pencil toggle is mobile-only.
+// Historical bug: when the viewport is <=768 (or uiMode='mobile'), a "desktop
+// user" on a narrow window would silently get a read-only editor; typing did
+// nothing but form-level input events (title, folder select) still fired
+// markEdited, so the UI showed "Edited" -> "Saved" while formHash() never
+// changed and no save was ever sent. Force desktop editable to avoid that.
 var _tinymceReadonly=false;
 function _tinymceReadonlyDefault(){return isMobileShellMode()}
 // Push the current _tinymceReadonly flag into the live editor + sync the
@@ -834,10 +866,54 @@ function _applyTinyMCEReadonly(editor){
 	}catch(_e){}
 	// Reflect state on the edit toggle button (active = editable).
 	if(typeof _jopEditBtnApi!=='undefined'&&_jopEditBtnApi){try{_jopEditBtnApi.setActive(!_tinymceReadonly)}catch(_e){}}
+	// Lock/unlock title, folder select, and toolbar so read-only means nothing
+	// on the form accepts edits. Guarded because _applyFormReadonly may not
+	// exist yet on very early boot (function hoisted, but activeEditorForm
+	// may not be there).
+	if(typeof _applyFormReadonly==='function')_applyFormReadonly(_tinymceReadonly);
 }
 function _setTinyMCEReadonly(on){
 	_tinymceReadonly=!!on;
 	_applyTinyMCEReadonly(_tinymceEditor);
+	_applyFormReadonly(_tinymceReadonly);
+}
+// Lock/unlock the surrounding editor form so read-only truly means no edits:
+// title contenteditable, folder select, format toolbar, and CM6 (markdown mode)
+// all become non-interactive. Without this, users could still type in the title
+// or change the folder while the body was read-only, which fired markEdited but
+// the form hash never included body changes -> save skipped, confusing UX.
+function _applyFormReadonly(on){
+	var form=activeEditorForm();
+	if(!form)return;
+	form.classList.toggle('editor-readonly',!!on);
+	var title=form.querySelector('.editor-title');
+	if(title){
+		if(on){title.setAttribute('contenteditable','false');title.setAttribute('tabindex','-1')}
+		else{title.setAttribute('contenteditable','true');title.removeAttribute('tabindex')}
+	}
+	var folderSelect=form.querySelector('.editor-folder-select');
+	if(folderSelect)folderSelect.disabled=!!on;
+	var toolbar=form.querySelector('#editor-toolbar');
+	if(toolbar){
+		toolbar.setAttribute('aria-disabled',on?'true':'false');
+		var btns=toolbar.querySelectorAll('button,input');
+		for(var i=0;i<btns.length;i++)btns[i].disabled=!!on;
+	}
+	// CM6 (markdown mode) also needs to be locked. Toggle the editable
+	// facet on the live view when present.
+	if(_cmView&&window.CM&&window.CM.EditorView&&window.CM.EditorView.editable){
+		try{_cmView.dispatch({effects:[]});}catch(_e){}
+		try{
+			var host=document.getElementById('cm-host');
+			if(host){
+				var cd=host.querySelector('.cm-content');
+				if(cd){
+					if(on){cd.setAttribute('contenteditable','false');cd.setAttribute('tabindex','-1')}
+					else{cd.setAttribute('contenteditable','true');cd.removeAttribute('tabindex')}
+				}
+			}
+		}catch(_e){}
+	}
 }
 var _jopEditBtnApi=null;
 // Apply the current spellcheck state to the live TinyMCE iframe body.
@@ -1247,6 +1323,19 @@ function initPersistentTinyMCE(){
 			e.preventDefault();
 			fileItems.reduce(function(p,file){return p.then(function(){return _uploadFileToTinyMCE(file,editor)})},Promise.resolve()).then(function(){markEdited();scheduleSave()}).catch(function(err){console.error('Paste upload failed:',err)});
 			});
+			// onEdit sync strategy:
+			//  * Production (fast path): DO NOT convert HTML->markdown on every
+			//    event. Just call markEdited() + scheduleSave(). The debounced
+			//    scheduleSave timer will sync-then-hash once, right before the
+			//    hash check, via _lazyTinyMCESyncBeforeSave(). This collapses
+			//    N events per save cycle (input + change + ExecCommand +
+			//    SetContent all firing on a single click) into 1 tinymceToMarkdown
+			//    call. On large notes, HTML->markdown per keystroke was the
+			//    biggest CPU cost in rendered mode.
+			//  * Debug (_dbg=true): full sync + logging per event, so we can
+			//    trace exactly what mutation fired and what the resulting
+			//    markdown was. This is the code path that catches
+			//    "markEdited fires but hash unchanged" class bugs live.
 			function onEdit(){
 				if(_tinymceSuppressEdits)return;
 				if(_tinymceReadonly)return;
@@ -1256,13 +1345,18 @@ function initPersistentTinyMCE(){
 				// Skip if editor host is hidden (locked note, empty state).
 				var host=document.getElementById('tinymce-host');
 				if(!host||!host.classList.contains('tinymce-host-visible'))return;
-				var ta=getTA();
-				if(ta){
-					var html=editor.getContent();
-					var md=tinymceToMarkdown(html);
-					if(ta.value!==md){
-						ta.value=md;
-						ta.dispatchEvent(new Event('input',{bubbles:true}));
+				if(_dbg){
+					var ta=getTA();
+					if(ta){
+						var html=editor.getContent();
+						var md=tinymceToMarkdown(html);
+						if(ta.value!==md){
+							ta.value=md;
+							ta.dispatchEvent(new Event('input',{bubbles:true}));
+							_log('onEdit sync (debug): md length',md.length);
+						}else{
+							_log('onEdit sync (debug): unchanged');
+						}
 					}
 				}
 				markEdited();
@@ -1270,6 +1364,15 @@ function initPersistentTinyMCE(){
 			}
 			editor.on('input',onEdit);
 			editor.on('change',onEdit);
+			// TinyMCE's built-in commands (blocks dropdown -> FormatBlock, lists,
+			// removeformat, etc.) mutate the iframe DOM WITHOUT firing 'input'
+			// or 'change'. Without also listening on ExecCommand + SetContent,
+			// those edits never sync from editor.getContent() into #note-body,
+			// so formHash() stays equal to _savedHash and scheduleSave() skips
+			// -> "Edited" briefly flashes then falls back to "Saved" but nothing
+			// is actually saved (refresh reverts the change). See onEdit().
+			editor.on('ExecCommand',onEdit);
+			editor.on('SetContent',onEdit);
 			// FormatBlock fix: when newline_behavior='linebreak', soft-wrapped lines live
 			// inside a single <p> separated by <br>. TinyMCE's FormatBlock command
 			// (used by the blocks dropdown) operates at block granularity — it converts
@@ -1336,34 +1439,101 @@ function initPersistentTinyMCE(){
 					block=block.parentNode;
 				}
 				if(!block||block===body)return;
-				if(block.nodeName!=='P')return;
-				if(!block.querySelector('br'))return;
-				// Remember the caret's text node + offset so we can restore it
-				// inside the correct split block.
+				var isP=block.nodeName==='P';
+				var isHeading=/^H[1-6]$/.test(block.nodeName);
+				// Only handle <p> and headings here; other blocks (lists, blockquote,
+				// pre) have their own semantics.
+				if(!isP&&!isHeading)return;
 				var rng0=sel.getRng();
+				// Defensive clamp: when the caret/selection is inside a heading
+				// (user toggling h3 -> paragraph via blocks dropdown), some
+				// upstream state can leave the effective range spanning the
+				// previous sibling block too, and TinyMCE's FormatBlock then
+				// demotes BOTH siblings. Clamp the range to strictly inside
+				// this block before letting FormatBlock run.
+				if(isHeading&&rng0){
+					try{
+						var startInBlock=block.contains(rng0.startContainer)||rng0.startContainer===block;
+						var endInBlock=block.contains(rng0.endContainer)||rng0.endContainer===block;
+						if(!startInBlock||!endInBlock){
+							var doc0=editor.getDoc();
+							var clamped=doc0.createRange();
+							clamped.selectNodeContents(block);
+							if(rng0.collapsed)clamped.collapse(true);
+							sel.setRng(clamped);
+						}
+					}catch(_e){}
+					return;
+				}
 				var caretNode=rng0&&rng0.startContainer;
 				var caretOffset=rng0?rng0.startOffset:0;
+				var hasBr=!!block.querySelector('br');
+				var selText=sel.getContent({format:'text'})||'';
+				var blockText=block.textContent||'';
+				var isPartial=!hasBr&&rng0&&!rng0.collapsed&&selText.length>0&&selText.length<blockText.length;
+				if(!hasBr&&!isPartial)return;
 				var prev=_tinymceSuppressEdits;
 				_tinymceSuppressEdits=true;
 				try{
-					var newBlocks=_splitBrBlock(block,editor);
-					if(newBlocks&&caretNode){
-						var targetBlock=null;
-						newBlocks.forEach(function(p){
-							if(!targetBlock&&(p===caretNode||p.contains(caretNode)))targetBlock=p;
-						});
-						if(!targetBlock)targetBlock=newBlocks[0];
-						var rng=editor.getDoc().createRange();
-						// Restore original text node + offset when still present;
-						// otherwise fall back to start of target block.
-						if(targetBlock.contains(caretNode)){
-							try{rng.setStart(caretNode,caretOffset);}
-							catch(_e){rng.setStart(targetBlock,0);}
-						}else{
-							rng.setStart(targetBlock,0);
+					if(hasBr){
+						var newBlocks=_splitBrBlock(block,editor);
+						if(newBlocks&&caretNode){
+							var targetBlock=null;
+							newBlocks.forEach(function(p){
+								if(!targetBlock&&(p===caretNode||p.contains(caretNode)))targetBlock=p;
+							});
+							if(!targetBlock)targetBlock=newBlocks[0];
+							var rng=editor.getDoc().createRange();
+							if(targetBlock.contains(caretNode)){
+								try{rng.setStart(caretNode,caretOffset);}
+								catch(_e){rng.setStart(targetBlock,0);}
+							}else{
+								rng.setStart(targetBlock,0);
+							}
+							rng.collapse(true);
+							sel.setRng(rng);
 						}
-						rng.collapse(true);
-						sel.setRng(rng);
+					}else{
+						// Partial selection inside single block: split into
+						// [before] [selected] [after], select the middle so
+						// FormatBlock applies the heading only to it.
+						var doc=editor.getDoc();
+						var range=rng0.cloneRange();
+						// Range must be within this block; if not, bail.
+						if(!block.contains(range.startContainer)||!block.contains(range.endContainer))return;
+						var beforeRange=doc.createRange();
+						beforeRange.setStart(block,0);
+						beforeRange.setEnd(range.startContainer,range.startOffset);
+						var afterRange=doc.createRange();
+						afterRange.setStart(range.endContainer,range.endOffset);
+						afterRange.setEnd(block,block.childNodes.length);
+						var beforeFrag=beforeRange.extractContents();
+						var afterFrag=afterRange.extractContents();
+						var middleFrag=range.extractContents();
+						var parent=block.parentNode;
+						var ref=block.nextSibling;
+						var makeP=function(frag){
+							var p=doc.createElement('p');
+							if(!frag.childNodes.length||(frag.textContent==='')){
+								var br=doc.createElement('br');
+								br.setAttribute('data-mce-bogus','1');
+								p.appendChild(br);
+								return p;
+							}
+							p.appendChild(frag);
+							return p;
+						};
+						var beforeP=beforeFrag.textContent?makeP(beforeFrag):null;
+						var middleP=makeP(middleFrag);
+						var afterP=afterFrag.textContent?makeP(afterFrag):null;
+						if(beforeP)parent.insertBefore(beforeP,ref);
+						parent.insertBefore(middleP,ref);
+						if(afterP)parent.insertBefore(afterP,ref);
+						parent.removeChild(block);
+						// Select middleP so FormatBlock (about to run) targets it.
+						var newRng=doc.createRange();
+						newRng.selectNodeContents(middleP);
+						sel.setRng(newRng);
 					}
 				}finally{
 					_tinymceSuppressEdits=prev;
@@ -3478,9 +3648,32 @@ var _savedHash=0;
 var _saveTimer=null;
 var _saveTitleTimer=null;
 function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal','empty-trash-modal','upload-modal','vault-modal','new-folder-modal','resource-viewer'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
-function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
+// Lazy sync from live TinyMCE into #note-body, called once per save cycle
+// from scheduleSave / scheduleSaveTitle / flushSave right before hashing.
+// The production onEdit fast path skips per-event conversion; this helper
+// makes sure the textarea reflects the latest TinyMCE content before
+// formHash() is computed. Safe to call in markdown/CM6 mode (no-op) and
+// while suppressed. Returns true if the textarea changed.
+function _lazyTinyMCESyncBeforeSave(){
+	if(!_tinymceEditor)return false;
+	if(_tinymceSuppressEdits)return false;
+	if(_tinymceReadonly)return false;
+	// Markdown mode uses CM6, not TinyMCE, so its own onUpdate keeps
+	// #note-body in sync; nothing to do here.
+	if(_editorMode==='markdown'||_editorMode==='md')return false;
+	var host=document.getElementById('tinymce-host');
+	if(!host||!host.classList.contains('tinymce-host-visible'))return false;
+	var ta=getTA();
+	if(!ta)return false;
+	try{
+		var md=tinymceToMarkdown(_tinymceEditor.getContent());
+		if(ta.value!==md){ta.value=md;return true}
+	}catch(e){_log('_lazyTinyMCESyncBeforeSave error',e&&e.message||e)}
+	return false;
+}
+function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
 function scheduleSaveTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(mobileTitle&&document.activeElement===mobileTitle)return;// Don't save while user is still editing title
-if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
+if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
 function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_log('snapshotHash',_savedHash)}
 function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
 function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_resetRingBuffer('note-switch');_log('initEditorPanel',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
@@ -3655,7 +3848,7 @@ function _activeEditorBaseUpdatedTime(){var form=activeEditorForm();if(!form)ret
 //   - _previewDirty / _pvSyncTimer: preview-mode edits not yet flushed to textarea
 //   - title contenteditable: text differs from hidden input
 //   - formHash != _savedHash: textarea/folder/title fields differ from last save
-function _activeEditorIsDirty(){var form=activeEditorForm();if(!form)return false;if(_previewDirty)return true;if(typeof _pvSyncTimer!=='undefined'&&_pvSyncTimer)return true;var ti=form.querySelector('.editor-title');var hi=form.querySelector('.editor-title-hidden');if(ti&&hi){var raw=ti.textContent||'';if(typeof stripMdForTitle==='function'){if(stripMdForTitle(raw)!==(hi.value||''))return true}else if(raw!==(hi.value||''))return true}return formHash(form)!==_savedHash}
+function _activeEditorIsDirty(){var form=activeEditorForm();if(!form)return false;if(_previewDirty)return true;if(typeof _pvSyncTimer!=='undefined'&&_pvSyncTimer)return true;var ti=form.querySelector('.editor-title');var hi=form.querySelector('.editor-title-hidden');if(ti&&hi){var raw=ti.textContent||'';if(typeof stripMdForTitle==='function'){if(stripMdForTitle(raw)!==(hi.value||''))return true}else if(raw!==(hi.value||''))return true}_lazyTinyMCESyncBeforeSave();return formHash(form)!==_savedHash}
 function dismissRemoteUpdateBanner(){var bar=document.getElementById('remote-update-bar');if(bar)bar.hidden=true}
 function showRemoteUpdateBanner(kind){var bar=document.getElementById('remote-update-bar');if(!bar)return;var text=document.getElementById('remote-update-text');var useBtn=document.getElementById('remote-update-use-server-btn');var owBtn=document.getElementById('remote-update-overwrite-btn');if(kind==='deleted'){if(text)text.textContent='This note was deleted in another window.';if(useBtn)useBtn.hidden=true;if(owBtn)owBtn.hidden=true}else{if(text)text.textContent='A newer version of this note exists on the server.';if(useBtn)useBtn.hidden=false;if(owBtn)owBtn.hidden=false}bar.hidden=false}
 function reloadCurrentNoteFromServer(){var noteId=_activeEditorNoteId();if(!noteId)return;var folderId=_activeEditorCurrentFolderId();var targetSel=inMobileEditor()?'#mobile-editor-body':'#editor-panel';var target=document.querySelector(targetSel);if(!target)return;dismissRemoteUpdateBanner();var url='/fragments/editor/'+encodeURIComponent(noteId)+(folderId?'?currentFolderId='+encodeURIComponent(folderId):'');_log('reloadCurrentNoteFromServer',url);htmx.ajax('GET',url,{target:targetSel,swap:'innerHTML'}).catch(function(){})}
@@ -3682,7 +3875,17 @@ document.addEventListener('keydown',function(e){var mac=navigator.platform&&navi
 		syncTitleToHidden({silent:true});
 		var run=function(){
 			var h=formHash(form);
-			if(h===_savedHash){_log('flushSave skip (hash unchanged)',h);if(callback)callback(true);return}
+			if(h===_savedHash){
+				_log('flushSave skip (hash unchanged)',h);
+				// Clear any stale "Edited" indicator. Without this, a phantom
+				// markEdited() (e.g. from readonly-mode input events that never
+				// changed the body) leaves .autosave-edited in the status bar,
+				// and the navigation-click interceptor keeps firing flushSave
+				// on every click -> nav clicks silently do nothing.
+				setSaveState('<span class="autosave-ok">Saved</span>','Saved');
+				if(callback)callback(true);
+				return
+			}
 			setSaveState('<span class="autosave-saving">Saving...</span>','Saving...');
 			var restoreReq=function(){};
 			var settled=false;

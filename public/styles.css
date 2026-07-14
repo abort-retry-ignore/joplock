@@ -1380,6 +1380,14 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	min-height: 0;
 }
 
+/* Read-only editor: dim toolbar + title, block caret + selection so it is
+ * clear the note cannot be edited. TinyMCE + CM6 also have their own
+ * contenteditable=false / mode=readonly applied by _applyFormReadonly(). */
+.editor-form.editor-readonly .editor-toolbar { opacity: 0.5; pointer-events: none; }
+.editor-form.editor-readonly .editor-title { opacity: 0.75; cursor: default; caret-color: transparent; }
+.editor-form.editor-readonly .editor-folder-select { opacity: 0.6; cursor: not-allowed; }
+.editor-form.editor-readonly .cm-content { caret-color: transparent; }
+
 .editor-titlebar {
 	display: flex;
 	align-items: center;

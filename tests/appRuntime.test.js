@@ -712,6 +712,124 @@ function simulateTinyMCEGetContentReal(html) {
 		.replace(/<p>((?:[^<]|<(?!\/p>))+?)(?:<br>)?\s*<\/p>/gi, '<p>$1<br></p>');
 }
 
+// ---------------------------------------------------------------------------
+// FormatBlock split: BeforeExecCommand wiring + Enter regression guard
+// ---------------------------------------------------------------------------
+// The _splitBrBlock helper splits a <p> containing <br> children into
+// individual <p> elements so FormatBlock (the blocks dropdown) operates at
+// proper paragraph granularity.  The split MUST only fire before FormatBlock
+// (BeforeExecCommand), NOT on every NodeChange — the latter clobbers the
+// caret after Enter in linebreak mode.
+
+test('app.js source wires _splitBrBlock split via BeforeExecCommand, not NodeChange', () => {
+	// The split must be triggered by BeforeExecCommand with command 'FormatBlock',
+	// NOT by a NodeChange handler.  NodeChange + split + setStart(targetBlock,0)
+	// forces the caret to offset 0 after every Enter in linebreak mode.
+	const formatBlockIdx = appSrc.indexOf("e.command!=='FormatBlock'");
+	assert.ok(formatBlockIdx !== -1,
+		'BeforeExecCommand handler must guard on FormatBlock command');
+	// Ensure the FormatBlock guard is inside a BeforeExecCommand listener
+	const beforeExecSnippet = appSrc.slice(formatBlockIdx - 200, formatBlockIdx);
+	assert.ok(beforeExecSnippet.includes('BeforeExecCommand'),
+		'FormatBlock guard must be inside a BeforeExecCommand handler');
+	// Ensure _splitBrBlock is NOT called from a NodeChange listener
+	const nodeChangeIdx = appSrc.indexOf("editor.on('NodeChange'");
+	if (nodeChangeIdx !== -1) {
+		const nodeChangeBody = appSrc.slice(nodeChangeIdx, nodeChangeIdx + 600);
+		assert.ok(!nodeChangeBody.includes('_splitBrBlock'),
+			'_splitBrBlock must NOT be called inside NodeChange — that clobbers the caret after Enter');
+	}
+});
+
+test('app.js BeforeExecCommand handler preserves caret text node + offset when restoring after split', () => {
+	// After _splitBrBlock runs, the handler must restore the original caret
+	// text node and offset (not force offset 0) so the cursor stays put.
+	const handlerStart = appSrc.indexOf("e.command!=='FormatBlock'");
+	assert.ok(handlerStart !== -1, 'BeforeExecCommand handler not found');
+	const handlerBody = appSrc.slice(handlerStart, handlerStart + 1500);
+	// Must try to setStart with the original caretNode + caretOffset
+	assert.ok(handlerBody.includes('rng.setStart(caretNode,caretOffset)'),
+		'handler must restore original caret text node + offset after split');
+	// Must fall back to targetBlock,0 only when the caret node is no longer contained
+	assert.ok(handlerBody.includes('rng.setStart(targetBlock,0)'),
+		'handler must fall back to target block offset 0 when caret node is not contained');
+});
+
+test('_splitBrBlock splits <p> with <br> children into separate <p> elements', () => {
+	// Functional test: simulate what _splitBrBlock does on a real DOM node.
+	const dom = new JSDOM('<!DOCTYPE html><body><p></p></body>', { url: 'https://joplock.test' });
+	const doc = dom.window.document;
+	const p = doc.querySelector('p');
+	// Build: <p>line1<br>line2<br>line3</p>
+	p.appendChild(doc.createTextNode('line1'));
+	p.appendChild(doc.createElement('br'));
+	p.appendChild(doc.createTextNode('line2'));
+	p.appendChild(doc.createElement('br'));
+	p.appendChild(doc.createTextNode('line3'));
+	// Simulate _splitBrBlock logic
+	const children = Array.from(p.childNodes);
+	const lines = [];
+	let current = [];
+	for (const node of children) {
+		if (node.nodeName === 'BR' && !node.getAttribute('data-mce-bogus')) {
+			lines.push(current);
+			current = [];
+		} else {
+			current.push(node);
+		}
+	}
+	lines.push(current);
+	assert.equal(lines.length, 3, 'must split into 3 lines');
+	assert.deepEqual(lines.map(l => l.map(n => n.textContent || '').join('')),
+		['line1', 'line2', 'line3'],
+		'lines must contain the expected text');
+});
+
+test('_splitBrBlock does not split <p> with only a single line (no br separators)', () => {
+	const dom = new JSDOM('<!DOCTYPE html><body><p></p></body>', { url: 'https://joplock.test' });
+	const doc = dom.window.document;
+	const p = doc.querySelector('p');
+	p.appendChild(doc.createTextNode('just one line'));
+	const children = Array.from(p.childNodes);
+	const lines = [];
+	let current = [];
+	for (const node of children) {
+		if (node.nodeName === 'BR' && !node.getAttribute('data-mce-bogus')) {
+			lines.push(current);
+			current = [];
+		} else {
+			current.push(node);
+		}
+	}
+	lines.push(current);
+	assert.equal(lines.length, 1, 'must not split single-line paragraph');
+});
+
+test('_splitBrBlock skips bogus (data-mce-bogus) br elements', () => {
+	const dom = new JSDOM('<!DOCTYPE html><body><p></p></body>', { url: 'https://joplock.test' });
+	const doc = dom.window.document;
+	const p = doc.querySelector('p');
+	p.appendChild(doc.createTextNode('line1'));
+	const bogusBr = doc.createElement('br');
+	bogusBr.setAttribute('data-mce-bogus', '1');
+	p.appendChild(bogusBr);
+	p.appendChild(doc.createTextNode('line2'));
+	const children = Array.from(p.childNodes);
+	const lines = [];
+	let current = [];
+	for (const node of children) {
+		if (node.nodeName === 'BR' && !node.getAttribute('data-mce-bogus')) {
+			lines.push(current);
+			current = [];
+		} else {
+			current.push(node);
+		}
+	}
+	lines.push(current);
+	assert.equal(lines.length, 1, 'must not split on bogus br');
+	assert.equal(lines[0].map(n => n.textContent || '').join(''), 'line1line2');
+});
+
 test('sized images with blank lines survive 6 mode switches (real TinyMCE marker stripping)', () => {
 	const { renderMarkdown } = require('../app/templates');
 	const ctx = makeTurndownCtx();

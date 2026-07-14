@@ -1315,41 +1315,52 @@ function initPersistentTinyMCE(){
 				parent.removeChild(block);
 				return newBlocks;
 			}
-			editor.on('NodeChange',function(){
+			// FormatBlock (blocks dropdown) works at block granularity, so a
+			// multi-line <p>…<br>…</p> gets fully reformatted even if only one
+			// line is selected. Split br-separated <p> into individual <p>s
+			// *just before* FormatBlock runs, so the command sees proper block
+			// boundaries. Do NOT split on every NodeChange — that clobbers the
+			// caret position after Enter (linebreak mode inserts a <br> which
+			// would trigger a split and move the caret to offset 0 of the new
+			// block, so the cursor visibly jumps to the start of the line).
+			editor.on('BeforeExecCommand',function(e){
+				if(!e||e.command!=='FormatBlock')return;
 				if(_tinymceSuppressEdits)return;
 				var sel=editor.selection;
 				if(!sel)return;
-				var node=sel.getNode();
-				if(!node)return;
-				// Walk up to find the block ancestor
 				var body=editor.getBody();
+				var node=sel.getNode();
 				var block=node;
 				while(block&&block!==body&&block.parentNode!==body){
 					block=block.parentNode;
 				}
 				if(!block||block===body)return;
-				// Only act on <p> elements with <br> separators (linebreak mode content)
 				if(block.nodeName!=='P')return;
 				if(!block.querySelector('br'))return;
-				// Temporarily suppress edits so this DOM change doesn't mark the note dirty
+				// Remember the caret's text node + offset so we can restore it
+				// inside the correct split block.
+				var rng0=sel.getRng();
+				var caretNode=rng0&&rng0.startContainer;
+				var caretOffset=rng0?rng0.startOffset:0;
 				var prev=_tinymceSuppressEdits;
 				_tinymceSuppressEdits=true;
 				try{
-					// Find which line the caret is on before splitting
-					var caretContainer=sel.getRng()&&sel.getRng().startContainer;
 					var newBlocks=_splitBrBlock(block,editor);
-					if(newBlocks&&caretContainer){
-						// Move caret to the correct new block
+					if(newBlocks&&caretNode){
 						var targetBlock=null;
 						newBlocks.forEach(function(p){
-							if(!targetBlock&&(p===caretContainer||p.contains(caretContainer))){
-								targetBlock=p;
-							}
+							if(!targetBlock&&(p===caretNode||p.contains(caretNode)))targetBlock=p;
 						});
-						// Fallback: use the block that contains text matching what was at caret
 						if(!targetBlock)targetBlock=newBlocks[0];
 						var rng=editor.getDoc().createRange();
-						rng.setStart(targetBlock,0);
+						// Restore original text node + offset when still present;
+						// otherwise fall back to start of target block.
+						if(targetBlock.contains(caretNode)){
+							try{rng.setStart(caretNode,caretOffset);}
+							catch(_e){rng.setStart(targetBlock,0);}
+						}else{
+							rng.setStart(targetBlock,0);
+						}
 						rng.collapse(true);
 						sel.setRng(rng);
 					}

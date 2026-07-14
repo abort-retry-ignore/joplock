@@ -668,8 +668,9 @@ const handle = async (url, request, response, ctx) => {
 	return false;
 };
 
-// POST /api/export/docx — server-side pandoc markdown→docx
+// POST /api/export/docx — server-side pandoc markdown/html→docx
 const { spawn } = require('child_process');
+const path = require('path');
 const handleExportDocx = async (url, request, response, ctx) => {
 	if (url.pathname !== '/api/export/docx' || request.method !== 'POST') return false;
 	try {
@@ -680,23 +681,28 @@ const handleExportDocx = async (url, request, response, ctx) => {
 			return true;
 		}
 		const body = await parseBody(request);
-		const { markdown, title } = body;
-		if (!markdown) {
+		const { content, format, title } = body;
+		if (!content) {
 			response.writeHead(400, { 'Content-Type': 'application/json' });
-			response.end(JSON.stringify({ error: 'markdown is required' }));
+			response.end(JSON.stringify({ error: 'content is required' }));
 			return true;
 		}
+		const inputFormat = format === 'html' ? 'html' : 'markdown';
 		const filename = (title || 'note').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'note';
-		const pandoc = spawn('pandoc', ['-f', 'markdown', '-t', 'docx', '--wrap=none', '-o', '/dev/stdout'], { stdio: ['pipe', 'pipe', 'pipe'] });
-		pandoc.stdin.write(markdown);
+		const refDoc = path.join(__dirname, '../../public/reference.docx');
+		const args = ['-f', inputFormat, '-t', 'docx', '--wrap=none', '--reference-doc', refDoc];
+		const pandoc = spawn('pandoc', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+		pandoc.stdin.write(content);
 		pandoc.stdin.end();
 		const chunks = [];
+		const stderrChunks = [];
 		pandoc.stdout.on('data', chunk => chunks.push(chunk));
-		pandoc.stderr.on('data', () => {});
+		pandoc.stderr.on('data', chunk => stderrChunks.push(chunk));
 		pandoc.on('close', code => {
 			if (code !== 0) {
+				const stderr = Buffer.concat(stderrChunks).toString();
 				response.writeHead(500, { 'Content-Type': 'application/json' });
-				response.end(JSON.stringify({ error: 'pandoc failed', code }));
+				response.end(JSON.stringify({ error: 'pandoc failed', code, stderr }));
 				return;
 			}
 			const docx = Buffer.concat(chunks);

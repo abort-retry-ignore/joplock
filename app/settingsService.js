@@ -1,4 +1,4 @@
-const validThemes = ['matrix','matrix-blue','matrix-purple','matrix-amber','matrix-orange','dark-grey','dark-red','dark','light','oled-dark','solarized-light','solarized-dark','nord','dracula','swamp-thing','fireball','aritim-dark','grey','fruit','dark-fruit'];
+const validThemes = ['aritim-dark','dark','matrix-amber','matrix-blue','dark-fruit','dark-grey','matrix-orange','matrix-purple','dark-red','dracula','earth','fireball','fruit','grey','light','matrix','nord','oled-dark','solarized-dark','solarized-light','swamp-thing'];
 
 // Provider templates — preset URL and default model per service.
 // 'custom' allows any OpenAI-compatible URL.
@@ -141,7 +141,7 @@ const defaultSettings = Object.freeze({
 	datetimeFormat: 'YYYY-MM-DD HH:mm',
 	autoLogout: false,
 	autoLogoutMinutes: 15,
-	theme: 'matrix',
+	theme: 'earth',
 	liveSearch: false,
 	highlightActiveLine: true,
 	confirmTrash: true,

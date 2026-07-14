@@ -113,7 +113,7 @@ const layoutPage = (options = {}) => {
 	<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 	<title>Joplock</title>
 </head>
-<body class="app-shell theme-${escapeHtml(settings.theme || 'matrix')}${noteFontFamilyCSS(settings)==="'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace"?' note-body-monospace':''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;" data-newline-behavior="${escapeHtml(settings.newlineBehavior || 'linebreak')}">
+<body class="app-shell theme-${escapeHtml(settings.theme || 'earth')}${noteFontFamilyCSS(settings)==="'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace"?' note-body-monospace':''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;" data-newline-behavior="${escapeHtml(settings.newlineBehavior || 'linebreak')}">
 	<div id="note-loading-overlay" aria-hidden="true">
 		<div class="note-loading-ring"></div>
 		<div class="note-loading-label">Loading note…</div>
@@ -255,7 +255,7 @@ const layoutPage = (options = {}) => {
 		${noteMetaFragment({ createdTime: 0, updatedTime: 0 }, 'status-note-meta')}
 		<span class="status-spacer"></span>
 		<select class="theme-picker" onchange="setTheme(this.value)">
-			${themeOptions.map(function(t){return '<option value="'+t[0]+'"'+((settings.theme||'matrix')===t[0]?' selected':'')+'>'+t[1]+'</option>'}).join('')}
+			${themeOptions.map(function(t){return '<option value="'+t[0]+'"'+((settings.theme||'earth')===t[0]?' selected':'')+'>'+t[1]+'</option>'}).join('')}
 		</select>
 		<a href="/logout" class="btn btn-sm btn-secondary logout-link" onclick="return confirmLogout(event)">Logout</a>
 	</div>
@@ -322,7 +322,7 @@ const layoutPage = (options = {}) => {
 		debug:${debug ? 'true' : 'false'},
 		noteOpenMode:${JSON.stringify(settings.noteOpenMode || 'preview')},
 		mobileStartup:${JSON.stringify(mobileStartup || null)},
-		theme:${JSON.stringify(settings.theme || 'matrix')},
+		theme:${JSON.stringify(settings.theme || 'earth')},
 		dateFormat:${JSON.stringify(String(settings.dateFormat || 'MMM-DD-YY'))},
 		datetimeFormat:${JSON.stringify(String(settings.datetimeFormat || 'YYYY-MM-DD HH:mm'))},
 		liveSearch:${settings.liveSearch ? 'true' : 'false'},

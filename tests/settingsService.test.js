@@ -148,7 +148,8 @@ test('normalizeSettings accepts new matrix theme variants', () => {
 	assert.equal(normalizeSettings({ theme: 'grey' }).theme, 'grey');
 	assert.equal(normalizeSettings({ theme: 'fruit' }).theme, 'fruit');
 	assert.equal(normalizeSettings({ theme: 'dark-fruit' }).theme, 'dark-fruit');
-	assert.equal(normalizeSettings({ theme: 'not-a-theme' }).theme, 'matrix');
+	assert.equal(normalizeSettings({ theme: 'earth' }).theme, 'earth');
+	assert.equal(normalizeSettings({ theme: 'not-a-theme' }).theme, 'earth');
 });
 
 test('normalizeSettings coerces autocomplete settings and trims openRouter fields', () => {

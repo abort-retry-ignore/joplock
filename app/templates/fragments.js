@@ -105,7 +105,12 @@ const autosaveConflictFragment = noteId => `<span class="autosave-conflict"><spa
 
 const fmtHistoryTime = ts => {
 	const d = new Date(Number(ts));
-	return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+	const yyyy = d.getFullYear();
+	const mm = String(d.getMonth() + 1).padStart(2, '0');
+	const dd = String(d.getDate()).padStart(2, '0');
+	const hh = String(d.getHours()).padStart(2, '0');
+	const mi = String(d.getMinutes()).padStart(2, '0');
+	return `${yyyy}/${mm}/${dd} ${hh}:${mi}`;
 };
 
 const historyModalFragment = (noteId, snapshots) => {

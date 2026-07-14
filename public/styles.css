@@ -574,6 +574,34 @@
 	color-scheme: dark;
 }
 
+/* ===== Theme: Earth ===== */
+.theme-earth {
+	--bg: #1a1610;
+	--theme-color: #1e1a12;
+	--bg-side: #262018;
+	--bg-list: #221e16;
+	--bg-editor: #161310;
+	--bg-elevated: rgba(255,255,255,0.03);
+	--bg-input: rgba(180,150,90,0.08);
+	--bg-hover: rgba(180,150,90,0.10);
+	--bg-active: rgba(180,150,90,0.18);
+	--overlay: rgba(0,0,0,0.45);
+	--shadow: rgba(0,0,0,0.30);
+	--text: #e8dcc8;
+	--text-dim: #9a8b6e;
+	--text-muted: #8a7b5e;
+	--text-heading: #f0e8d8;
+	--text-on-accent: #1a1408;
+	--accent: #b4964a;
+	--border: rgba(180,150,90,0.14);
+	--border-focus: rgba(180,150,90,0.40);
+	--danger: #c46040;
+	--toolbar-bg: #262018;
+	--scrollbar: rgba(180,150,90,0.18);
+	--statusbar-bg: #141210;
+	color-scheme: dark;
+}
+
 /* ===== Reset ===== */
 *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }

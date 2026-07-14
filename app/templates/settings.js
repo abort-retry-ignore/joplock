@@ -150,7 +150,7 @@ const settingsPage = (options = {}) => {
 	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
 	<title>Joplock Settings</title>
 </head>
-<body class="theme-${escapeHtml(settings.theme || 'matrix')}" onkeydown="var k=event.key||event.keyCode;if(k==='Escape'||k==='Esc'||k===27){event.preventDefault();document.body.style.background='#300';setTimeout(function(){document.body.style.background=''},150);setTimeout(function(){window.location.href='/'},100)}">
+<body class="theme-${escapeHtml(settings.theme || 'earth')}" onkeydown="var k=event.key||event.keyCode;if(k==='Escape'||k==='Esc'||k===27){event.preventDefault();document.body.style.background='#300';setTimeout(function(){document.body.style.background=''},150);setTimeout(function(){window.location.href='/'},100)}">
 	<div class="settings-page">
 		<div class="settings-card">
 			<div class="settings-header">
@@ -181,7 +181,7 @@ const settingsPage = (options = {}) => {
 						<label class="settings-field">
 							<span>Theme</span>
 							<select id="settings-theme" class="login-input" onchange="saveSetting('theme',this.value)">
-								${themeOptions.map(t => `<option value="${t[0]}"${(settings.theme || 'matrix') === t[0] ? ' selected' : ''}>${t[1]}</option>`).join('')}
+								${themeOptions.map(t => `<option value="${t[0]}"${(settings.theme || 'earth') === t[0] ? ' selected' : ''}>${t[1]}</option>`).join('')}
 							</select>
 						</label>
 						<label class="settings-field">

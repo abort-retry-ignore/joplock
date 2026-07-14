@@ -23,6 +23,7 @@ const routeResources = require('./routes/resources');
 const routeFragments = require('./routes/fragments');
 const routeMobile = require('./routes/mobile');
 const routeApi = require('./routes/api');
+const { handleExportDocx } = routeApi;
 
 const createServer = options => {
 	const {
@@ -342,6 +343,9 @@ Code block example
 		for (const route of routes) {
 			if (await route.handle(url, request, response, ctx)) return;
 		}
+
+		// Export routes (separate from main API)
+		if (await handleExportDocx(url, request, response, ctx)) return;
 
 		// Joplin Server proxy
 		if (joplinPublicBasePath && (url.pathname === joplinPublicBasePath || url.pathname.startsWith(`${joplinPublicBasePath}/`))) {

@@ -2,7 +2,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache postgresql18-client
+RUN apk add --no-cache postgresql18-client pandoc
 
 COPY package.json ./package.json
 COPY package-lock.json ./package-lock.json

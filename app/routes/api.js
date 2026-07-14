@@ -668,4 +668,55 @@ const handle = async (url, request, response, ctx) => {
 	return false;
 };
 
-module.exports = { handle };
+// POST /api/export/docx — server-side pandoc markdown→docx
+const { spawn } = require('child_process');
+const handleExportDocx = async (url, request, response, ctx) => {
+	if (url.pathname !== '/api/export/docx' || request.method !== 'POST') return false;
+	try {
+		const auth = await ctx.authenticatedUser(request);
+		if (auth.error) {
+			response.writeHead(401, { 'Content-Type': 'application/json' });
+			response.end(JSON.stringify({ error: auth.error }));
+			return true;
+		}
+		const body = await parseBody(request);
+		const { markdown, title } = body;
+		if (!markdown) {
+			response.writeHead(400, { 'Content-Type': 'application/json' });
+			response.end(JSON.stringify({ error: 'markdown is required' }));
+			return true;
+		}
+		const filename = (title || 'note').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'note';
+		const pandoc = spawn('pandoc', ['-f', 'markdown', '-t', 'docx', '--wrap=none', '-o', '/dev/stdout'], { stdio: ['pipe', 'pipe', 'pipe'] });
+		pandoc.stdin.write(markdown);
+		pandoc.stdin.end();
+		const chunks = [];
+		pandoc.stdout.on('data', chunk => chunks.push(chunk));
+		pandoc.stderr.on('data', () => {});
+		pandoc.on('close', code => {
+			if (code !== 0) {
+				response.writeHead(500, { 'Content-Type': 'application/json' });
+				response.end(JSON.stringify({ error: 'pandoc failed', code }));
+				return;
+			}
+			const docx = Buffer.concat(chunks);
+			response.writeHead(200, {
+				'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+				'Content-Disposition': `attachment; filename="${filename}.docx"`,
+				'Content-Length': docx.length,
+			});
+			response.end(docx);
+		});
+		pandoc.on('error', err => {
+			response.writeHead(500, { 'Content-Type': 'application/json' });
+			response.end(JSON.stringify({ error: 'pandoc spawn failed', detail: err.message }));
+		});
+		return true;
+	} catch (error) {
+		response.writeHead(500, { 'Content-Type': 'application/json' });
+		response.end(JSON.stringify({ error: error.message || `${error}` }));
+		return true;
+	}
+};
+
+module.exports = { handle, handleExportDocx };

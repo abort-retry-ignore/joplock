@@ -493,15 +493,16 @@ function exportNoteAsHtml(){
 	_downloadBlob(new Blob([html],{type:'text/html'}),_exportFilenameBase()+'.html');
 }
 function exportNoteAsDocx(){
-	if(!window.htmlDocx||!window.htmlDocx.asBlob){alert('DOCX export is unavailable.');return}
-	var html=_buildExportHtmlDoc(tinyMCEContent());
-	try{
-		var blob=window.htmlDocx.asBlob(html);
-		_downloadBlob(blob,_exportFilenameBase()+'.docx');
-	}catch(err){
-		console.error('DOCX export failed:',err);
-		alert('DOCX export failed.');
-	}
+	var md=tinyMCEContent()||document.getElementById('note-body').value;
+	if(!md){alert('Nothing to export.');return}
+	var title=document.querySelector('.editor-title')?.textContent||document.getElementById('note-title')?.value||'note';
+	var btn=document.getElementById('export-note-btn');
+	if(btn){btn.disabled=true;btn.style.opacity='0.5'}
+	fetch('/api/export/docx',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({markdown:md,title:title})})
+	.then(function(r){if(!r.ok)throw new Error('Export failed: '+r.status);return r.blob()})
+	.then(function(blob){var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=(title.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,80)||'note')+'.docx';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)})
+	.catch(function(err){console.error('DOCX export failed:',err);alert('DOCX export failed: '+err.message)})
+	.finally(function(){if(btn){btn.disabled=false;btn.style.opacity=''}});
 }
 function exportNoteAsPdf(){
 	var html=tinyMCEContent();

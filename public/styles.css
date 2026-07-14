@@ -509,8 +509,8 @@
 	--text-heading: #f0f5f0;
 	--text-on-accent: #1a1e1a;
 	--accent: #69ff94;
-	--border: #69ff94;
-	--border-focus: #69ff94;
+	--border: rgba(105,255,148,0.12);
+	--border-focus: rgba(105,255,148,0.40);
 	--danger: #ff5555;
 	--toolbar-bg: #141814;
 	--scrollbar: rgba(240,245,240,0.18);
@@ -537,8 +537,8 @@
 	--text-heading: #f5f0eb;
 	--text-on-accent: #1e1a16;
 	--accent: #ff8c28;
-	--border: #ff8c28;
-	--border-focus: #ff8c28;
+	--border: rgba(255,140,40,0.14);
+	--border-focus: rgba(255,140,40,0.42);
 	--danger: #ff5555;
 	--toolbar-bg: #181410;
 	--scrollbar: rgba(245,240,235,0.18);

@@ -48,6 +48,7 @@ function makeCtxWithToolbar() {
 		function insertStamp(kind){_calls.push(['insertStamp',kind])}
 		function openUploadModal(){_calls.push(['openUploadModal'])}
 		function openHistoryModal(id){_calls.push(['openHistoryModal',id])}
+		function toggleExportMenu(){_calls.push(['toggleExportMenu'])}
 	`, ctx);
 	[
 		'_isMarkdownModeActive',
@@ -105,6 +106,7 @@ test('markdown toolbar click path: every toolbar button dispatches expected mark
 		['Image', ['insertImg']],
 		['Upload file', ['openUploadModal']],
 		['Note history', ['openHistoryModal', 'n1']],
+		['Export note', ['toggleExportMenu']],
 	];
 
 	const buttonCount = vm.runInContext("document.querySelectorAll('#editor-toolbar button[title]').length", ctx);

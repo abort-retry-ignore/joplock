@@ -108,6 +108,7 @@ const layoutPage = (options = {}) => {
 	<script src="/codemirror.min.js?v=${ASSET_VERSION}"></script>
 	<script src="/tinymce/tinymce.min.js"></script>
 	<script src="/hljs.min.js"></script>
+	<script src="/html-docx.js"></script>
 	<script>window.joplockStripNoteTitle=${stripMarkdownForTitle.toString()};</script>
 	<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 	<title>Joplock</title>
@@ -191,6 +192,7 @@ const layoutPage = (options = {}) => {
 	<div class="mobile-ctx-sheet" id="mobile-ctx-sheet" style="display:none">
 		<div class="mobile-ctx-title" id="mobile-ctx-title"></div>
 		<div class="mobile-ctx-meta" id="mobile-ctx-meta" style="display:none"></div>
+		<button class="mobile-ctx-btn" id="mobile-ctx-export" onclick="mobileCtxExport()" style="display:none">&#128190; Export note</button>
 		<button class="mobile-ctx-btn" id="mobile-ctx-move">&#128193; Move note</button>
 		<button class="mobile-ctx-btn" id="mobile-ctx-delete">&#128465; Delete note</button>
 		<button class="mobile-ctx-btn mobile-ctx-btn-cancel" onclick="mobileCtxClose()">Cancel</button>
@@ -256,6 +258,13 @@ const layoutPage = (options = {}) => {
 			${themeOptions.map(function(t){return '<option value="'+t[0]+'"'+((settings.theme||'matrix')===t[0]?' selected':'')+'>'+t[1]+'</option>'}).join('')}
 		</select>
 		<a href="/logout" class="btn btn-sm btn-secondary logout-link" onclick="return confirmLogout(event)">Logout</a>
+	</div>
+	<div class="export-menu" id="export-menu" hidden>
+		<button type="button" onclick="exportNoteAsMarkdown();closeExportMenu()">Markdown (.md)</button>
+		<button type="button" onclick="exportNoteAsHtml();closeExportMenu()">HTML (.html)</button>
+		<button type="button" onclick="exportNoteAsDocx();closeExportMenu()">Word (.docx)</button>
+		<button type="button" onclick="exportNoteAsPdf();closeExportMenu()">PDF (print)</button>
+		<button type="button" class="export-menu-cancel" onclick="closeExportMenu()">Cancel</button>
 	</div>
 	<div class="code-modal-panel" id="code-modal" hidden>
 		<form class="code-modal-inner" id="code-edit-form" onsubmit="submitCode(event)">

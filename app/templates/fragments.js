@@ -355,6 +355,8 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 			<input type="file" id="file-upload" style="display:none" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" multiple onchange="handleFilePicker(this)" />
 			<span class="tb-div"></span>
 			<button type="button" class="tb" title="Note history" onclick="openHistoryModal('${escapeHtml(note.id)}')">&#128336;</button>
+			<span class="tb-div"></span>
+			<button type="button" class="tb" id="export-note-btn" title="Export note" onclick="toggleExportMenu()">&#128190;</button>
 		</div>
 		<div class="search-nav-bar" id="search-nav-bar" hidden>
 			<span class="search-nav-counter" id="search-nav-counter"></span>

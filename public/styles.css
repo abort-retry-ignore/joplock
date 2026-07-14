@@ -1398,7 +1398,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 
 /* Toolbar */
 .editor-toolbar {
-	display: flex;
+	display: none;
 	align-items: center;
 	gap: 1px;
 	padding: 2px 12px 4px;
@@ -1438,6 +1438,34 @@ body.editor-markdown-mode .editor-toolbar {
 	background: var(--border);
 	margin: 0 4px;
 }
+
+/* Export menu (rendered mode only) */
+.editor-markdown-mode #export-note-btn { display: none; }
+.export-menu {
+	position: fixed;
+	z-index: 500;
+	min-width: 160px;
+	background: var(--bg-editor);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+	display: none;
+	flex-direction: column;
+	padding: 4px;
+}
+.export-menu:not([hidden]) { display: flex; }
+.export-menu button {
+	display: block;
+	width: 100%;
+	text-align: left;
+	padding: 6px 10px;
+	font-size: 13px;
+	color: var(--text);
+	border-radius: 4px;
+	background: transparent;
+}
+.export-menu button:hover { background: var(--bg-hover); }
+.export-menu .export-menu-cancel { color: var(--text-muted); margin-top: 2px; border-top: 1px solid var(--border); border-radius: 0 0 4px 4px; }
 
 /* Editor body (hidden textarea, used as sync target for form submission) */
 .editor-body {
@@ -1504,7 +1532,8 @@ body.editor-markdown-mode .editor-toolbar {
 /* TinyMCE theme integration — toolbar tinted per-theme via accent color */
 .tox .tox-toolbar-overlord,
 .tox .tox-toolbar,
-.tox .tox-toolbar__primary {
+.tox .tox-toolbar__primary,
+.tox .tox-toolbar__overflow {
 	background-color: color-mix(in srgb, var(--accent) 10%, var(--bg)) !important;
 	background-image: none !important;
 }
@@ -1810,6 +1839,9 @@ body.editor-markdown-mode .editor-toolbar {
 .editor-preview hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
 .editor-preview ul, .editor-preview ol { padding-left: 1.5em; margin: 0.5em 0; }
 .editor-preview li { margin: 0.25em 0; }
+.editor-preview table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
+.editor-preview th, .editor-preview td { border: 3px solid var(--border); padding: 6px 10px; text-align: left; }
+.editor-preview th { background: var(--bg-hover); font-weight: bold; }
 .editor-preview .md-checkbox {
 	margin: 0.25em 0;
 	padding-left: 0.9em;

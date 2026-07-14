@@ -424,6 +424,118 @@ function tinyMCEContent(){return _tinymceEditor?_tinymceEditor.getContent():''}
 function tinyMCESetContent(html){if(_tinymceEditor)_tinymceEditor.setContent(html)}
 function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
 function _isMarkdownModeActive(){return _editorMode==='markdown'||_editorMode==='md'}
+
+/* ---------------- Note export (rendered mode only): MD / HTML / DOCX / PDF ---------------- */
+function _downloadBlob(blob,filename){
+	var url=URL.createObjectURL(blob);
+	var a=document.createElement('a');
+	a.href=url;
+	a.download=filename;
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	setTimeout(function(){URL.revokeObjectURL(url)},1000);
+}
+function _exportFilenameBase(){
+	var hi=queryActiveEditor('.editor-title-hidden');
+	var raw=(hi&&hi.value?hi.value:'').trim();
+	var safe=raw.replace(/[\/\\:*?"<>|]/g,'').replace(/\s+/g,' ').trim();
+	return safe||'note';
+}
+function _buildExportHtmlDoc(bodyHtml){
+	return '<!DOCTYPE html>\n<html><head><meta charset="utf-8"></head><body>'+(bodyHtml||'')+'</body></html>';
+}
+function toggleExportMenu(anchorEl){
+	var menu=document.getElementById('export-menu');
+	// Find the best anchor: explicit arg, custom toolbar btn, TinyMCE toolbar btn, mobile header btn
+	var btn=anchorEl
+		||queryActiveEditor('#export-note-btn')
+		||(document.querySelector('.tox-tbtn[aria-label="Export note"]'))
+		||document.getElementById('mobile-editor-menu-btn');
+	// If custom toolbar btn exists but isn't rendered (rich mode hides it), skip to TinyMCE btn
+	if(btn&&btn.id==='export-note-btn'&&!btn.offsetParent){
+		btn=document.querySelector('.tox-tbtn[aria-label="Export note"]')
+			||document.getElementById('mobile-editor-menu-btn');
+	}
+	if(!menu||!btn)return;
+	if(!menu.hidden){menu.hidden=true;return}
+	menu.hidden=false;
+	var r=btn.getBoundingClientRect();
+	var mw=menu.offsetWidth||180;
+	var mh=menu.offsetHeight||160;
+	var left=r.right-mw;
+	if(left<4)left=4;
+	var top=r.bottom+4;
+	if(top+mh>window.innerHeight-4)top=Math.max(4,r.top-mh-4);
+	menu.style.left=left+'px';
+	menu.style.top=top+'px';
+}
+function closeExportMenu(){
+	var menu=document.getElementById('export-menu');
+	if(menu)menu.hidden=true;
+}
+document.addEventListener('click',function(e){
+	var menu=document.getElementById('export-menu');
+	if(!menu||menu.hidden)return;
+	if(menu.contains(e.target))return;
+	if(e.target.closest&&e.target.closest('#export-note-btn'))return;
+	closeExportMenu();
+});
+window.addEventListener('scroll',closeExportMenu,true);
+window.addEventListener('resize',closeExportMenu);
+function exportNoteAsMarkdown(){
+	var ta=getTA();
+	var md=ta?ta.value:'';
+	_downloadBlob(new Blob([md],{type:'text/markdown'}),_exportFilenameBase()+'.md');
+}
+function exportNoteAsHtml(){
+	var html=_buildExportHtmlDoc(tinyMCEContent());
+	_downloadBlob(new Blob([html],{type:'text/html'}),_exportFilenameBase()+'.html');
+}
+function exportNoteAsDocx(){
+	if(!window.htmlDocx||!window.htmlDocx.asBlob){alert('DOCX export is unavailable.');return}
+	var html=_buildExportHtmlDoc(tinyMCEContent());
+	try{
+		var blob=window.htmlDocx.asBlob(html);
+		_downloadBlob(blob,_exportFilenameBase()+'.docx');
+	}catch(err){
+		console.error('DOCX export failed:',err);
+		alert('DOCX export failed.');
+	}
+}
+function exportNoteAsPdf(){
+	var html=tinyMCEContent();
+	var printDoc='<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<style>\n'+
+		'@page { margin: 1.5cm; size: A4; }\n'+
+		'@page { @top-left { content: none; } @top-center { content: none; } @top-right { content: none; } @bottom-left { content: none; } @bottom-center { content: none; } @bottom-right { content: none; } }\n'+
+		'* { box-sizing: border-box; margin: 0; padding: 0; }\n'+
+		'html, body { background: #fff; color: #000; font-family: sans-serif; font-size: 14px; line-height: 1.6; }\n'+
+		'h1,h2,h3,h4,h5,h6 { color: #000; margin: 1em 0 0.4em; }\n'+
+		'p { margin: 0.6em 0; }\n'+
+		'a { color: #0066cc; }\n'+
+		'code { background: #f4f4f4; color: #222; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }\n'+
+		'pre { background: #f4f4f4; color: #222; padding: 12px; border-radius: 4px; overflow-wrap: break-word; white-space: pre-wrap; margin: 0.8em 0; }\n'+
+		'pre code { background: none; padding: 0; }\n'+
+		'blockquote { border-left: 3px solid #ccc; padding-left: 12px; color: #555; margin: 0.6em 0; }\n'+
+		'table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }\n'+
+		'th, td { border: 3px solid #ccc; padding: 6px 10px; text-align: left; }\n'+
+		'th { background: #f0f0f0; }\n'+
+		'img { max-width: 100%; height: auto; }\n'+
+		'ul, ol { padding-left: 1.5em; margin: 0.6em 0; }\n'+
+		'hr { border: none; border-top: 1px solid #ccc; margin: 1em 0; }\n'+
+		'@media print {\n'+
+		'  @page { margin: 1.5cm; }\n'+
+		'  html, body { background: #fff !important; color: #000 !important; }\n'+
+		'}\n'+
+		'</style>\n</head>\n<body>'+html+'</body>\n</html>';
+	var w=window.open('','_blank','width=800,height=600');
+	if(!w){alert('Could not open print window. Check your popup blocker.');return}
+	w.document.write(printDoc);
+	w.document.close();
+	w.focus();
+	w.onload=function(){w.print();};
+	setTimeout(function(){if(w&&!w.closed)w.print();},400);
+}
 function _runMarkdownToolbarFormat(cmd){
 	if(cmd==='bold'){wrapSel('**','**');return true}
 	if(cmd==='italic'){wrapSel('*','*');return true}
@@ -654,6 +766,9 @@ function _tinyMCEContentFontStyle(){
 		+'blockquote{border-left:3px solid var(--accent);color:var(--text-dim)}'
 		+'hr{border-color:var(--border)}'
 		+'img{max-width:100%;height:auto;border-radius:6px}'
+		+'table{border-collapse:collapse!important;width:100%;margin:0.8em 0}'
+		+'th,td{border:3px solid var(--border)!important;padding:6px 10px;text-align:left}'
+		+'th{background:var(--bg-hover);font-weight:bold}'
 		+'.md-checkbox{display:flex;align-items:baseline;gap:0.35em;margin:0.25em 0;padding-left:24px}'
 		+'.md-checkbox::before{content:"";display:inline-block;width:16px;height:16px;border:1.5px solid var(--accent);border-radius:3px;flex-shrink:0;background:transparent;box-sizing:border-box}'
 		+'.md-checkbox.checked::before{background:var(--accent);border-color:var(--accent);content:"\\2713";color:var(--bg);font-size:11px;font-weight:bold;line-height:16px;text-align:center}'
@@ -674,7 +789,7 @@ function _syncTinyMCEThemeVars(){
 	}catch(_e){}
 }
 function _tinyMCEToolbarSpec(){
-	return 'jop_edit | bold italic underline strikethrough | blocks | bullist numlist jop_checkbox | code jop_code blockquote hr | jop_date jop_datetime | removeformat | link image jop_upload table | jop_spellcheck jop_history';
+	return 'jop_edit | bold italic underline strikethrough | blocks | bullist numlist jop_checkbox | code jop_code blockquote hr | jop_date jop_datetime | removeformat | link image jop_upload table | jop_spellcheck jop_history jop_export';
 }
 // Spellcheck state (client-only, persisted in localStorage). Default off so
 // shared browsers don't leak note text to remote spellcheck services.
@@ -831,6 +946,7 @@ function initPersistentTinyMCE(){
 			editor.ui.registry.addIcon('jop_datetime','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="3.5" y="5.5" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 4.5v3M12.5 4.5v3M3.5 9.5h12" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/><circle cx="17.5" cy="16.5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M17.5 14.8v2.1l1.5.9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
 			editor.ui.registry.addIcon('jop_upload','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M8.2 12.8l5.3-5.3a3 3 0 114.3 4.3l-6.4 6.4a4.5 4.5 0 01-6.4-6.4l6.4-6.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>');
 			editor.ui.registry.addIcon('jop_history','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 12a8 8 0 108-8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4 5v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8.5V12l2.5 1.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+			editor.ui.registry.addIcon('jop_export','<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v10m0 0l-3-3m3 3l3-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>');
 			editor.ui.registry.addButton('jop_checkbox',{
 				tooltip:'Checkbox',
 				icon:'jop_checkbox',
@@ -859,6 +975,11 @@ function initPersistentTinyMCE(){
 					var noteId=form?form.dataset.noteId:'';
 					if(noteId)openHistoryModal(noteId);
 				}
+			});
+			editor.ui.registry.addButton('jop_export',{
+				tooltip:'Export note',
+				icon:'jop_export',
+				onAction:function(){toggleExportMenu();}
 			});
 			// Custom code button opens our themed full-screen CM6 code modal
 			// instead of TinyMCE's built-in (unthemed, non-highlighting)
@@ -1148,6 +1269,94 @@ function initPersistentTinyMCE(){
 			}
 			editor.on('input',onEdit);
 			editor.on('change',onEdit);
+			// FormatBlock fix: when newline_behavior='linebreak', soft-wrapped lines live
+			// inside a single <p> separated by <br>. TinyMCE's FormatBlock command
+			// (used by the blocks dropdown) operates at block granularity — it converts
+			// the whole <p> to a heading even if only part of it is selected.
+			// Fix: whenever the caret enters a <p> that contains <br> children, split
+			// that <p> at the <br> boundaries into individual <p> elements. This gives
+			// FormatBlock proper paragraph boundaries to work with, and also makes
+			// selection behaviour more predictable for multi-line linebreak-mode content.
+			function _splitBrBlock(block,editor){
+				var doc=editor.getDoc();
+				if(!block||!doc)return null;
+				if(!block.querySelector('br'))return null;
+				var tagName=block.nodeName.toLowerCase();
+				// Only split paragraph-level blocks
+				if(!/^(p|h[1-6])$/.test(tagName))return null;
+				var children=Array.prototype.slice.call(block.childNodes);
+				var lines=[];
+				var current=[];
+				children.forEach(function(node){
+					if(node.nodeName==='BR'&&!node.getAttribute('data-mce-bogus')){
+						lines.push(current);
+						current=[];
+					}else{
+						current.push(node);
+					}
+				});
+				lines.push(current);
+				if(lines.length<=1)return null;
+				var parent=block.parentNode;
+				if(!parent)return null;
+				var ref=block.nextSibling;
+				var newBlocks=lines.map(function(nodes){
+					var p=doc.createElement('p');
+					if(!nodes.length||nodes.every(function(n){return n.nodeType===3&&!n.textContent.trim()})){
+						var br=doc.createElement('br');
+						br.setAttribute('data-mce-bogus','1');
+						p.appendChild(br);
+					}else{
+						nodes.forEach(function(n){p.appendChild(n)});
+					}
+					return p;
+				});
+				newBlocks.forEach(function(p){parent.insertBefore(p,ref)});
+				parent.removeChild(block);
+				return newBlocks;
+			}
+			editor.on('NodeChange',function(){
+				if(_tinymceSuppressEdits)return;
+				var sel=editor.selection;
+				if(!sel)return;
+				var node=sel.getNode();
+				if(!node)return;
+				// Walk up to find the block ancestor
+				var body=editor.getBody();
+				var block=node;
+				while(block&&block!==body&&block.parentNode!==body){
+					block=block.parentNode;
+				}
+				if(!block||block===body)return;
+				// Only act on <p> elements with <br> separators (linebreak mode content)
+				if(block.nodeName!=='P')return;
+				if(!block.querySelector('br'))return;
+				// Temporarily suppress edits so this DOM change doesn't mark the note dirty
+				var prev=_tinymceSuppressEdits;
+				_tinymceSuppressEdits=true;
+				try{
+					// Find which line the caret is on before splitting
+					var caretContainer=sel.getRng()&&sel.getRng().startContainer;
+					var newBlocks=_splitBrBlock(block,editor);
+					if(newBlocks&&caretContainer){
+						// Move caret to the correct new block
+						var targetBlock=null;
+						newBlocks.forEach(function(p){
+							if(!targetBlock&&(p===caretContainer||p.contains(caretContainer))){
+								targetBlock=p;
+							}
+						});
+						// Fallback: use the block that contains text matching what was at caret
+						if(!targetBlock)targetBlock=newBlocks[0];
+						var rng=editor.getDoc().createRange();
+						rng.setStart(targetBlock,0);
+						rng.collapse(true);
+						sel.setRng(rng);
+					}
+				}finally{
+					_tinymceSuppressEdits=prev;
+				}
+			});
 			// Text-expander: after text is committed to the iframe DOM, check the
 			// caret suffix for a trigger and expand. Runs on keyup so the just-typed
 			// character is present. Guarded to rendered mode + text triggers only.
@@ -2331,7 +2540,7 @@ function initCM(host,content){
 	}
 }
 var _editorMode='markdown';
-function syncEditorModeButtons(){var mode=_editorMode||'rich';var isMd=mode==='markdown'||mode==='md';document.querySelectorAll('#markdown-toggle').forEach(function(btn){btn.classList.toggle('active',isMd)});document.querySelectorAll('#preview-toggle').forEach(function(btn){btn.classList.toggle('active',!isMd)});var mMd=document.getElementById('mobile-md-toggle');var mPv=document.getElementById('mobile-preview-toggle');if(mMd)mMd.classList.toggle('active',isMd);if(mPv)mPv.classList.toggle('active',!isMd);document.body.classList.toggle('mobile-markdown-mode',inMobileEditor()&&isMd);document.body.classList.toggle('editor-markdown-mode',isMd);document.body.classList.toggle('editor-rich-mode',!isMd)}
+function syncEditorModeButtons(){var mode=_editorMode||'rich';var isMd=mode==='markdown'||mode==='md';document.querySelectorAll('#markdown-toggle').forEach(function(btn){btn.classList.toggle('active',isMd)});document.querySelectorAll('#preview-toggle').forEach(function(btn){btn.classList.toggle('active',!isMd)});var mMd=document.getElementById('mobile-md-toggle');var mPv=document.getElementById('mobile-preview-toggle');if(mMd)mMd.classList.toggle('active',isMd);if(mPv)mPv.classList.toggle('active',!isMd);document.body.classList.toggle('mobile-markdown-mode',inMobileEditor()&&isMd);document.body.classList.toggle('editor-markdown-mode',isMd);document.body.classList.toggle('editor-rich-mode',!isMd);if(isMd&&typeof closeExportMenu==='function')closeExportMenu()}
 function applyEditorModeVisibility(mode,opts){
 	opts=opts||{};
 	var isMd=mode==='markdown'||mode==='md';
@@ -3018,7 +3227,7 @@ function mountMarkdownEditor(content){
 		if(_cmView.focus)_cmView.focus();
 	}
 }
-document.addEventListener('keydown',function(e){if(e.key==='Escape'){_log('esc:keydown editorMode='+_editorMode+' marks='+_searchMarks.length+' cmMarks='+(_cmSearchMatches?_cmSearchMatches.length:0));var resViewer=document.getElementById('resource-viewer');if(resViewer&&!resViewer.hidden){_log('esc:resource-viewer visible, closing');_closeResourceViewer();return}if(resViewer)_log('esc:resource-viewer hidden, skip');var codeModal=document.getElementById('code-modal');if(codeModal&&!codeModal.hidden){_log('esc:code-modal visible, closing');closeCodeModal();return}closeFolderContextMenu();closeFolderModal();closeLinkModal();closeNewFolderModal();closeVaultModal();closeHistoryModal();closeEmptyTrashModal();var bar=document.getElementById('search-nav-bar');_log('esc:bar exists='+!!bar+' hidden='+(bar?bar.hidden:'n/a')+' sesActive='+_searchSessionActive()+' navSearchVal='+((document.getElementById('nav-search')||{}).value||''));if(bar&&!bar.hidden){_log('esc:dismissing search-nav-bar');searchNavDismiss();return}if(_searchSessionActive()){_log('esc:session active, dismissing');searchNavDismiss();return}var navSearch=document.getElementById('nav-search');if(navSearch&&navSearch.value){_log('esc:clearing nav-search field');navSearch.value='';htmx.trigger(navSearch,'search-submit');return}_log('esc:no handler matched, fallthrough')}if(!getTA()&&!getPV()&&!getCM())return;if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='Space'){e.preventDefault();requestManualProseCompletion();return}if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();wrapSel('**','**')}if((e.ctrlKey||e.metaKey)&&e.key==='i'){e.preventDefault();wrapSel('*','*')}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();if(_editorMode==='preview'&&_searchMarks.length){searchNavStep(1)}else{applySearchHighlight()}}});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){_log('esc:keydown editorMode='+_editorMode+' marks='+_searchMarks.length+' cmMarks='+(_cmSearchMatches?_cmSearchMatches.length:0));var resViewer=document.getElementById('resource-viewer');if(resViewer&&!resViewer.hidden){_log('esc:resource-viewer visible, closing');_closeResourceViewer();return}if(resViewer)_log('esc:resource-viewer hidden, skip');var codeModal=document.getElementById('code-modal');if(codeModal&&!codeModal.hidden){_log('esc:code-modal visible, closing');closeCodeModal();return}var exportMenu=document.getElementById('export-menu');if(exportMenu&&!exportMenu.hidden){closeExportMenu();return}closeFolderContextMenu();closeFolderModal();closeLinkModal();closeNewFolderModal();closeVaultModal();closeHistoryModal();closeEmptyTrashModal();var bar=document.getElementById('search-nav-bar');_log('esc:bar exists='+!!bar+' hidden='+(bar?bar.hidden:'n/a')+' sesActive='+_searchSessionActive()+' navSearchVal='+((document.getElementById('nav-search')||{}).value||''));if(bar&&!bar.hidden){_log('esc:dismissing search-nav-bar');searchNavDismiss();return}if(_searchSessionActive()){_log('esc:session active, dismissing');searchNavDismiss();return}var navSearch=document.getElementById('nav-search');if(navSearch&&navSearch.value){_log('esc:clearing nav-search field');navSearch.value='';htmx.trigger(navSearch,'search-submit');return}_log('esc:no handler matched, fallthrough')}if(!getTA()&&!getPV()&&!getCM())return;if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='Space'){e.preventDefault();requestManualProseCompletion();return}if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();wrapSel('**','**')}if((e.ctrlKey||e.metaKey)&&e.key==='i'){e.preventDefault();wrapSel('*','*')}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();if(_editorMode==='preview'&&_searchMarks.length){searchNavStep(1)}else{applySearchHighlight()}}});
 document.addEventListener('click',function(e){var menu=document.getElementById('folder-context-menu');if(menu&&!menu.hidden&&!menu.contains(e.target))closeFolderContextMenu()});
 function highlightCodeBlocks(container){if(!window.hljs||!container)return;container.querySelectorAll('pre code[class*="language-"]').forEach(function(el){if(el.dataset.highlighted)return;window.hljs.highlightElement(el)})}
 function ensureEditableAfterPre(pv){if(!pv)return;var pres=pv.querySelectorAll('pre');pres.forEach(function(pre){var next=pre.nextElementSibling;if(!next){var p=document.createElement('p');p.innerHTML='<br>';p.dataset.pvTrail='1';pv.appendChild(p)}})}
@@ -3697,15 +3906,18 @@ function confirmLogout(event){
 	};
 	// Context menu (long-press on note rows)
 	var _ctxNoteId=null,_ctxNoteTitle=null,_ctxLongPressTimer=null;
-	function mobileCtxOpen(noteId,noteTitle){
+	function mobileCtxOpen(noteId,noteTitle,opts){
+		opts=opts||{};
 		_ctxNoteId=noteId;_ctxNoteTitle=noteTitle;
 		var backdrop=document.getElementById('mobile-ctx-backdrop');
 		var sheet=document.getElementById('mobile-ctx-sheet');
 		var titleEl=document.getElementById('mobile-ctx-title');
 		var metaEl=document.getElementById('mobile-ctx-meta');
+		var exportBtn=document.getElementById('mobile-ctx-export');
 		var moveBtn=document.getElementById('mobile-ctx-move');
 		var delBtn=document.getElementById('mobile-ctx-delete');
 		if(titleEl)titleEl.textContent=noteTitle||'Untitled';
+		if(exportBtn)exportBtn.style.display=(opts.isEditorContext&&!_isMarkdownModeActive())?'':'none';
 		if(metaEl){
 			var mbody=document.getElementById('mobile-editor-body');
 			var metaSrc=mbody?mbody.querySelector('#note-meta'):null;
@@ -3783,7 +3995,14 @@ function confirmLogout(event){
 		var form=activeEditorForm();
 		if(!form)return;
 		var titleInput=form.querySelector('.editor-title');
-		mobileCtxOpen(form.dataset.noteId||_state.noteId,(titleInput&&titleInput.textContent)||document.getElementById('mobile-editor-title')&&document.getElementById('mobile-editor-title').textContent||'Untitled');
+		mobileCtxOpen(form.dataset.noteId||_state.noteId,(titleInput&&titleInput.textContent)||document.getElementById('mobile-editor-title')&&document.getElementById('mobile-editor-title').textContent||'Untitled',{isEditorContext:true});
+	};
+	window.mobileCtxExport=function(){
+		mobileCtxClose();
+		setTimeout(function(){
+			var anchor=document.getElementById('mobile-editor-menu-btn');
+			toggleExportMenu(anchor);
+		},50);
 	};
 	function wireNoteRowLongPress(container){
 		if(!container)return;
@@ -5050,4 +5269,10 @@ window.isEncryptedBody=isEncryptedBody;
 window.mobileSyncTitle=mobileSyncTitle;
 window.mobileSyncTitleAndSave=mobileSyncTitleAndSave;
 window.mobileTitleInput=function(){_titleManual=true}; // called oninput on #mobile-editor-title
+window.toggleExportMenu=toggleExportMenu;
+window.closeExportMenu=closeExportMenu;
+window.exportNoteAsMarkdown=exportNoteAsMarkdown;
+window.exportNoteAsHtml=exportNoteAsHtml;
+window.exportNoteAsDocx=exportNoteAsDocx;
+window.exportNoteAsPdf=exportNoteAsPdf;
 })(); // end main IIFE

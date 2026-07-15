@@ -713,6 +713,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: center;
 	gap: 6px;
 	padding: 8px 10px;
+	min-height: 48px;
+	box-sizing: border-box;
 	border-bottom: 1px solid var(--border);
 	background: var(--bg-side);
 	flex-shrink: 0;
@@ -1308,6 +1310,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: center;
 	gap: 6px;
 	padding: 8px 10px;
+	min-height: 48px;
+	box-sizing: border-box;
 	border-bottom: 1px solid var(--border);
 	flex-shrink: 0;
 }
@@ -1393,6 +1397,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: center;
 	gap: 8px;
 	padding: 8px 16px;
+	min-height: 48px;
+	box-sizing: border-box;
 	border-bottom: 1px solid var(--border);
 	flex-shrink: 0;
 }

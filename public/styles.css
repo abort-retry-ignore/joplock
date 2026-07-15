@@ -453,7 +453,7 @@
 	--text-heading: #eceff4;
 	--text-on-accent: #2e3440;
 	--accent: #88c0d0;
-	--border: #5e81ac;
+	--border: rgba(129,161,193,0.20);
 	--border-focus: #81a1c1;
 	--danger: #bf616a;
 	--toolbar-bg: #3b4252;

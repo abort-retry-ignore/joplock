@@ -9,13 +9,20 @@ Joplock runs as a sidecar alongside an unmodified Joplin Server instance, sharin
 - **Full Joplin compatibility** -- desktop, mobile, CLI, and Joplock all work with the same account and data simultaneously
 - **Low Resource usage** -- minimal memory usage on the client, fast and responsive
 - **Security-first design** -- no private data stored on the client; sessions are cleaned up on logout; per-user settings and admin controls for user management
+- **Client-side encrypted vaults** -- turn any notebook into a vault; notes inside are AES-GCM encrypted in the browser with a PBKDF2-derived key. The server never sees vault passwords. Ciphertext is bound to a specific vault and note id, and the server rejects any write that would land a vault-encrypted body in the wrong note or the wrong vault
+- **Dual-mode editor** -- CodeMirror 6 for markdown editing and TinyMCE 8 for rich rendered mode, switchable per note; mobile opens in a read-only rendered view with an edit toggle
+- **Tables, code blocks, and lightbox** -- full-screen code editor modal with language picker, TinyMCE tables with markdown round-trip, and a lightbox for images and attachments
+- **Note export** -- export any note as Markdown, single-file HTML (images and links inlined), DOCX (server-side via pandoc with reference styles), or PDF, with visible table gridlines in PDF/DOCX output
+- **AI autocomplete** -- optional prose completion via user-configured provider profiles (OpenRouter and others), triggered by Ctrl/Cmd-Space or configurable Expander triggers; per-user text expanders for snippets
+- **Concurrent-edit detection** -- detects when another client (or another browser tab) has updated the same note and offers Overwrite / Create copy so edits are never silently lost
+- **Multiple themes** -- Grey, Fruit, Dark Fruit, Earth, Swamp Thing, Fireball, and more, all as CSS custom-property sets; per-user theme picker in the status bar and settings page
 - **User creation from Joplock UI** -- create and modify users directly from Joplock settings page
 - **Full database backup and restore** -- create and restore complete Postgres backups for both Joplin and Joplock data
 - **Multi-factor authentication** -- optional TOTP-based MFA on top of standard Joplin sessions
 - **Fast search** -- searches titles and note bodies directly in Postgres; optional live-as-you-type search
-- **Near-instant autosave** -- debounced saves with conflict detection, hash-based deduplication, and an undo ring buffer with full note history snapshots
+- **Near-instant autosave** -- debounced saves with conflict detection, hash-based deduplication, and an undo ring buffer with full note history snapshots. Restoring a snapshot updates the open editor immediately without a page refresh
 - **PWA support** -- installable as a home screen app on mobile and desktop with splash screens, offline indicator, and service worker shell
-- **Server-side rendering** -- SSR with htmx for minimal client-side JavaScript; CodeMirror editor for markdown, rich preview mode with WYSIWYG editing
+- **Server-side rendering** -- SSR with htmx for minimal client-side JavaScript
 
 ## Runtime Model
 

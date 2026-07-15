@@ -94,6 +94,30 @@ Use this guide when working in this repository.
 - Clicking a vault lock while unlocked should lock immediately and close the open note if it belongs to that vault
 - Startup/refresh must never auto-resume an encrypted note or a note inside a vault notebook
 
+### Encrypted-save identity guard (do not remove)
+
+Encrypted-note autosave is debounced 2s. A hard-won bug was that the timer callback captured the outgoing note's `form`/`noteId`/`vaultId`, but read plaintext from the live DOM (`getTA()`). If the user switched notes during the debounce, plaintext of note B was encrypted with note A's vault key and PUT to note A's URL, silently overwriting A's ciphertext with an encryption of B's body. On next unlock, note A "decrypted" to note B's plaintext.
+
+Client (`public/app.js`) rules:
+
+- The encrypted `scheduleSave` override and `buildFlushRequest` MUST read `ta` from the captured form (`form.querySelector('textarea[name="body"], textarea.editor-body')`), never from `getTA()`.
+- Every encrypted-save path calls `_encryptedSaveIdentityOk(form, expectedNoteId, expectedVaultId)` before hashing, before encrypting, after every `await`, and inside `_triggerEncryptedSave`. Identity checks compare captured `noteId`/`vaultId` against `_formNoteId(form)`, `form.dataset.vaultId`, `form.dataset.encrypted`, `form.isConnected`, `activeEditorForm()`, and `_activeEditorNoteId()`. Abort with a log line if any mismatch.
+- `encryptForVault(plaintext, vaultId, key, salt, noteId)` embeds `noteId` in the ciphertext blob. Every call passes it.
+- `htmx:beforeSwap` for `#editor-panel` / `#mobile-editor-body` cancels `_saveTimer` and `_saveTitleTimer` so stale timers can't fire against a fresh note (defence-in-depth alongside the identity guard).
+
+Server (`app/routes/_helpers.js`) rules:
+
+- `assertVaultNoteBodyEncrypted(vaultService, userId, existingParentId, targetParentId, body, noteId)` parses the ciphertext blob and rejects the write when `meta.vault` mismatches the target folder's vault, or `meta.noteId` (if present) mismatches the target note.
+- Every note-write path passes the target `noteId`: `app/routes/api.js` (PUT), `app/routes/fragments.js` (autosave PUT), `app/routes/history.js` (restore), `app/proxy/vaultProxyGuard.js` (sync proxy).
+- Legacy blobs without `noteId` still pass (backwards compatible); new writes are note-id-bound.
+
+Tests must not regress this: an encrypted note's ciphertext blob's `noteId` field must equal the note id it is stored under; a write with a mismatched blob must be rejected with 400 (or 403 via the proxy guard).
+
+### Note-history restore
+
+- `POST /fragments/history/:noteId/restore/:snapshotId` returns `editorFragment` **inline** (target = `#editor-panel` / `#mobile-editor-body`) with `#autosave-status` and `#nav-panel` as OOB swaps. Do not go back to swapping only `#autosave-status` with an OOB editor-panel — the editor-swap lifecycle (`htmx:afterSwap` destroy CM6, `htmx:afterSettle` reinit) only runs when the request target is the editor container, and without it the restored body doesn't appear until a page refresh.
+- The client `restoreHistorySnapshot()` cancels `_saveTimer` / `_saveTitleTimer` and clears `_savedHash` before firing the request so a stale autosave from pre-restore edits can't overwrite the restored body.
+
 ## Service Responsibilities
 
 ### Stock Joplin Server
@@ -581,6 +605,9 @@ Recommended inner loop:
 - CI: GitHub Actions builds and pushes image to `ghcr.io` on every push to `master`
 
 ## Recently Completed Work
+
+- **Vault encrypted-save identity guard**: fixed a race where a debounced 2s encrypted autosave for note A could fire after the user switched to note B, encrypting B's plaintext with A's vault key and writing it to A. Fix: read plaintext from the captured form (not `getTA()`), verify form/note/vault identity before every encrypt/PUT step, bind ciphertext to a specific `noteId` in the blob, and server-side verify `meta.vault` + `meta.noteId` in `assertVaultNoteBodyEncrypted`. Timers are also cancelled on editor-panel `htmx:beforeSwap` as defence-in-depth. See "Encrypted-save identity guard" section above.
+- **Immediate history-restore refresh**: `POST /fragments/history/:noteId/restore/:snapshotId` now returns `editorFragment` inline (target = editor container) with autosave-status + nav as OOB swaps. The client cancels pending autosave and clears `_savedHash` before firing, so the restored body appears immediately without a page refresh and can't be clobbered by a stale timer.
 
 - **Lazy nav loading**: folder note lists load on first expand, not on page load
 - **Search pagination**: `pg_trgm` GIN index, paginated search results with Load More

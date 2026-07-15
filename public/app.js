@@ -468,9 +468,6 @@ function _exportFilenameBase(){
 	var safe=raw.replace(/[\/\\:*?"<>|]/g,'').replace(/\s+/g,' ').trim();
 	return safe||'note';
 }
-function _buildExportHtmlDoc(bodyHtml){
-	return '<!DOCTYPE html>\n<html><head><meta charset="utf-8"></head><body>'+(bodyHtml||'')+'</body></html>';
-}
 function toggleExportMenu(anchorEl){
 	var menu=document.getElementById('export-menu');
 	// Find the best anchor: explicit arg, custom toolbar btn, TinyMCE toolbar btn, mobile header btn
@@ -484,6 +481,11 @@ function toggleExportMenu(anchorEl){
 			||document.getElementById('mobile-editor-menu-btn');
 	}
 	if(!menu||!btn)return;
+	var mdMode=_isMarkdownModeActive();
+	['#export-html-btn','#export-docx-btn','#export-pdf-btn'].forEach(function(sel){
+		var b=menu.querySelector(sel);
+		if(b)b.style.display=mdMode?'none':'';
+	});
 	if(!menu.hidden){menu.hidden=true;return}
 	menu.hidden=false;
 	var r=btn.getBoundingClientRect();
@@ -515,15 +517,29 @@ function exportNoteAsMarkdown(){
 	_downloadBlob(new Blob([md],{type:'text/markdown'}),_exportFilenameBase()+'.md');
 }
 function exportNoteAsHtml(){
-	var html=_buildExportHtmlDoc(tinyMCEContent());
-	_downloadBlob(new Blob([html],{type:'text/html'}),_exportFilenameBase()+'.html');
+	if(_isMarkdownModeActive()){alert('HTML export is only available in rendered mode. Switch to rendered mode to export.');return}
+	var html=tinyMCEContent();
+	if(!html){alert('Nothing to export.');return}
+	var title=document.querySelector('.editor-title')?.textContent||document.getElementById('note-title')?.value||'note';
+	var theme='earth';
+	var classes=(document.body.className||'').split(/\s+/);
+	for(var i=0;i<classes.length;i++){
+		if(classes[i].indexOf('theme-')===0){theme=classes[i].slice(6);break}
+	}
+	var btn=document.getElementById('export-note-btn');
+	if(btn){btn.disabled=true;btn.style.opacity='0.5'}
+	fetch('/api/export/html',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:html,title:title,theme:theme})})
+	.then(function(r){if(!r.ok)throw new Error('Export failed: '+r.status);return r.blob()})
+	.then(function(blob){var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=(title.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,80)||'note')+'.html';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)})
+	.catch(function(err){console.error('HTML export failed:',err);alert('HTML export failed: '+err.message)})
+	.finally(function(){if(btn){btn.disabled=false;btn.style.opacity=''}});
 }
 function exportNoteAsDocx(){
+	if(_isMarkdownModeActive()){alert('DOCX export is only available in rendered mode. Switch to rendered mode to export.');return}
 	var html=tinyMCEContent();
-	var md=document.getElementById('note-body').value;
-	var content=html||md;
-	var format=html?'html':'markdown';
-	if(!content){alert('Nothing to export.');return}
+	if(!html){alert('Nothing to export.');return}
+	var format='html';
+	var content=html;
 	var title=document.querySelector('.editor-title')?.textContent||document.getElementById('note-title')?.value||'note';
 	var btn=document.getElementById('export-note-btn');
 	if(btn){btn.disabled=true;btn.style.opacity='0.5'}
@@ -534,37 +550,19 @@ function exportNoteAsDocx(){
 	.finally(function(){if(btn){btn.disabled=false;btn.style.opacity=''}});
 }
 function exportNoteAsPdf(){
+	if(_isMarkdownModeActive()){alert('PDF export is only available in rendered mode. Switch to rendered mode to export.');return}
 	var html=tinyMCEContent();
-	var printDoc='<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<style>\n'+
-		'@page { margin: 1.5cm; size: A4; }\n'+
-		'@page { @top-left { content: none; } @top-center { content: none; } @top-right { content: none; } @bottom-left { content: none; } @bottom-center { content: none; } @bottom-right { content: none; } }\n'+
-		'* { box-sizing: border-box; margin: 0; padding: 0; }\n'+
-		'html, body { background: #fff; color: #000; font-family: sans-serif; font-size: 14px; line-height: 1.6; }\n'+
-		'h1,h2,h3,h4,h5,h6 { color: #000; margin: 1em 0 0.4em; }\n'+
-		'p { margin: 0.6em 0; }\n'+
-		'a { color: #0066cc; }\n'+
-		'code { background: #f4f4f4; color: #222; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }\n'+
-		'pre { background: #f4f4f4; color: #222; padding: 12px; border-radius: 4px; overflow-wrap: break-word; white-space: pre-wrap; margin: 0.8em 0; }\n'+
-		'pre code { background: none; padding: 0; }\n'+
-		'blockquote { border-left: 3px solid #ccc; padding-left: 12px; color: #555; margin: 0.6em 0; }\n'+
-		'table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }\n'+
-		'th, td { border: 3px solid #ccc; padding: 6px 10px; text-align: left; }\n'+
-		'th { background: #f0f0f0; }\n'+
-		'img { max-width: 100%; height: auto; }\n'+
-		'ul, ol { padding-left: 1.5em; margin: 0.6em 0; }\n'+
-		'hr { border: none; border-top: 1px solid #ccc; margin: 1em 0; }\n'+
-		'@media print {\n'+
-		'  @page { margin: 1.5cm; }\n'+
-		'  html, body { background: #fff !important; color: #000 !important; }\n'+
-		'}\n'+
-		'</style>\n</head>\n<body>'+html+'</body>\n</html>';
-	var w=window.open('','_blank','width=800,height=600');
-	if(!w){alert('Could not open print window. Check your popup blocker.');return}
-	w.document.write(printDoc);
-	w.document.close();
-	w.focus();
-	w.onload=function(){w.print();};
-	setTimeout(function(){if(w&&!w.closed)w.print();},400);
+	if(!html){alert('Nothing to export.');return}
+	var format='html';
+	var content=html;
+	var title=document.querySelector('.editor-title')?.textContent||document.getElementById('note-title')?.value||'note';
+	var btn=document.getElementById('export-note-btn');
+	if(btn){btn.disabled=true;btn.style.opacity='0.5'}
+	fetch('/api/export/pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:content,format:format,title:title})})
+	.then(function(r){if(!r.ok)throw new Error('Export failed: '+r.status);return r.blob()})
+	.then(function(blob){var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=(title.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,80)||'note')+'.pdf';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)})
+	.catch(function(err){console.error('PDF export failed:',err);alert('PDF export failed: '+err.message)})
+	.finally(function(){if(btn){btn.disabled=false;btn.style.opacity=''}});
 }
 function _runMarkdownToolbarFormat(cmd){
 	if(cmd==='bold'){wrapSel('**','**');return true}

@@ -2,7 +2,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache postgresql18-client pandoc
+RUN apk add --no-cache postgresql18-client pandoc weasyprint font-dejavu
 
 COPY package.json ./package.json
 COPY package-lock.json ./package-lock.json

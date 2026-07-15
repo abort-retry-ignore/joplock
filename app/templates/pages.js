@@ -261,9 +261,9 @@ const layoutPage = (options = {}) => {
 	</div>
 	<div class="export-menu" id="export-menu" hidden>
 		<button type="button" onclick="exportNoteAsMarkdown();closeExportMenu()">Markdown (.md)</button>
-		<button type="button" onclick="exportNoteAsHtml();closeExportMenu()">HTML (.html)</button>
-		<button type="button" onclick="exportNoteAsDocx();closeExportMenu()">Word (.docx)</button>
-		<button type="button" onclick="exportNoteAsPdf();closeExportMenu()">PDF (print)</button>
+		<button type="button" id="export-html-btn" onclick="exportNoteAsHtml();closeExportMenu()">HTML (.html)</button>
+		<button type="button" id="export-docx-btn" onclick="exportNoteAsDocx();closeExportMenu()">Word (.docx)</button>
+		<button type="button" id="export-pdf-btn" onclick="exportNoteAsPdf();closeExportMenu()">PDF (.pdf)</button>
 		<button type="button" class="export-menu-cancel" onclick="closeExportMenu()">Cancel</button>
 	</div>
 	<div class="code-modal-panel" id="code-modal" hidden>

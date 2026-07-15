@@ -668,9 +668,181 @@ const handle = async (url, request, response, ctx) => {
 	return false;
 };
 
-// POST /api/export/docx — server-side pandoc markdown/html→docx
+// ---------------------------------------------------------------------------
+// Server-side export handlers (DOCX and PDF via pandoc)
+// ---------------------------------------------------------------------------
+
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { renderMarkdown } = require('../markdownRenderer');
+
+const STYLES_CSS = fs.readFileSync(path.join(__dirname, '../../public/styles.css'), 'utf8');
+
+// Extract complete top-level CSS rule blocks (selector text + braces body)
+// where at least one comma-separated selector in the block starts with one
+// of the given prefixes. Selectors may span multiple lines (e.g.
+// ".editor-preview h1, .editor-preview h2 {"). This is a character-level
+// brace-depth scanner — not a full CSS parser, but robust to comments,
+// multi-line selectors, and nested @media blocks (matched as a single block).
+const extractCssBlocks = (css, prefixes) => {
+	// Strip comments first so `/* ... { ... } ... */` can't confuse brace counting.
+	const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '');
+	const out = [];
+	let i = 0;
+	const n = stripped.length;
+	while (i < n) {
+		const braceIdx = stripped.indexOf('{', i);
+		if (braceIdx === -1) break;
+		const selectorText = stripped.slice(i, braceIdx);
+		// Find the matching closing brace via depth counting from braceIdx.
+		let depth = 0;
+		let j = braceIdx;
+		for (; j < n; j++) {
+			if (stripped[j] === '{') depth++;
+			else if (stripped[j] === '}') {
+				depth--;
+				if (depth === 0) break;
+			}
+		}
+		const blockEnd = j < n ? j + 1 : n;
+		const selectors = selectorText.split(',').map(s => s.trim()).filter(Boolean);
+		const matches = selectors.some(sel => prefixes.some(p =>
+			sel === p || sel.startsWith(p + ' ') || sel.startsWith(p + '[') ||
+			sel.startsWith(p + ':') || sel.startsWith(p + '.') || sel.startsWith(p + '>')
+		));
+		if (matches) {
+			out.push(`${selectorText.trim()} ${stripped.slice(braceIdx, blockEnd)}`.trim());
+		}
+		i = blockEnd;
+	}
+	return out.join('\n\n');
+};
+
+// Minimal base CSS for standalone HTML export — resets + body sizing that
+// isn't already covered by the extracted theme/.editor-preview blocks.
+const HTML_EXPORT_BASE_CSS = `
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--text); }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+`;
+
+// Overrides applied AFTER the extracted .editor-preview CSS so they win the
+// cascade. These mirror the TinyMCE rendered-mode content styles built by
+// _tinyMCEContentFontStyle() in public/app.js — that live editor view (not
+// the read-only .editor-preview rules in styles.css) is what users actually
+// see while writing/reading a note, so the exported HTML should match it:
+// headings and links share the theme's accent color, not --text-heading.
+const HTML_EXPORT_PARITY_CSS = `
+.editor-preview h1, .editor-preview h2, .editor-preview h3,
+.editor-preview h4, .editor-preview h5, .editor-preview h6 { color: var(--accent); }
+.editor-preview strong { color: var(--text-heading); }
+.editor-preview a { color: var(--accent); }
+.editor-preview blockquote { border-left: 3px solid var(--accent); color: var(--text-dim); }
+.editor-preview th, .editor-preview td { border: 3px solid var(--border); }
+.editor-preview th { background: var(--bg-hover); font-weight: bold; }
+.editor-preview .md-checkbox::before { border-color: var(--accent); }
+.editor-preview .md-checkbox.checked::before { background: var(--accent); border-color: var(--accent); }
+`;
+
+// Strip resource download links — href="/resources/<id>?download=1" is meaningless
+// in an exported document (DOCX, PDF). Keep the visible link text, remove the anchor
+// so it renders as plain text. Handles bare "resources/", "/resources/", and
+// absolute "https://host/resources/" href forms (TinyMCE emits any of these).
+const stripResourceLinks = (html) =>
+	html.replace(/<a\b[^>]*\bhref="(?:https?:\/\/[^"]*)?\/?resources\/[0-9a-fA-F]{32}[^"]*"[^>]*>([\s\S]*?)<\/a>/gi, '$1');
+
+// Inline all /resources/<id> image srcs as base64 data URIs so pandoc/weasyprint
+// don't need to make authenticated HTTP requests. Handles bare "resources/",
+// "/resources/", and absolute "https://host/resources/" src forms.
+const inlineResourceImages = async (html, userId, itemService) => {
+	const RESOURCE_RE = /src="(?:https?:\/\/[^"]*)?\/?resources\/([0-9a-fA-F]{32})(?:[^"]*)"/g;
+	const ids = [];
+	let m;
+	while ((m = RESOURCE_RE.exec(html)) !== null) {
+		if (!ids.includes(m[1])) ids.push(m[1]);
+	}
+	if (!ids.length) return html;
+
+	// Fetch all resource blobs and meta in parallel
+	const entries = await Promise.all(ids.map(async id => {
+		try {
+			const [blob, meta] = await Promise.all([
+				itemService.resourceBlobByUserId(userId, id),
+				itemService.resourceMetaByUserId(userId, id),
+			]);
+			if (!blob) return { id, dataUri: null };
+			const mime = (meta && meta.mime) || 'application/octet-stream';
+			return { id, dataUri: `data:${mime};base64,${blob.toString('base64')}` };
+		} catch {
+			return { id, dataUri: null };
+		}
+	}));
+
+	const byId = {};
+	for (const e of entries) byId[e.id] = e.dataUri;
+
+	return html.replace(RESOURCE_RE, (match, id) => {
+		const dataUri = byId[id];
+		if (!dataUri) return 'src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="'; // 1x1 transparent PNG placeholder
+		// Preserve width/height/style attributes — only replace the src
+		return match.replace(/src="[^"]*"/, `src="${dataUri}"`);
+	});
+};
+
+// Rewrite attachment links (href="[/]resources/<id>?download=1") into
+// data: URIs with a download="<filename>" attribute, so the exported HTML
+// file carries every attachment inline and clicking the link downloads it
+// straight from the browser with no server round-trip. Falls back to plain
+// link text if the resource can't be resolved.
+const inlineResourceLinks = async (html, userId, itemService) => {
+	const RE = /<a\b([^>]*)\bhref="(?:https?:\/\/[^"]*)?\/?resources\/([0-9a-fA-F]{32})[^"]*"([^>]*)>([\s\S]*?)<\/a>/gi;
+	const ids = [];
+	let m;
+	while ((m = RE.exec(html)) !== null) {
+		if (!ids.includes(m[2])) ids.push(m[2]);
+	}
+	if (!ids.length) return html;
+
+	const entries = await Promise.all(ids.map(async id => {
+		try {
+			const [blob, meta] = await Promise.all([
+				itemService.resourceBlobByUserId(userId, id),
+				itemService.resourceMetaByUserId(userId, id),
+			]);
+			if (!blob) return { id, dataUri: null, filename: null };
+			const mime = (meta && meta.mime) || 'application/octet-stream';
+			const filename = (meta && (meta.filename || meta.title)) || `attachment-${id}`;
+			return { id, dataUri: `data:${mime};base64,${blob.toString('base64')}`, filename };
+		} catch {
+			return { id, dataUri: null, filename: null };
+		}
+	}));
+
+	const byId = {};
+	for (const e of entries) byId[e.id] = e;
+
+	const stripAttr = (attrs, name) => attrs.replace(new RegExp(`\\s${name}(?:="[^"]*")?`, 'i'), '');
+
+	return html.replace(RE, (match, preAttrs, id, postAttrs, label) => {
+		const entry = byId[id];
+		if (!entry || !entry.dataUri) return label;
+		const cleanPre = stripAttr(stripAttr(preAttrs, 'href'), 'download');
+		const cleanPost = stripAttr(stripAttr(postAttrs, 'href'), 'download');
+		const safeFilename = `${entry.filename}`.replace(/"/g, '&quot;');
+		return `<a${cleanPre} href="${entry.dataUri}" download="${safeFilename}"${cleanPost}>${label}</a>`;
+	});
+};
+
+// POST /api/export/docx — server-side pandoc markdown/html→docx
 const handleExportDocx = async (url, request, response, ctx) => {
 	if (url.pathname !== '/api/export/docx' || request.method !== 'POST') return false;
 	try {
@@ -688,11 +860,21 @@ const handleExportDocx = async (url, request, response, ctx) => {
 			return true;
 		}
 		const inputFormat = format === 'html' ? 'html' : 'markdown';
+
+		// Pre-process HTML the same way as PDF: strip dead resource links and
+		// inline resource images as base64 data URIs so pandoc can embed them.
+		// Markdown input is left unchanged — pandoc handles it natively.
+		let processedContent = content;
+		if (inputFormat === 'html') {
+			processedContent = stripResourceLinks(content);
+			processedContent = await inlineResourceImages(processedContent, auth.user.id, ctx.itemService);
+		}
+
 		const filename = (title || 'note').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'note';
 		const refDoc = path.join(__dirname, '../../public/reference.docx');
 		const args = ['-f', inputFormat, '-t', 'docx', '--wrap=none', '--reference-doc', refDoc];
 		const pandoc = spawn('pandoc', args, { stdio: ['pipe', 'pipe', 'pipe'] });
-		pandoc.stdin.write(content);
+		pandoc.stdin.write(processedContent);
 		pandoc.stdin.end();
 		const chunks = [];
 		const stderrChunks = [];
@@ -725,4 +907,237 @@ const handleExportDocx = async (url, request, response, ctx) => {
 	}
 };
 
-module.exports = { handle, handleExportDocx };
+// ---------------------------------------------------------------------------
+// POST /api/export/pdf — server-side pandoc html→pdf via weasyprint
+// ---------------------------------------------------------------------------
+
+const PDF_PRINT_CSS = `
+@page {
+  size: A4;
+  margin: 2cm 2.2cm 2.5cm 2.2cm;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* Pandoc's own default HTML template CSS (max-width:36em, padding:50px on
+   body) is injected before ours and has higher selector specificity than the
+   universal reset above, so it survives unless explicitly overridden here. */
+body { padding: 0; margin: 0; max-width: none; }
+html, body {
+  background: #fff;
+  color: #1a1a1a;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 10pt;
+  line-height: 1.65;
+}
+h1, h2, h3, h4, h5, h6 {
+  color: #111;
+  line-height: 1.25;
+  margin: 1.4em 0 0.5em;
+  page-break-after: avoid;
+}
+h1 { font-size: 2em;   border-bottom: 1px solid #ddd; padding-bottom: 0.25em; }
+h2 { font-size: 1.5em; border-bottom: 1px solid #eee; padding-bottom: 0.15em; }
+h3 { font-size: 1.25em; }
+h4 { font-size: 1.1em; }
+h5, h6 { font-size: 1em; }
+p { margin: 0.6em 0; }
+strong { font-weight: 700; }
+em     { font-style: italic; }
+u      { text-decoration: underline; }
+s      { text-decoration: line-through; }
+p.md-blank-line { margin: 0; padding: 0; line-height: 1; min-height: 0.8em; }
+a { color: #0055cc; }
+ul, ol { padding-left: 1.8em; margin: 0.5em 0; }
+li { margin: 0.2em 0; }
+blockquote {
+  border-left: 3px solid #ccc;
+  padding-left: 1em;
+  color: #555;
+  margin: 0.8em 0;
+  font-style: italic;
+}
+hr { border: none; border-top: 1px solid #ccc; margin: 1.2em 0; }
+code {
+  background: #f3f3f3;
+  color: #222;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'Cascadia Mono', 'Fira Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 0.88em;
+}
+pre {
+  background: #f6f6f6;
+  color: #222;
+  padding: 0.9em 1em;
+  border-radius: 4px;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  margin: 0.8em 0;
+  font-size: 0.85em;
+  page-break-inside: avoid;
+}
+pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; }
+.token.comment,.token.prolog,.token.doctype,.token.cdata { color: #6a737d; font-style: italic; }
+.token.punctuation { color: #444; }
+.token.property,.token.tag,.token.boolean,.token.number,.token.constant,.token.symbol,.token.deleted { color: #b31d28; }
+.token.selector,.token.attr-name,.token.string,.token.char,.token.builtin,.token.inserted { color: #22863a; }
+.token.operator,.token.entity,.token.url,.language-css .token.string,.style .token.string { color: #d73a49; }
+.token.atrule,.token.attr-value,.token.keyword { color: #005cc5; }
+.token.function,.token.class-name { color: #6f42c1; }
+.token.regex,.token.important,.token.variable { color: #e36209; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.8em 0;
+  font-size: 0.95em;
+  page-break-inside: avoid;
+}
+th, td { border: 1px solid #888; padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: #f0f0f0; font-weight: 600; border-bottom: 2px solid #444; }
+tr:nth-child(even) td { background: #fafafa; }
+img { max-width: 100%; height: auto; display: block; margin: 0.6em 0; }
+.md-checkbox::before         { content: "\\2610  "; font-size: 1em; }
+.md-checkbox.checked::before { content: "\\2611  "; font-size: 1em; }
+.md-checkbox { margin: 0.25em 0; display: block; }
+`;
+
+const buildPdfHtmlDoc = (bodyHtml) =>
+	`<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n</head>\n<body>\n${bodyHtml}\n</body>\n</html>`;
+
+const handleExportPdf = async (url, request, response, ctx) => {
+	if (url.pathname !== '/api/export/pdf' || request.method !== 'POST') return false;
+	try {
+		const auth = await ctx.authenticatedUser(request);
+		if (auth.error) {
+			response.writeHead(401, { 'Content-Type': 'application/json' });
+			response.end(JSON.stringify({ error: auth.error }));
+			return true;
+		}
+		const body = await parseBody(request);
+		const { content, format, title } = body;
+		if (!content) {
+			response.writeHead(400, { 'Content-Type': 'application/json' });
+			response.end(JSON.stringify({ error: 'content is required' }));
+			return true;
+		}
+
+		// Resolve to HTML — if sent as markdown (markdown mode active), render first
+		const rawHtml = format === 'markdown' ? renderMarkdown(content) : content;
+
+		// Strip resource download links (href is meaningless in PDF context)
+		const strippedHtml = stripResourceLinks(rawHtml);
+
+		// Inline resource images as base64 data URIs
+		const inlinedHtml = await inlineResourceImages(strippedHtml, auth.user.id, ctx.itemService);
+
+		const fullDoc = buildPdfHtmlDoc(inlinedHtml);
+		const filename = (title || 'note').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'note';
+
+		// IMPORTANT: pandoc's HTML reader parses only the <body> of the input
+		// document into its AST — any <style> in <head> is silently dropped
+		// before pandoc re-emits HTML for weasyprint. To make our print CSS
+		// actually reach the PDF, we inject it via --include-in-header, which
+		// pandoc inserts verbatim into the <head> of the HTML it *generates*
+		// (post-AST), so it survives through to weasyprint.
+		const cssHeaderFile = path.join(os.tmpdir(), `joplock-pdf-css-${Date.now()}-${Math.random().toString(36).slice(2)}.html`);
+		fs.writeFileSync(cssHeaderFile, `<style>${PDF_PRINT_CSS}</style>`);
+		const cleanupCssHeaderFile = () => { try { fs.unlinkSync(cssHeaderFile); } catch {} };
+
+		const args = [
+			'-f', 'html',
+			'-t', 'pdf',
+			'--pdf-engine=weasyprint',
+			'--pdf-engine-opt=--presentational-hints',
+			'--include-in-header', cssHeaderFile,
+		];
+		const pandocProc = spawn('pandoc', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+		pandocProc.stdin.write(fullDoc);
+		pandocProc.stdin.end();
+		const chunks = [];
+		const stderrChunks = [];
+		pandocProc.stdout.on('data', chunk => chunks.push(chunk));
+		pandocProc.stderr.on('data', chunk => stderrChunks.push(chunk));
+		pandocProc.on('close', code => {
+			cleanupCssHeaderFile();
+			if (code !== 0) {
+				const stderr = Buffer.concat(stderrChunks).toString();
+				response.writeHead(500, { 'Content-Type': 'application/json' });
+				response.end(JSON.stringify({ error: 'pandoc failed', code, stderr }));
+				return;
+			}
+			const pdf = Buffer.concat(chunks);
+			response.writeHead(200, {
+				'Content-Type': 'application/pdf',
+				'Content-Disposition': `attachment; filename="${filename}.pdf"`,
+				'Content-Length': pdf.length,
+			});
+			response.end(pdf);
+		});
+		pandocProc.on('error', err => {
+			cleanupCssHeaderFile();
+			response.writeHead(500, { 'Content-Type': 'application/json' });
+			response.end(JSON.stringify({ error: 'pandoc spawn failed', detail: err.message }));
+		});
+		return true;
+	} catch (error) {
+		response.writeHead(500, { 'Content-Type': 'application/json' });
+		response.end(JSON.stringify({ error: error.message || `${error}` }));
+		return true;
+	}
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/export/html — single self-contained HTML file: inlined theme CSS,
+// base64 images, base64 attachment links. No pandoc needed — the source is
+// already TinyMCE-rendered HTML.
+// ---------------------------------------------------------------------------
+
+const escapeHtmlAttr = value => `${value || ''}`
+	.replace(/&/g, '&amp;')
+	.replace(/</g, '&lt;')
+	.replace(/>/g, '&gt;')
+	.replace(/"/g, '&quot;');
+
+const handleExportHtml = async (url, request, response, ctx) => {
+	if (url.pathname !== '/api/export/html' || request.method !== 'POST') return false;
+	try {
+		const auth = await ctx.authenticatedUser(request);
+		if (auth.error) {
+			response.writeHead(401, { 'Content-Type': 'application/json' });
+			response.end(JSON.stringify({ error: auth.error }));
+			return true;
+		}
+		const body = await parseBody(request);
+		const { content, title } = body;
+		if (!content) {
+			response.writeHead(400, { 'Content-Type': 'application/json' });
+			response.end(JSON.stringify({ error: 'content is required' }));
+			return true;
+		}
+		const theme = /^[a-z0-9-]{1,40}$/.test(`${body.theme || ''}`) ? body.theme : 'earth';
+
+		const imagedHtml = await inlineResourceImages(content, auth.user.id, ctx.itemService);
+		const inlinedHtml = await inlineResourceLinks(imagedHtml, auth.user.id, ctx.itemService);
+
+		const themeCss = extractCssBlocks(STYLES_CSS, [`.theme-${theme}`]);
+		const previewCss = extractCssBlocks(STYLES_CSS, ['.editor-preview', '.md-blank-line', '.md-checkbox']);
+		const fullCss = `${HTML_EXPORT_BASE_CSS}\n${themeCss}\n${previewCss}\n${HTML_EXPORT_PARITY_CSS}`;
+
+		const safeTitle = escapeHtmlAttr(title || 'Note');
+		const filename = (title || 'note').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'note';
+
+		const doc = `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>${safeTitle}</title>\n<style>${fullCss}</style>\n</head>\n<body class="theme-${theme}">\n<div class="editor-preview">${inlinedHtml}</div>\n</body>\n</html>`;
+
+		response.writeHead(200, {
+			'Content-Type': 'text/html; charset=utf-8',
+			'Content-Disposition': `attachment; filename="${filename}.html"`,
+		});
+		response.end(doc);
+		return true;
+	} catch (error) {
+		response.writeHead(500, { 'Content-Type': 'application/json' });
+		response.end(JSON.stringify({ error: error.message || `${error}` }));
+		return true;
+	}
+};
+
+module.exports = { handle, handleExportDocx, handleExportPdf, handleExportHtml, inlineResourceImages, inlineResourceLinks, stripResourceLinks, extractCssBlocks };

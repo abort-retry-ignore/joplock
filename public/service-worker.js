@@ -1,4 +1,4 @@
-const CACHE_NAME = 'joplock-shell-v55-20260716vaultidentity';
+const CACHE_NAME = 'joplock-shell-v56-20260716plaintitle';
 const STATIC_ASSETS = ['/styles.css', '/htmx.min.js', '/turndown.min.js', '/codemirror.min.js', '/hljs.min.js', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png', '/maskable-icon-192.png', '/maskable-icon-512.png', '/apple-touch-icon.png', '/fonts/CascadiaMono-Regular.woff2', '/fonts/CascadiaMono-Bold.woff2'];
 
 self.addEventListener('install', event => {

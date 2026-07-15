@@ -2794,7 +2794,53 @@ function syncTitleToHidden(opts){opts=opts||{};var ti=queryActiveEditor('.editor
 function syncTitle(){syncTitleToHidden()}
 function mobileSyncTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(!mobileTitle)return;var plain=stripMdForTitle(mobileTitle.textContent);var hi=queryActiveEditor('.editor-title-hidden');var ti=queryActiveEditor('.editor-title');if(hi)hi.value=plain;if(ti)ti.textContent=plain;_titleManual=true;markEdited()}
 function mobileSyncTitleAndSave(){mobileSyncTitle();scheduleSaveTitle()}
-function initAutoTitle(){_titleManual=false;var ti=queryActiveEditor('.editor-title');if(ti&&ti.style.display!=='none'){ti.addEventListener('input',function(){_titleManual=true;syncTitle()})}}
+function _enforcePlainTitle(el){
+	if(!el||el.dataset.plainTitleWired==='1')return;
+	el.dataset.plainTitleWired='1';
+	// Contenteditable retains pasted/dragged HTML (fonts, sizes, colors,
+	// links). The title must ALWAYS be plain text. Intercept paste + drop
+	// to insert only the plain-text representation, and sanitise on input
+	// (covers formatted-text drops from other tabs, IME quirks, and any
+	// programmatic mutation that slipped through).
+	el.addEventListener('paste',function(e){
+		e.preventDefault();
+		var txt='';
+		if(e.clipboardData&&e.clipboardData.getData){
+			txt=e.clipboardData.getData('text/plain')||'';
+			if(!txt){
+				var html=e.clipboardData.getData('text/html')||'';
+				if(html){var tmp=document.createElement('div');tmp.innerHTML=html;txt=tmp.textContent||''}
+			}
+		}
+		if(!txt)return;
+		txt=txt.replace(/[\r\n\t]+/g,' ');
+		if(document.execCommand){document.execCommand('insertText',false,txt)}
+		else{var sel=window.getSelection();if(sel&&sel.rangeCount){var r=sel.getRangeAt(0);r.deleteContents();r.insertNode(document.createTextNode(txt));r.collapse(false);sel.removeAllRanges();sel.addRange(r)}}
+		el.dispatchEvent(new Event('input',{bubbles:true}));
+	});
+	el.addEventListener('drop',function(e){
+		e.preventDefault();
+		var txt='';
+		if(e.dataTransfer&&e.dataTransfer.getData){txt=e.dataTransfer.getData('text/plain')||''}
+		txt=(txt||'').replace(/[\r\n\t]+/g,' ');
+		if(!txt)return;
+		el.textContent=(el.textContent||'')+txt;
+		el.dispatchEvent(new Event('input',{bubbles:true}));
+	});
+	// Sanitise any structured content that made it in (formatted paste that
+	// bypassed the handler, drag from another app, contenteditable quirks).
+	// Compare innerHTML vs the escaped textContent — if they differ, strip
+	// tags and restore plain text. Preserve caret at end.
+	el.addEventListener('input',function(){
+		var plain=el.textContent||'';
+		var expected=plain.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+		if(el.innerHTML===expected)return;
+		el.textContent=plain;
+		var sel=window.getSelection();
+		if(sel&&el.firstChild){var r=document.createRange();r.selectNodeContents(el);r.collapse(false);sel.removeAllRanges();sel.addRange(r)}
+	});
+}
+function initAutoTitle(){_titleManual=false;var ti=queryActiveEditor('.editor-title');if(ti&&ti.style.display!=='none'){_enforcePlainTitle(ti);ti.addEventListener('input',function(){_titleManual=true;syncTitle()})}var mt=document.getElementById('mobile-editor-title');if(mt)_enforcePlainTitle(mt)}
 function _autoTitleCandidate(line){var trimmed=(line||'').trim();if(!trimmed)return '';if(/^!\[[^\]]*\]\([^\)]+\)$/.test(trimmed))return '';if(/^<img\b[^>]*\/?>(?:<\/img>)?$/i.test(trimmed))return '';return stripMdForTitle(trimmed.replace(/^#+\s*/,''));}
 function autoTitle(){if(_titleManual)return;var ta=getTA();var hi=queryActiveEditor('.editor-title-hidden');var ti=queryActiveEditor('.editor-title');var mobileTitle=document.getElementById('mobile-editor-title');if(!ta||!hi)return;var val=ta.value;var lines=val.split('\n');var firstPlain='';for(var i=0;i<lines.length;i++){var candidate=_autoTitleCandidate(lines[i]);if(candidate){firstPlain=candidate;break}}if(firstPlain&&firstPlain!==hi.value){if(ti)ti.textContent=firstPlain;// Don't clobber #mobile-editor-title while user is editing it
 if(mobileTitle&&document.activeElement!==mobileTitle)mobileTitle.textContent=firstPlain;hi.value=firstPlain;hi.dispatchEvent(new Event('input',{bubbles:true}))}}function pad2(value){return String(value).padStart(2,'0')}

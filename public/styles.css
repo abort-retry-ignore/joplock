@@ -481,7 +481,7 @@
 	--text-heading: #f8f8f2;
 	--text-on-accent: #282a36;
 	--accent: #8be9fd;
-	--border: #bd93f9;
+	--border: rgba(189,147,249,0.18);
 	--border-focus: #bd93f9;
 	--danger: #ff5555;
 	--toolbar-bg: #21222c;

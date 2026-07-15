@@ -713,7 +713,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: center;
 	gap: 6px;
 	padding: 8px 10px;
-	min-height: 48px;
+	min-height: 44px;
 	box-sizing: border-box;
 	border-bottom: 1px solid var(--border);
 	background: var(--bg-side);
@@ -1310,7 +1310,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: center;
 	gap: 6px;
 	padding: 8px 10px;
-	min-height: 48px;
+	min-height: 44px;
 	box-sizing: border-box;
 	border-bottom: 1px solid var(--border);
 	flex-shrink: 0;
@@ -1396,8 +1396,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	padding: 8px 16px;
-	min-height: 48px;
+	padding: 6px 16px;
+	min-height: 44px;
 	box-sizing: border-box;
 	border-bottom: 1px solid var(--border);
 	flex-shrink: 0;
@@ -1405,7 +1405,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 
 .editor-title {
 	flex: 1;
-	padding: 4px 0;
+	padding: 2px 0;
 	border: none;
 	background: transparent;
 	font-size: 18px;

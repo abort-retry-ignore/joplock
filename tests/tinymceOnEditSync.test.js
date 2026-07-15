@@ -100,6 +100,7 @@ function makeSandbox({ initialTaValue = '', initialHtml = '<p>hello</p>', dbg = 
 		_tinymceEditor: editor,
 		_tinymceSuppressEdits: false,
 		_tinymceReadonly: false,
+		_tinymcePostLoad: false,
 		_editorMode: editorMode,
 		_dbg: !!dbg,
 		_saveScheduled: 0,

@@ -792,7 +792,10 @@ test('mode switch reconciles away the spurious "Edited" from the content round-t
 	assert.ok(appJs.includes("if(typeof _activeEditorIsDirty==='function'?!_activeEditorIsDirty():formHash(form)===_savedHash){"));
 	assert.ok(appJs.includes('setSaveState(\'<span class="autosave-ok">Saved</span>\',\'Saved\');'));
 	// The form listeners are NOT globally gated (that would suppress real saves).
-	assert.ok(appJs.includes("form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()})"));
+	assert.ok(
+		appJs.includes("form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;")
+		&& appJs.includes(";markEdited();scheduleSave()})")
+	);
 });
 
 test('searchResultsFragment renders note items', () => {

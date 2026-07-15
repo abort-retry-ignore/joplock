@@ -334,14 +334,14 @@ test('heading path is not affected by partial-selection split logic', () => {
 
 test('app.js: onEdit is wired to ExecCommand so builtin commands trigger #note-body sync', () => {
 	assert.ok(
-		appSrc.includes("editor.on('ExecCommand',onEdit)"),
-		"onEdit must listen on ExecCommand — otherwise blocks-dropdown edits (FormatBlock, lists, etc.) never sync to #note-body and are silently discarded on refresh"
+		appSrc.includes("editor.on('ExecCommand',function(e){onEdit("),
+		"onEdit must be wired to editor.on('ExecCommand',...)"
 	);
 });
 
 test('app.js: onEdit is wired to SetContent so programmatic content updates sync (guarded by _tinymceSuppressEdits during load)', () => {
 	assert.ok(
-		appSrc.includes("editor.on('SetContent',onEdit)"),
-		"onEdit must listen on SetContent so replaceContent/insertContent-style mutations sync to #note-body"
+		appSrc.includes("editor.on('SetContent',function(){onEdit("),
+		"onEdit must be wired to editor.on('SetContent',...)"
 	);
 });

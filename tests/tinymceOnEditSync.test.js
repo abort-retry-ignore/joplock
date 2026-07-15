@@ -33,7 +33,7 @@ const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8')
 // ---------------------------------------------------------------------------
 
 function extractOnEditBody() {
-	const marker = 'function onEdit(){';
+	const marker = 'function onEdit(evtName){';
 	const idx = appSrc.indexOf(marker);
 	assert.ok(idx !== -1, 'function onEdit not found in app.js');
 	const bodyStart = idx + marker.length;
@@ -101,6 +101,7 @@ function makeSandbox({ initialTaValue = '', initialHtml = '<p>hello</p>', dbg = 
 		_tinymceSuppressEdits: false,
 		_tinymceReadonly: false,
 		_tinymcePostLoad: false,
+		_tinymcePostLoadUntil: 0,
 		_editorMode: editorMode,
 		_dbg: !!dbg,
 		_saveScheduled: 0,
@@ -115,12 +116,14 @@ function makeSandbox({ initialTaValue = '', initialHtml = '<p>hello</p>', dbg = 
 		function tinymceToMarkdown(html){return String(html||'').replace(/<[^>]+>/g,'')}
 		function markEdited(){_editedMarked++}
 		function scheduleSave(){_saveScheduled++}
+		function snapshotHash(){}
 		function _log(){_logs.push(Array.from(arguments).join(' '))}
+		function _dbgline(){_logs.push('[dbg] '+Array.from(arguments).join(' '))}
 	`, ctx);
 
 	vm.runInContext(extractFn('_lazyTinyMCESyncBeforeSave'), ctx);
-	vm.runInContext(`function onEdit(){${extractOnEditBody()}}`, ctx);
-	vm.runInContext(`editor.on('ExecCommand',onEdit); editor.on('SetContent',onEdit); editor.on('input',onEdit); editor.on('change',onEdit);`, ctx);
+	vm.runInContext(`function onEdit(evtName){${extractOnEditBody()}}`, ctx);
+	vm.runInContext(`editor.on('ExecCommand',function(e){onEdit('ExecCommand')}); editor.on('SetContent',function(){onEdit('SetContent')}); editor.on('input',function(){onEdit('input')}); editor.on('change',function(){onEdit('change')});`, ctx);
 
 	return { ctx, editor, dom };
 }
@@ -254,9 +257,17 @@ test('_lazyTinyMCESyncBeforeSave: no-op when suppressed or readonly', () => {
 // ---------------------------------------------------------------------------
 
 test('app.js: onEdit is wired to all four TinyMCE event names', () => {
-	for (const evt of ['input', 'change', 'ExecCommand', 'SetContent']) {
+	// Wiring uses small anonymous wrappers so we can pass an event-name label
+	// to onEdit for debug logging; assert the wrapper form for each event.
+	const patterns = {
+		input: "editor.on('input',function(){onEdit(",
+		change: "editor.on('change',function(){onEdit(",
+		ExecCommand: "editor.on('ExecCommand',function(e){onEdit(",
+		SetContent: "editor.on('SetContent',function(){onEdit(",
+	};
+	for (const [evt, needle] of Object.entries(patterns)) {
 		assert.ok(
-			appSrc.includes(`editor.on('${evt}',onEdit)`),
+			appSrc.includes(needle),
 			`onEdit must be wired to '${evt}' — otherwise a class of TinyMCE mutations goes unsynced`
 		);
 	}

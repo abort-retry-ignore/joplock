@@ -7,6 +7,19 @@ var _assetVersion='20260519pwa22';
 var _openRouterEnabled=!!_cfg.openRouterEnabled;
 var _textExpanders=Array.isArray(_cfg.textExpanders)?_cfg.textExpanders.filter(function(e){return e&&e.trigger&&(e.action==='ai'||e.text!=null)}).map(function(e){return{id:String(e.id||''),trigger:String(e.trigger),action:e.action==='ai'?'ai':'text',profileId:String(e.profileId||''),text:String(e.text||'')}}):[];
 function _log(){if(!_dbg)return;var a=Array.prototype.slice.call(arguments);a.unshift('[joplock]');console.log.apply(console,a)}
+// Debug-line helper: when _dbg is on, logs unconditionally to console AND
+// ships one line to the server via /api/web/client-log so it shows in
+// `docker compose logs joplock`. Used for the "Edited flash after restore"
+// investigation. Silent in production.
+function _dbgline(){
+	if(!_dbg)return;
+	try{
+		var a=Array.prototype.slice.call(arguments);
+		var msg='[dbg] '+a.map(function(x){try{return typeof x==='string'?x:JSON.stringify(x)}catch(_e){return String(x)}}).join(' ');
+		try{console.log(msg)}catch(_e){}
+		try{fetch('/api/web/client-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level:'info',message:msg}),keepalive:true}).catch(function(){})}catch(_e){}
+	}catch(_e){}
+}
 function _clientLog(event,data){try{var safe={};Object.keys(data||{}).forEach(function(k){if(/text|body|content|password|key|secret|token/i.test(k))return;var v=data[k];if(typeof v==='string')safe[k]=v.slice(0,120);else if(typeof v==='number'||typeof v==='boolean'||v===null)safe[k]=v});fetch('/api/web/client-log',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'event='+encodeURIComponent(event)+'&data='+encodeURIComponent(JSON.stringify(safe))}).catch(function(){})}catch(e){}}
 if('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js?v='+encodeURIComponent(_assetVersion),{updateViaCache:'none'}).catch(function(){});
 // If the browser restores this page from bfcache, force a reload so the server can validate the session
@@ -317,7 +330,7 @@ function activeEditorForm(){if(isMobileShellMode()){var mobileBody=document.getE
 function queryActiveEditor(selector){var form=activeEditorForm();return form&&form.querySelector?form.querySelector(selector):null}
 function activeEditorMeta(){if(isMobileShellMode()){var mobileBody=document.getElementById('mobile-editor-body');var mobileMeta=mobileBody&&mobileBody.querySelector?mobileBody.querySelector('#note-meta'):null;if(mobileMeta)return mobileMeta}return document.getElementById('status-note-meta')}
 function setSaveState(html,text){var s=queryActiveEditor('#autosave-status');if(s)s.innerHTML=html||'';var mobile=document.getElementById('mobile-editor-status');if(mobile)mobile.innerHTML=text?html:''}
-function markEdited(){setSaveState('<span class="autosave-edited">Edited</span>','Edited');_log('markEdited')}
+function markEdited(){setSaveState('<span class="autosave-edited">Edited</span>','Edited');_dbgline('markEdited callstack',new Error().stack&&new Error().stack.split('\n').slice(1,6).join(' | '))}
 // After a programmatic mode switch, the markdown<->HTML round-trip fires
 // synthetic input events (and can be slightly lossy). If, once the switch has
 // settled, the form content still matches the last saved hash, the note is not
@@ -744,10 +757,20 @@ var _tinymceInitPromise=null;
 // save-triggers when we call setContent programmatically on note switch / unlock).
 var _tinymceSuppressEdits=false;
 var _tinymcePostLoad=false;
+// Extended post-load window: absorbs the burst of TinyMCE events that fire in
+// the first ~500ms after content is set — SetContent (suppressed), then focus
+// events (mceFocus), then a phantom 'input' that carries only normalization
+// churn (round-trip whitespace differences from the raw server markdown).
+// Without this window, in debug mode the second onEdit dispatches 'input' on
+// #note-body which bubbles to the form-level listener → markEdited → flash of
+// "Edited" → real save of the round-tripped markdown. See "Edited flash after
+// restore" investigation.
+var _tinymcePostLoadUntil=0;
 var _pendingSearchHighlight=false;
 var _tinymceShowRequested=false;
 function _setTinyMCEContent(html){
 	if(!_tinymceEditor)return;
+	_dbgline('_setTinyMCEContent begin len='+((html||'').length));
 	_tinymceSuppressEdits=true;
 	try{
 		_tinymceEditor.setContent(html||'');
@@ -756,10 +779,13 @@ function _setTinyMCEContent(html){
 		setTimeout(function(){
 			_tinymceSuppressEdits=false;
 			_tinymcePostLoad=true;
+			_tinymcePostLoadUntil=Date.now()+800;
+			_dbgline('_setTinyMCEContent post-load: suppress=false, postLoad=true, until=+800ms');
 			// Run after all sync SetContent handlers (codesample plugin) have finished.
 			ensureTinyMCEEditableAfterPre(_tinymceEditor);
 			initTinyMCECodeCopyButtons(_tinymceEditor);
 			_applyTinyMCESpellcheck(_tinymceEditor);
+			_dbgline('_setTinyMCEContent post-load done, postLoad still='+_tinymcePostLoad);
 			// Rendered-mode find: content just (re)loaded into the TinyMCE body.
 			// Re-apply the search highlight now that there is text to mark. This
 			// covers both the sync (server-rendered slot) and async (/fragments/
@@ -1343,7 +1369,8 @@ function initPersistentTinyMCE(){
 			//    trace exactly what mutation fired and what the resulting
 			//    markdown was. This is the code path that catches
 			//    "markEdited fires but hash unchanged" class bugs live.
-			function onEdit(){
+			function onEdit(evtName){
+				_dbgline('onEdit fire',{evt:evtName||'(?)',postLoad:_tinymcePostLoad,postLoadRemain:Math.max(0,_tinymcePostLoadUntil-Date.now()),suppress:_tinymceSuppressEdits,readonly:_tinymceReadonly,mode:_editorMode,hostVisible:!!(document.getElementById('tinymce-host')&&document.getElementById('tinymce-host').classList.contains('tinymce-host-visible'))});
 				if(_tinymceSuppressEdits)return;
 				if(_tinymceReadonly)return;
 				var form=activeEditorForm();
@@ -1352,6 +1379,11 @@ function initPersistentTinyMCE(){
 				// Skip if editor host is hidden (locked note, empty state).
 				var host=document.getElementById('tinymce-host');
 				if(!host||!host.classList.contains('tinymce-host-visible'))return;
+				// Post-load quiet window: absorbs the burst of TinyMCE events that
+				// fire immediately after _setTinyMCEContent (mceFocus, then a
+				// phantom input carrying only round-trip normalization diff).
+				// None of these should mark the note edited.
+				var inPostLoadWindow=Date.now()<_tinymcePostLoadUntil;
 				if(_dbg){
 					var ta=getTA();
 					if(ta){
@@ -1359,24 +1391,29 @@ function initPersistentTinyMCE(){
 						var md=tinymceToMarkdown(html);
 					if(ta.value!==md){
 						ta.value=md;
-						if(!_tinymcePostLoad)ta.dispatchEvent(new Event('input',{bubbles:true}));
-							_log('onEdit sync (debug): md length',md.length);
+						// Do not dispatch 'input' during the post-load window:
+						// that bubbles to the form-level listener and would flash
+						// "Edited" (then save the normalized markdown) even when
+						// the user hasn't touched the note yet.
+						if(!_tinymcePostLoad&&!inPostLoadWindow)ta.dispatchEvent(new Event('input',{bubbles:true}));
+							_log('onEdit sync (debug): md length',md.length,'dispatched='+(!_tinymcePostLoad&&!inPostLoadWindow));
 						}else{
 							_log('onEdit sync (debug): unchanged');
 			}
 				}
 			}
-			if(_tinymcePostLoad){
+			if(_tinymcePostLoad||inPostLoadWindow){
 				_tinymcePostLoad=false;
 				snapshotHash();
-				_log('onEdit: post-load, recaptured hash after round-trip sync');
+				_dbgline('onEdit consumed post-load window; snapshotHash recaptured');
 				return;
 			}
+			_dbgline('onEdit -> markEdited+scheduleSave (postLoad was false, window elapsed)');
 			markEdited();
 			scheduleSave();
 			}
-			editor.on('input',onEdit);
-			editor.on('change',onEdit);
+			editor.on('input',function(){onEdit('input')});
+			editor.on('change',function(){onEdit('change')});
 			// TinyMCE's built-in commands (blocks dropdown -> FormatBlock, lists,
 			// removeformat, etc.) mutate the iframe DOM WITHOUT firing 'input'
 			// or 'change'. Without also listening on ExecCommand + SetContent,
@@ -1384,8 +1421,8 @@ function initPersistentTinyMCE(){
 			// so formHash() stays equal to _savedHash and scheduleSave() skips
 			// -> "Edited" briefly flashes then falls back to "Saved" but nothing
 			// is actually saved (refresh reverts the change). See onEdit().
-			editor.on('ExecCommand',onEdit);
-			editor.on('SetContent',onEdit);
+			editor.on('ExecCommand',function(e){onEdit('ExecCommand:'+(e&&e.command||'?'))});
+			editor.on('SetContent',function(){onEdit('SetContent')});
 			// FormatBlock fix: when newline_behavior='linebreak', soft-wrapped lines live
 			// inside a single <p> separated by <br>. TinyMCE's FormatBlock command
 			// (used by the blocks dropdown) operates at block granularity — it converts
@@ -2984,7 +3021,7 @@ var _historyNoteId=null;var _historySnapshotId=null;
 function openHistoryModal(noteId){_historyNoteId=noteId;_historySnapshotId=null;var modal=document.getElementById('history-modal');var backdrop=document.getElementById('history-modal-backdrop');var inner=document.getElementById('history-modal-inner');if(!modal||!backdrop||!inner)return;inner.innerHTML='<div class="history-loading">Loading...</div>';if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false;htmx.ajax('GET','/fragments/history/'+encodeURIComponent(noteId),{target:'#history-modal-inner',swap:'innerHTML'})}
 function closeHistoryModal(){var modal=document.getElementById('history-modal');var backdrop=document.getElementById('history-modal-backdrop');if(modal)modal.hidden=true;if(backdrop)backdrop.hidden=true}
 function selectHistorySnapshot(id){_historySnapshotId=id;document.querySelectorAll('.history-item').forEach(function(el){el.classList.toggle('history-item-active',el.dataset.snapshotId===id)});var label=document.getElementById('history-selected-label');var preview=document.getElementById('history-preview');if(preview)preview.innerHTML='<div class="history-loading">Loading...</div>';if(label)label.textContent='Loading...';htmx.ajax('GET','/fragments/history-snapshot/'+encodeURIComponent(id),{target:'#history-preview',swap:'innerHTML'}).then(function(){var d=new Date(parseInt(id)*1||0);var label=document.getElementById('history-selected-label');if(label)label.textContent=''});_log('selectHistorySnapshot',id)}
-function restoreHistorySnapshot(noteId){var sid=_historySnapshotId;if(!sid){alert('Select a snapshot first.');return}if(!confirm('Restore this version? The current note will be overwritten.'))return;var form=activeEditorForm();var cfi=(form&&form.querySelector('[name="currentFolderId"]'))?form.querySelector('[name="currentFolderId"]').value:'';closeHistoryModal();_log('restoreHistorySnapshot',noteId,sid);/* Cancel any pending autosave for the current (about-to-be-replaced) note: otherwise a stale timer could fire after restore and overwrite the restored body with the pre-restore edits. Also clear the saved-hash so post-swap init treats the new body as authoritative. */if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}_savedHash='';var targetSel=inMobileEditor()?'#mobile-editor-body':'#editor-panel';htmx.ajax('POST','/fragments/history/'+encodeURIComponent(noteId)+'/restore/'+encodeURIComponent(sid),{target:targetSel,swap:'innerHTML',values:{currentFolderId:cfi}}).then(function(){_snapshots=[];_log('restore done')}).catch(function(e){alert('Restore failed: '+e.message)})}
+function restoreHistorySnapshot(noteId){var sid=_historySnapshotId;if(!sid){alert('Select a snapshot first.');return}if(!confirm('Restore this version? The current note will be overwritten.'))return;var form=activeEditorForm();var cfi=(form&&form.querySelector('[name="currentFolderId"]'))?form.querySelector('[name="currentFolderId"]').value:'';closeHistoryModal();_dbgline('restoreHistorySnapshot begin',noteId,sid);/* Cancel any pending autosave for the current (about-to-be-replaced) note: otherwise a stale timer could fire after restore and overwrite the restored body with the pre-restore edits. Also clear the saved-hash so post-swap init treats the new body as authoritative. */if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}_savedHash='';var targetSel=inMobileEditor()?'#mobile-editor-body':'#editor-panel';htmx.ajax('POST','/fragments/history/'+encodeURIComponent(noteId)+'/restore/'+encodeURIComponent(sid),{target:targetSel,swap:'innerHTML',values:{currentFolderId:cfi}}).then(function(){_snapshots=[];_dbgline('restore ajax done')}).catch(function(e){alert('Restore failed: '+e.message)})}
 // --- client ring buffer (in-session undo) ---
 var _snapshots=[];var _snapshotMaxCount=20;var _undoTimer=null;
 function pushSnapshot(){var ta=getTA();var title=queryActiveEditor('[name="title"]');var body=ta?ta.value:'';var t=title?title.value:'';if(_snapshots.length>0&&_snapshots[_snapshots.length-1].body===body&&_snapshots[_snapshots.length-1].title===t)return;_snapshots.push({body:body,title:t,ts:Date.now()});if(_snapshots.length>_snapshotMaxCount)_snapshots.shift();var btn=queryActiveEditor('#undo-save-btn');if(btn)btn.hidden=_snapshots.length<2;_log('pushSnapshot count',_snapshots.length)}
@@ -3733,9 +3770,9 @@ function _lazyTinyMCESyncBeforeSave(){
 function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
 function scheduleSaveTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(mobileTitle&&document.activeElement===mobileTitle)return;// Don't save while user is still editing title
 if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
-function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_log('snapshotHash',_savedHash)}
+function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_dbgline('snapshotHash',_savedHash,'stack',new Error().stack&&new Error().stack.split('\n').slice(1,5).join(' | '))}
 function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
-function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_resetRingBuffer('note-switch');_log('initEditorPanel',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
+function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_resetRingBuffer('note-switch');_dbgline('initEditorPanel begin',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form input',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form change',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
 e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+1;ta.dispatchEvent(new Event('input',{bubbles:true}))}else{// Enter = new paragraph (\n\n)
 e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+2;ta.dispatchEvent(new Event('input',{bubbles:true}))}})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';/* Persistent TinyMCE: refresh content for this note (skip locked encrypted notes) */if(form.dataset.encrypted!=='1'){var _mobileRO=_tinymceReadonlyDefault();_editorMode=(_mobileRO?false:_defaultNoteOpenMode==='markdown')?'markdown':'rich';_tinymceReadonly=_mobileRO;syncEditorModeButtons();if(_editorMode==='markdown'){hideTinyMCEHost();applyEditorModeVisibility('markdown');var mdta=getTA();mountMarkdownEditor(mdta?mdta.value:'');initPersistentTinyMCE()}else{initPersistentTinyMCE();refreshTinyMCEForActiveNote()}if(pendingSearch){var _pendTerm=pendingSearch;if(_editorMode==='markdown'){setTimeout(function(){var si=activeSearchInput();if(si&&!si.value)si.value=_pendTerm;applySearchHighlight()},0)}else{/* rich: highlight is (re)applied by _setTinyMCEContent once the body is painted (covers sync + async render) */var si2=activeSearchInput();if(si2&&!si2.value)si2.value=_pendTerm;_log('initEditorPanel: setting pendingSearchHighlight, rich mode, term='+(_pendTerm||''));_pendingSearchHighlight=true;/* Fallback: if no setContent fires (e.g. same-note reopen with body already loaded), apply once the body has text. */var _tries=0;var _fb=setInterval(function(){_tries++;if(!_pendingSearchHighlight||_tries>20){clearInterval(_fb);return}var _b=_tinymceEditor&&_tinymceEditor.getBody&&_tinymceEditor.getBody();if(_b&&(_b.textContent||'').trim()&&activeSearchTerm()&&activeSearchTerm().trim()){_pendingSearchHighlight=false;clearInterval(_fb);applySearchHighlight()}},50)}}}else{hideTinyMCEHost()}}
 function applySearchHighlight(){var term=activeSearchTerm();_log('applySearchHighlight mode='+_editorMode+' term='+(term||''));var bar=document.getElementById('search-nav-bar');if(bar)bar.hidden=true;_searchMarks=[];_searchMarkIdx=0;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);clearTinyMCESearchMarks();if(!term||!term.trim()){clearCodeMirrorSearch();return}term=term.trim();if(_editorMode==='markdown'||_editorMode==='md'){_log('applySearchHighlight: markdown/CM6 branch');if(_cmView&&window.CM&&window.CM.SearchQuery&&window.CM.setSearchQuery){window.CM.openSearchPanel(_cmView);var q=new window.CM.SearchQuery({search:term,caseSensitive:false});_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)});_cmSearchMatches=collectCodeMirrorSearchMatches(q);if(_cmSearchMatches.length)setCodeMirrorSearchActive(0);else searchNavShow(0,0)}}else if(_editorMode==='preview'&&pv){clearCodeMirrorSearch();var savedHandler=pv.oninput;pv.oninput=null;highlightInPreview(pv,term);pv.oninput=savedHandler}else{_log('applySearchHighlight: rich/TinyMCE branch');clearCodeMirrorSearch();highlightInTinyMCE(term)}}

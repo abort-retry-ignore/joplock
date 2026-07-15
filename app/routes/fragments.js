@@ -423,7 +423,7 @@ const handle = async (url, request, response, ctx) => {
 				return true;
 			}
 			const targetParentId = `${body.parentId || existing.parentId || ''}`;
-			await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, targetParentId, body.body);
+			await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, targetParentId, body.body, noteId);
 			await itemWriteService.updateNote(auth.user.sessionId, existing, {
 				title: plainNoteTitle(body.title),
 				body: body.body,

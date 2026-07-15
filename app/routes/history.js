@@ -50,7 +50,7 @@ const handle = async (url, request, response, ctx) => {
 			const currentFolderId = `${body.currentFolderId || ''}`;
 			const existing = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
 			if (!existing) { sendHtml(response, 404, '<span class="autosave-error">Note not found</span>'); return true; }
-			await assertVaultNoteBodyEncrypted(ctx.vaultService, auth.user.id, existing.parentId, existing.parentId, snapshot.body);
+			await assertVaultNoteBodyEncrypted(ctx.vaultService, auth.user.id, existing.parentId, existing.parentId, snapshot.body, noteId);
 			await itemWriteService.updateNote(auth.user.sessionId, existing, {
 				title: snapshot.title,
 				body: snapshot.body,
@@ -59,10 +59,15 @@ const handle = async (url, request, response, ctx) => {
 			const refreshed = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
 			const { folders, counts } = await navData(auth.user.id);
 			const selFolder = selectedFolderForNav(currentFolderId || existing.parentId);
+			// Swap the editor panel inline (target of the request), with the
+			// autosave status + nav panel as OOB updates. Targeting the editor
+			// panel directly ensures the normal editor-swap lifecycle runs on
+			// the client (destroy CM6, reinit TinyMCE, reseed #note-body) so
+			// the restored content appears immediately without a page refresh.
 			sendHtml(response, 200,
-				`${templates.autosaveStatusFragment()}` +
-				navPanelOob(templates.navigationFragment(folders, counts, selFolder, noteId, '', selFolder)) +
-				`<div id="editor-panel" hx-swap-oob="innerHTML">${templates.editorFragment(refreshed || existing, folders, selFolder)}</div>`
+				templates.editorFragment(refreshed || existing, folders, selFolder) +
+				`<span id="autosave-status" hx-swap-oob="innerHTML"><span class="autosave-ok">Restored</span></span>` +
+				navPanelOob(templates.navigationFragment(folders, counts, selFolder, noteId, '', selFolder))
 			);
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<span class="autosave-error">Restore failed: ${templates.escapeHtml(error.message || `${error}`)}</span>`);

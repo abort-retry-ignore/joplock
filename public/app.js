@@ -54,11 +54,15 @@ async function importKey(jwkBase64){var jwk=JSON.parse(atob(jwkBase64));return c
 // vaultId: folder jop_id (stored in ciphertext for reference)
 // key: CryptoKey (pre-derived vault key)
 // salt: Uint8Array (vault salt, stored redundantly in ciphertext for resilience)
-async function encryptForVault(plaintext,vaultId,key,salt){
+async function encryptForVault(plaintext,vaultId,key,salt,noteId){
 	var iv=crypto.getRandomValues(new Uint8Array(12));
 	var enc=new TextEncoder();
 	var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,enc.encode(plaintext));
 	var obj={joplock_encrypted:1,v:ENCRYPTION_VERSION,vault:vaultId,salt:_b64Encode(salt),iv:_b64Encode(iv),ct:_b64Encode(ct)};
+	// Bind the ciphertext to a specific note id when known. The server
+	// checks this and refuses the write if the ciphertext was produced for
+	// a different note (defence against stale-timer / wrong-form races).
+	if(noteId)obj.noteId=noteId;
 	return wrapCiphertext(JSON.stringify(obj));
 }
 
@@ -2934,7 +2938,7 @@ var _historyNoteId=null;var _historySnapshotId=null;
 function openHistoryModal(noteId){_historyNoteId=noteId;_historySnapshotId=null;var modal=document.getElementById('history-modal');var backdrop=document.getElementById('history-modal-backdrop');var inner=document.getElementById('history-modal-inner');if(!modal||!backdrop||!inner)return;inner.innerHTML='<div class="history-loading">Loading...</div>';if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false;htmx.ajax('GET','/fragments/history/'+encodeURIComponent(noteId),{target:'#history-modal-inner',swap:'innerHTML'})}
 function closeHistoryModal(){var modal=document.getElementById('history-modal');var backdrop=document.getElementById('history-modal-backdrop');if(modal)modal.hidden=true;if(backdrop)backdrop.hidden=true}
 function selectHistorySnapshot(id){_historySnapshotId=id;document.querySelectorAll('.history-item').forEach(function(el){el.classList.toggle('history-item-active',el.dataset.snapshotId===id)});var label=document.getElementById('history-selected-label');var preview=document.getElementById('history-preview');if(preview)preview.innerHTML='<div class="history-loading">Loading...</div>';if(label)label.textContent='Loading...';htmx.ajax('GET','/fragments/history-snapshot/'+encodeURIComponent(id),{target:'#history-preview',swap:'innerHTML'}).then(function(){var d=new Date(parseInt(id)*1||0);var label=document.getElementById('history-selected-label');if(label)label.textContent=''});_log('selectHistorySnapshot',id)}
-function restoreHistorySnapshot(noteId){var sid=_historySnapshotId;if(!sid){alert('Select a snapshot first.');return}if(!confirm('Restore this version? The current note will be overwritten.'))return;var form=activeEditorForm();var cfi=(form&&form.querySelector('[name="currentFolderId"]'))?form.querySelector('[name="currentFolderId"]').value:'';closeHistoryModal();_log('restoreHistorySnapshot',noteId,sid);htmx.ajax('POST','/fragments/history/'+encodeURIComponent(noteId)+'/restore/'+encodeURIComponent(sid),{target:'#autosave-status',swap:'innerHTML',values:{currentFolderId:cfi}}).then(function(){var s=queryActiveEditor('#autosave-status');if(s&&!s.querySelector('.autosave-error'))s.innerHTML='<span class="autosave-ok">Restored</span>';_snapshots=[];_log('restore done')}).catch(function(e){alert('Restore failed: '+e.message)})}
+function restoreHistorySnapshot(noteId){var sid=_historySnapshotId;if(!sid){alert('Select a snapshot first.');return}if(!confirm('Restore this version? The current note will be overwritten.'))return;var form=activeEditorForm();var cfi=(form&&form.querySelector('[name="currentFolderId"]'))?form.querySelector('[name="currentFolderId"]').value:'';closeHistoryModal();_log('restoreHistorySnapshot',noteId,sid);/* Cancel any pending autosave for the current (about-to-be-replaced) note: otherwise a stale timer could fire after restore and overwrite the restored body with the pre-restore edits. Also clear the saved-hash so post-swap init treats the new body as authoritative. */if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}_savedHash='';var targetSel=inMobileEditor()?'#mobile-editor-body':'#editor-panel';htmx.ajax('POST','/fragments/history/'+encodeURIComponent(noteId)+'/restore/'+encodeURIComponent(sid),{target:targetSel,swap:'innerHTML',values:{currentFolderId:cfi}}).then(function(){_snapshots=[];_log('restore done')}).catch(function(e){alert('Restore failed: '+e.message)})}
 // --- client ring buffer (in-session undo) ---
 var _snapshots=[];var _snapshotMaxCount=20;var _undoTimer=null;
 function pushSnapshot(){var ta=getTA();var title=queryActiveEditor('[name="title"]');var body=ta?ta.value:'';var t=title?title.value:'';if(_snapshots.length>0&&_snapshots[_snapshots.length-1].body===body&&_snapshots[_snapshots.length-1].title===t)return;_snapshots.push({body:body,title:t,ts:Date.now()});if(_snapshots.length>_snapshotMaxCount)_snapshots.shift();var btn=queryActiveEditor('#undo-save-btn');if(btn)btn.hidden=_snapshots.length<2;_log('pushSnapshot count',_snapshots.length)}
@@ -3709,7 +3713,7 @@ function initNavPanel(){_log('initNavPanel');var state=navFolderState();var sele
 	if(open){var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');if(notesDiv&&!notesDiv.getAttribute('data-loaded')){notesDiv.setAttribute('data-loaded','1');var folderId=notesDiv.getAttribute('data-folder-id');htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'})}}})}
 var _folderSelectValue=null;var _folderSelectNoteId=null;
 var _lastSwapWasEditor=false;var _searchHlTerm='';
-document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');if(sel){_folderSelectValue=sel.value;_folderSelectNoteId=form?form.getAttribute('hx-put'):''}var target=e.detail&&e.detail.target;_lastSwapWasEditor=!!(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body'));if(_lastSwapWasEditor){/* Capture any pending in-note search term now: initEditorPanel clears it, and it may not re-run on same-note reopen. */var pt=(window._pendingNoteSearchTerm||'').trim();var navTerm=(currentListSearchInput()&&currentListSearchInput().value||'').trim();_searchHlTerm=pt||navTerm||'';hideTinyMCEHost()}});
+document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');if(sel){_folderSelectValue=sel.value;_folderSelectNoteId=form?form.getAttribute('hx-put'):''}var target=e.detail&&e.detail.target;_lastSwapWasEditor=!!(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body'));if(_lastSwapWasEditor){/* An editor swap changes which note is active. Cancel any pending debounced autosave timers so they can't fire against a stale captured form after the swap. The encrypted-save path already has an identity guard, but cancelling here is defence-in-depth (and stops the plaintext path from firing wrongly too). */if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}/* Capture any pending in-note search term now: initEditorPanel clears it, and it may not re-run on same-note reopen. */var pt=(window._pendingNoteSearchTerm||'').trim();var navTerm=(currentListSearchInput()&&currentListSearchInput().value||'').trim();_searchHlTerm=pt||navTerm||'';hideTinyMCEHost()}});
 document.body.addEventListener('htmx:afterSettle',function(){initNavPanel();initEditorPanel();refreshAllVaultIcons();positionTinyMCEHost();
 	if(_lastSwapWasEditor){_lastSwapWasEditor=false;maybeHighlightOpenedNote(_searchHlTerm);_searchHlTerm=''}
 	if(_folderSelectValue){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');var currentNoteId=form?form.getAttribute('hx-put'):'';if(sel&&currentNoteId&&currentNoteId===_folderSelectNoteId){sel.value=_folderSelectValue}_folderSelectValue=null;_folderSelectNoteId=null}});
@@ -4790,13 +4794,13 @@ async function _doEncryptNoteInVault(noteId,folderId){
 		var salt=getVaultSalt(folderId);
 		if(!salt){_log('vault salt missing',folderId);alert('Vault key not available. Unlock the vault and try again.');return}
 		_log('_doEncryptNoteInVault encrypt',{noteId:noteId,folderId:folderId,plaintextLen:plaintext.length,keyType:key&&key.type,saltLen:salt&&salt.length});
-		var ciphertext=await encryptForVault(plaintext,folderId,key,salt);
+		var ciphertext=await encryptForVault(plaintext,folderId,key,salt,noteId);
 		touchVaultActivity(folderId);
 		var form=activeEditorForm();
 		if(form){
 			form.dataset.encrypted='1';
 			form.dataset.vaultId=folderId;
-			_triggerEncryptedSave(form,ciphertext);
+			_triggerEncryptedSave(form,ciphertext,noteId,folderId);
 		}
 		_updateLockToggle(noteId,true);
 		_updateNoteLockIcon(noteId,true);
@@ -4995,8 +4999,40 @@ function _setOneShotEncryptedBody(form,ciphertext){
 var _encryptedAutosaveInFlight=null; // Promise<boolean> while _triggerEncryptedSave owns the swap
 var _flushSaveInFlight=null; // Promise<boolean> while flushSave owns the swap
 
-function _triggerEncryptedSave(form,ciphertext){
+// Extract the note id from a form's hx-put URL. Same regex as _activeEditorNoteId.
+function _formNoteId(form){
+	if(!form)return '';
+	var hx=form.getAttribute&&form.getAttribute('hx-put')||'';
+	var m=hx.match(/\/fragments\/editor\/([0-9a-zA-Z]{32})/);
+	return m?m[1]:'';
+}
+// Identity guard: the encrypted save path MUST target the exact note it was
+// scheduled for. If the editor was swapped mid-debounce (user switched notes),
+// the captured form is detached and its hx-put no longer matches the active
+// note. Writing anyway would encrypt the wrong note's plaintext into the
+// captured note's ciphertext. Refuse in that case. See bug: encrypted note
+// ended up decrypting to a different plaintext note's body.
+function _encryptedSaveIdentityOk(form,expectedNoteId,expectedVaultId){
+	if(!form||!expectedNoteId||!expectedVaultId)return false;
+	if(!form.isConnected)return false;
+	if(_formNoteId(form)!==expectedNoteId)return false;
+	if(form.dataset.noteId&&form.dataset.noteId!==expectedNoteId)return false;
+	if(form.dataset.vaultId!==expectedVaultId)return false;
+	if(form.dataset.encrypted!=='1')return false;
+	var active=activeEditorForm();
+	if(active!==form)return false;
+	if(_activeEditorNoteId()!==expectedNoteId)return false;
+	return true;
+}
+function _triggerEncryptedSave(form,ciphertext,expectedNoteId,expectedVaultId){
 	if(!form)return;
+	// Final identity check right before we swap the body and fire the PUT.
+	// This is the last chance to catch a stale timer / detached form / racing
+	// editor swap. If it fails, do NOT write: we would clobber the wrong note.
+	if(expectedNoteId&&!_encryptedSaveIdentityOk(form,expectedNoteId,expectedVaultId||form.dataset.vaultId)){
+		_log('encrypted save aborted: identity check failed',{expectedNoteId:expectedNoteId,expectedVaultId:expectedVaultId,formNoteId:_formNoteId(form),formVaultId:form.dataset.vaultId,activeNoteId:_activeEditorNoteId(),connected:form.isConnected});
+		return;
+	}
 	// Cancel any pending plaintext autosave (e.g. from the change event that
 	// just triggered this encrypted save). Otherwise that timer would fire 2s
 	// later with name="body" back on the textarea (plaintext) and the server
@@ -5041,12 +5077,25 @@ function buildFlushRequest(form){
 	var pv=getPV();
 	if(pv)syncPV();else if(_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA();
 	syncTitle();
-	var ta=getTA();
+	// Read the plaintext from the CAPTURED form's textarea, not the global
+	// getTA() — otherwise a background editor swap could point us at the
+	// wrong note's body. Encrypted flush would then encrypt the wrong note's
+	// plaintext with this form's vault key and PUT it to this form's URL.
+	var ta=form.querySelector('textarea[name="body"], textarea.editor-body')||getTA();
 	if(form.dataset.encrypted==='1'&&form.dataset.vaultId&&ta&&!isEncryptedBody(ta.value)){
-		return getVaultKey(form.dataset.vaultId).then(function(key){
+		var expectedNoteId=_formNoteId(form);
+		var expectedVaultId=form.dataset.vaultId;
+		if(!expectedNoteId){return Promise.resolve(null)}
+		return getVaultKey(expectedVaultId).then(function(key){
 			if(!key)throw new Error('Vault is locked');
-			var salt=getVaultSalt(form.dataset.vaultId);
-			return encryptForVault(ta.value,form.dataset.vaultId,key,salt).then(function(ciphertext){
+			// Identity guard: same reasoning as scheduleSave. Refuse to
+			// build a flush request if the form has been detached or its
+			// identity no longer matches what we expected.
+			if(_formNoteId(form)!==expectedNoteId||form.dataset.vaultId!==expectedVaultId||form.dataset.encrypted!=='1'){
+				throw new Error('Note identity changed during flush');
+			}
+			var salt=getVaultSalt(expectedVaultId);
+			return encryptForVault(ta.value,expectedVaultId,key,salt,expectedNoteId).then(function(ciphertext){
 				var restore=_setOneShotEncryptedBody(form,ciphertext);
 				var fd=new FormData(form);
 				var body=new URLSearchParams(fd).toString();
@@ -5078,10 +5127,22 @@ scheduleSave=function(){
 		// encrypt+swap on the same element. Re-check once it's done.
 		if(_flushSaveInFlight){_log('encrypted scheduleSave deferred, flush in flight');scheduleSave();return}
 		if(!form)return;
+		// Identity guard: the user may have switched notes during the 2s
+		// debounce. If the captured form is detached, or the active editor
+		// is now a different note, aborting is the only safe option. Reading
+		// ta.value from the *current* visible editor and encrypting it into
+		// the captured (old) note's ciphertext is exactly the bug that let a
+		// plain note's body end up as another note's encrypted body.
+		if(!_encryptedSaveIdentityOk(form,noteId,vaultId)){
+			_log('encrypted scheduleSave aborted: note switched during debounce',{noteId:noteId,vaultId:vaultId,activeNoteId:_activeEditorNoteId(),connected:form.isConnected});
+			return;
+		}
 		var h=formHash(form);
 		if(h===_savedHash){_log('encrypted scheduleSave skip, hash unchanged',h);return}
 
-		var ta=getTA();
+		// Read plaintext from the CAPTURED form's textarea, never from the
+		// global getTA() (which returns whatever editor is currently visible).
+		var ta=form.querySelector('textarea[name="body"], textarea.editor-body');
 		if(!ta)return;
 		var plaintext=ta.value;
 		_log('encrypted save begin',vaultId,{noteId:noteId,plaintextLength:plaintext.length,alreadyEncrypted:isEncryptedBody(plaintext)});
@@ -5092,10 +5153,16 @@ scheduleSave=function(){
 		try{
 			var key=await getVaultKey(vaultId);
 			if(!key){_log('vault key gone during save for vault',vaultId);return}
+			// Re-check identity after the async key fetch: another swap could
+			// have completed while we awaited.
+			if(!_encryptedSaveIdentityOk(form,noteId,vaultId)){
+				_log('encrypted scheduleSave aborted after key fetch: identity changed');
+				return;
+			}
 			var salt=getVaultSalt(vaultId);
-			var ciphertext=await encryptForVault(plaintext,vaultId,key,salt);
+			var ciphertext=await encryptForVault(plaintext,vaultId,key,salt,noteId);
 			_log('encrypted save ciphertext ready',vaultId,{noteId:noteId,ciphertextLength:ciphertext.length,hasMarker:isEncryptedBody(ciphertext)});
-			_triggerEncryptedSave(form,ciphertext);
+			_triggerEncryptedSave(form,ciphertext,noteId,vaultId);
 			touchVaultActivity(vaultId);
 		}catch(e){
 			_log('encrypted save error',e);
@@ -5253,10 +5320,10 @@ initEditorPanel=function(){
 					if(!newKey){_log('new vault key missing',newFolderId);return}
 					var salt=getVaultSalt(newFolderId);
 					if(!salt){_log('new vault salt missing',newFolderId);return}
-					return encryptForVault(ta.value,newFolderId,newKey,salt).then(function(ct){
+					return encryptForVault(ta.value,newFolderId,newKey,salt,noteId).then(function(ct){
 						form.dataset.vaultId=newFolderId;
 						form.dataset.encrypted='1';
-						_triggerEncryptedSave(form,ct);
+						_triggerEncryptedSave(form,ct,noteId,newFolderId);
 					});
 				}).catch(function(e){_log('re-encrypt failed',e);alert('Re-encryption failed: '+e.message)});
 			});
@@ -5295,7 +5362,7 @@ async function migrateV1Notes(newVaultFolderId){
 		for(var j=0;j<v1candidates.length;j++){
 			try{
 				var pt=await decryptBody(oldPw,v1candidates[j].body);
-				var newCt=await encryptForVault(pt,newVaultFolderId,key,salt);
+				var newCt=await encryptForVault(pt,newVaultFolderId,key,salt,v1candidates[j].id);
 				await fetch('/api/web/notes/'+encodeURIComponent(v1candidates[j].id),{
 					method:'PUT',
 					headers:{'Content-Type':'application/json'},

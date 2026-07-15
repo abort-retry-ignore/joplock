@@ -213,7 +213,7 @@ const nextConflictCopyTitle = (title, existingTitles) => {
 	return `${base}-${maxSuffix + 1}`;
 };
 
-const assertVaultNoteBodyEncrypted = async (vaultService, userId, existingParentId, targetParentId, body) => {
+const assertVaultNoteBodyEncrypted = async (vaultService, userId, existingParentId, targetParentId, body, noteId) => {
 	if (!vaultService || !userId) return;
 	const currentFolderId = `${existingParentId || ''}`;
 	const nextFolderId = `${targetParentId !== undefined ? targetParentId : currentFolderId}`;
@@ -221,9 +221,41 @@ const assertVaultNoteBodyEncrypted = async (vaultService, userId, existingParent
 		currentFolderId ? vaultService.getVaultByFolderId(userId, currentFolderId).catch(() => null) : Promise.resolve(null),
 		nextFolderId && nextFolderId !== currentFolderId ? vaultService.getVaultByFolderId(userId, nextFolderId).catch(() => null) : Promise.resolve(null),
 	]);
-	if ((existingVault || targetVault) && !isEncryptedBody(`${body || ''}`)) {
+	const bodyStr = `${body || ''}`;
+	if (!(existingVault || targetVault)) return;
+	if (!isEncryptedBody(bodyStr)) {
 		const error = new Error('Vault notes must be saved encrypted');
 		error.statusCode = 400;
+		throw error;
+	}
+	// Extract the Joplock ciphertext blob and check its embedded metadata.
+	// The blob is a JSON object wrapped between the encrypted-start/end
+	// markers. It carries `vault` (folder id it was encrypted for) and
+	// optionally `noteId` (bound target note id). Both must match the
+	// destination folder / note we are about to write. This blocks the
+	// entire "wrong note's ciphertext ends up in another note" class of
+	// bug — a stale client timer or a rogue caller cannot smuggle a
+	// blob encrypted for vault X (or bound to note X) into note Y.
+	const START = '<!--joplock-encrypted-start-->';
+	const END = '<!--joplock-encrypted-end-->';
+	const startIdx = bodyStr.indexOf(START);
+	const endIdx = bodyStr.indexOf(END);
+	if (startIdx < 0 || endIdx < 0 || endIdx < startIdx) return; // legacy shape; encrypted marker already asserted above
+	const json = bodyStr.slice(startIdx + START.length, endIdx).trim();
+	let meta = null;
+	try { meta = JSON.parse(json); } catch (e) { meta = null; }
+	if (!meta || !meta.joplock_encrypted) return; // unknown / v1 shape — best-effort only
+	const targetVaultId = `${(targetVault && targetVault.folderId) || (existingVault && existingVault.folderId) || nextFolderId || ''}`;
+	if (meta.vault && targetVaultId && `${meta.vault}` !== targetVaultId) {
+		const error = new Error('Encrypted body was produced for a different vault than the target folder');
+		error.statusCode = 400;
+		error.reason = 'vault-mismatch';
+		throw error;
+	}
+	if (meta.noteId && noteId && `${meta.noteId}` !== `${noteId}`) {
+		const error = new Error('Encrypted body was produced for a different note');
+		error.statusCode = 400;
+		error.reason = 'note-mismatch';
 		throw error;
 	}
 };

@@ -739,6 +739,7 @@ var _tinymceInitPromise=null;
 // When true, TinyMCE input/change events are ignored (used to suppress spurious
 // save-triggers when we call setContent programmatically on note switch / unlock).
 var _tinymceSuppressEdits=false;
+var _tinymcePostLoad=false;
 var _pendingSearchHighlight=false;
 var _tinymceShowRequested=false;
 function _setTinyMCEContent(html){
@@ -750,6 +751,7 @@ function _setTinyMCEContent(html){
 	}finally{
 		setTimeout(function(){
 			_tinymceSuppressEdits=false;
+			_tinymcePostLoad=true;
 			// Run after all sync SetContent handlers (codesample plugin) have finished.
 			ensureTinyMCEEditableAfterPre(_tinymceEditor);
 			initTinyMCECodeCopyButtons(_tinymceEditor);
@@ -1351,17 +1353,23 @@ function initPersistentTinyMCE(){
 					if(ta){
 						var html=editor.getContent();
 						var md=tinymceToMarkdown(html);
-						if(ta.value!==md){
-							ta.value=md;
-							ta.dispatchEvent(new Event('input',{bubbles:true}));
+					if(ta.value!==md){
+						ta.value=md;
+						if(!_tinymcePostLoad)ta.dispatchEvent(new Event('input',{bubbles:true}));
 							_log('onEdit sync (debug): md length',md.length);
 						}else{
 							_log('onEdit sync (debug): unchanged');
-						}
-					}
+			}
 				}
-				markEdited();
-				scheduleSave();
+			}
+			if(_tinymcePostLoad){
+				_tinymcePostLoad=false;
+				snapshotHash();
+				_log('onEdit: post-load, recaptured hash after round-trip sync');
+				return;
+			}
+			markEdited();
+			scheduleSave();
 			}
 			editor.on('input',onEdit);
 			editor.on('change',onEdit);

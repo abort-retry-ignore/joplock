@@ -713,7 +713,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: center;
 	gap: 6px;
 	padding: 8px 10px;
-	min-height: 44px;
+	height: 44px;
 	box-sizing: border-box;
 	border-bottom: 1px solid var(--border);
 	background: var(--bg-side);
@@ -1310,7 +1310,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: center;
 	gap: 6px;
 	padding: 8px 10px;
-	min-height: 44px;
+	height: 44px;
 	box-sizing: border-box;
 	border-bottom: 1px solid var(--border);
 	flex-shrink: 0;
@@ -1319,6 +1319,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .notelist-search {
 	flex: 1;
 	padding: 5px 8px;
+	height: 28px;
+	box-sizing: border-box;
 	border: 1px solid var(--border);
 	border-radius: 0;
 	background: var(--bg-input);
@@ -1397,7 +1399,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	align-items: center;
 	gap: 8px;
 	padding: 6px 16px;
-	min-height: 44px;
+	height: 44px;
 	box-sizing: border-box;
 	border-bottom: 1px solid var(--border);
 	flex-shrink: 0;
@@ -1405,14 +1407,15 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 
 .editor-title {
 	flex: 1;
-	padding: 2px 0;
+	padding: 0 0;
 	border: none;
 	background: transparent;
-	font-size: 18px;
+	font-size: 16px;
 	font-weight: 700;
 	color: var(--text-heading);
 	outline: none;
-	min-height: 1.4em;
+	line-height: 28px;
+	min-height: 28px;
 }
 .editor-title:empty::before {
 	content: attr(data-placeholder);
@@ -1422,6 +1425,8 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 
 .editor-folder-select {
 	padding: 3px 6px;
+	height: 28px;
+	box-sizing: border-box;
 	border: 1px solid var(--border);
 	border-radius: 0;
 	background: var(--bg-side);

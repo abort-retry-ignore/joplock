@@ -794,6 +794,28 @@ function _setTinyMCEContent(html){
 			// empty setContent (first init) doesn't swallow the highlight.
 			if(_pendingSearchHighlight){_log('_setTinyMCEContent: pendingSearchHighlight true, checking body');var _bd=_tinymceEditor&&_tinymceEditor.getBody&&_tinymceEditor.getBody();var _hasText=!!(_bd&&(_bd.textContent||'').trim());var _term=activeSearchTerm();_log('_setTinyMCEContent: hasText='+_hasText+' term='+(_term||''));if(_term&&_term.trim()&&_hasText){_log('_setTinyMCEContent: applying highlight');_pendingSearchHighlight=false;applySearchHighlight()}else if(!(_term&&_term.trim())){_pendingSearchHighlight=false}}
 		},0);
+		// Reconcile at end of post-load window: if the user actually typed
+		// during the 800ms window, that edit was absorbed by the window (no
+		// markEdited was fired) so it would sit unsaved. At window end, run
+		// the lazy sync + hash check; if the form is dirty vs. the last
+		// snapshot, kick off a real save. This is the same safety net used
+		// after a mode switch. Safe for vault notes: the encrypted-save
+		// override on scheduleSave handles ciphertext production identically.
+		setTimeout(function(){
+			try{
+				var form=activeEditorForm();
+				if(!form)return;
+				if(_tinymceReadonly)return;
+				if(typeof _lazyTinyMCESyncBeforeSave==='function')_lazyTinyMCESyncBeforeSave();
+				if(typeof formHash==='function'&&formHash(form)!==_savedHash){
+					_dbgline('post-load reconcile: form dirty, marking edited');
+					if(typeof markEdited==='function')markEdited();
+					if(typeof scheduleSave==='function')scheduleSave();
+				}else{
+					_dbgline('post-load reconcile: form clean, nothing to do');
+				}
+			}catch(_e){}
+		},820);
 	}
 }
 function _tinyMCEContentFontStyle(){

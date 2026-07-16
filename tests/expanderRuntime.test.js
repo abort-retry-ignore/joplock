@@ -598,7 +598,11 @@ test('TinyMCE editor wires Ctrl/Cmd-Space to requestTinyMCEProseCompletion on ke
 	const idx = appSrc.indexOf('requestTinyMCEProseCompletion({editor:editor})');
 	assert.ok(idx !== -1, 'the TinyMCE keydown handler must call requestTinyMCEProseCompletion({editor:editor})');
 	// Inspect the enclosing handler region (a bit before the call site).
-	const region = appSrc.slice(Math.max(0, idx - 700), idx + 60);
+	// Window sized to fit the current handler. The /ask slash-command Enter
+	// check (with DOM-walking soft-line detection for Firefox compatibility) sits
+	// between the handler opening and this call site, so the window must be
+	// wide enough to reach `editor.on('keydown'` from the Ctrl/Cmd-Space call.
+	const region = appSrc.slice(Math.max(0, idx - 6000), idx + 60);
 	assert.ok(region.includes("editor.on('keydown'"), 'the call must live inside an editor keydown handler');
 	assert.ok(/ctrlKey\|\|e\.metaKey/.test(region), 'keydown must gate on Ctrl/Cmd');
 	assert.ok(region.includes("e.code==='Space'"), 'keydown must match the Space key');
@@ -608,7 +612,8 @@ test('TinyMCE keydown routes popup keys (Enter/Esc) through handleRenderPopupKey
 	// The AI popup lives in the outer document; iframe key events never reach it,
 	// so the editor keydown handler must forward them while the popup is open.
 	const idx = appSrc.indexOf('requestTinyMCEProseCompletion({editor:editor})');
-	const region = appSrc.slice(Math.max(0, idx - 700), idx + 60);
+	// Window sized to fit the current handler — see note above.
+	const region = appSrc.slice(Math.max(0, idx - 6000), idx + 60);
 	assert.ok(region.includes('_activeRenderPopup'), 'keydown must check for an active popup');
 	assert.ok(region.includes('handleRenderPopupKey(e)'), 'keydown must forward popup keys to handleRenderPopupKey');
 	assert.ok(region.includes('hideRenderAutocompletePopup()'), 'typing while the popup is open must dismiss it');

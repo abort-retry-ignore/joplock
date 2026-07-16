@@ -1632,6 +1632,127 @@ function initPersistentTinyMCE(){
 					// Any other key (typing, backspace, etc.) dismisses the stale suggestion.
 					if(!e.ctrlKey&&!e.metaKey&&!e.altKey)hideRenderAutocompletePopup();
 				}
+				if(e.key==='Enter'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+					if(!askDisabledForActiveNote()){
+						try{
+							var askRng=editor.selection.getRng&&editor.selection.getRng();
+							if(askRng&&askRng.collapsed){
+								var askNode=editor.selection.getNode();
+								var askBlock=askNode&&askNode.closest?askNode.closest('p,div,li,blockquote'):null;
+								if(askBlock){
+									// Walk the block in document order, collecting text but
+									// resetting on each <br>. This gives us the "soft line"
+									// text from the last <br> (or block start) up to the caret.
+									// We can't rely on Range.toString() splitting on <br>
+									// because Firefox does not insert \n for <br>.
+									var caretNode=askRng.endContainer;
+									var caretOffset=askRng.endOffset;
+									var softLine='';
+									var foundBrBeforeCaret=false;
+									var reachedCaret=false;
+									function walk(node){
+										if(reachedCaret)return;
+										if(node===caretNode){
+											if(node.nodeType===3){
+												softLine+=(node.data||'').slice(0,caretOffset);
+											}else{
+												// caret is between children at index caretOffset
+												for(var i=0;i<caretOffset&&i<node.childNodes.length;i++){
+													walk(node.childNodes[i]);
+													if(reachedCaret)return;
+												}
+											}
+											reachedCaret=true;
+											return;
+										}
+										if(node.nodeType===3){
+											softLine+=node.data||'';
+											return;
+										}
+										if(node.nodeType===1){
+											if(node.nodeName==='BR'){
+												softLine='';
+												foundBrBeforeCaret=true;
+												return;
+											}
+											for(var j=0;j<node.childNodes.length;j++){
+												walk(node.childNodes[j]);
+												if(reachedCaret)return;
+											}
+										}
+									}
+									walk(askBlock);
+									softLine=softLine.replace(/\u00a0/g,' ');
+									var askParsed=detectAskCommand(softLine);
+									if(askParsed){
+										// Only fire when caret is at end of block, or immediately
+										// before a <br> (i.e., end of the soft line). Check by
+										// walking post-caret text.
+										var postText='';
+										var postReached=false;
+										function walkPost(node){
+											if(!postReached){
+												if(node===caretNode){
+													if(node.nodeType===3){
+														postText+=(node.data||'').slice(caretOffset);
+													}else{
+														for(var i=caretOffset;i<node.childNodes.length;i++){
+															walkPost(node.childNodes[i]);
+														}
+													}
+													postReached=true;
+													return;
+												}
+												// Not yet at caret — skip descending; walkPost
+												// runs after we've located caret via walk() above.
+												return;
+											}
+											if(node.nodeType===3){postText+=node.data||'';return;}
+											if(node.nodeType===1){
+												if(node.nodeName==='BR')return; // stop at next <br>
+												for(var j=0;j<node.childNodes.length;j++)walkPost(node.childNodes[j]);
+											}
+										}
+										// Simpler post-caret check: walk siblings after caret until <br> or end.
+										postText='';
+										var scanEnd=false;
+										function walkPost2(n){
+											if(scanEnd)return;
+											if(n.nodeType===3){postText+=n.data||'';return;}
+											if(n.nodeType===1){
+												if(n.nodeName==='BR'){scanEnd=true;return;}
+												for(var k=0;k<n.childNodes.length;k++){walkPost2(n.childNodes[k]);if(scanEnd)return;}
+											}
+										}
+										// Collect from caretNode to end of block, stopping at <br>.
+										// Start with remainder of caretNode itself.
+										if(caretNode.nodeType===3){
+											postText+=(caretNode.data||'').slice(caretOffset);
+											var cur=caretNode.nextSibling;
+											while(cur&&!scanEnd){walkPost2(cur);cur=cur.nextSibling;}
+											// Also walk up: siblings of caretNode's parent, etc., until block.
+											var parent=caretNode.parentNode;
+											while(parent&&parent!==askBlock&&!scanEnd){
+												var sib=parent.nextSibling;
+												while(sib&&!scanEnd){walkPost2(sib);sib=sib.nextSibling;}
+												parent=parent.parentNode;
+											}
+										}else{
+											// caret between children at index caretOffset
+											for(var m=caretOffset;m<caretNode.childNodes.length&&!scanEnd;m++)walkPost2(caretNode.childNodes[m]);
+										}
+										var atEnd=!postText.replace(/[\s\u200b]+/g,'');
+										if(atEnd){
+											e.preventDefault();
+											handleAskInTinyMCE(editor,askBlock,askParsed.question,softLine,foundBrBeforeCaret);
+											return;
+										}
+									}
+								}
+							}
+						}catch(askErr){console.warn('[joplock] ask tinymce enter check failed',askErr)}
+					}
+				}
 				if(e.altKey)return;
 				if((e.ctrlKey||e.metaKey)&&(e.code==='Space'||e.key===' '||e.keyCode===32)){
 					e.preventDefault();
@@ -1910,11 +2031,198 @@ function getTextBeforeCursorPV(pv){
 	}
 	return text;
 }
+// /ask slash command: detect a line that starts with "/ask <question>" and
+// return the question text, or null if the line doesn't match. Anchored at
+// column 0; the trigger word is /ask and requires at least one non-space
+// character after the space separator.
+function detectAskCommand(lineText){
+	if(!lineText)return null;
+	var m=/^\/ask[ \t]+(\S.*)$/.exec(String(lineText));
+	if(!m)return null;
+	var q=m[1].trim();
+	return q?{question:q}:null;
+}
 function requestProseCompletion(prompt,force,profileId){
 	if(!force||!_openRouterEnabled)return Promise.resolve('');
 	console.info('[joplock] prose autocomplete request context',{promptChars:String(prompt||'').length});
 	var body='prompt='+encodeURIComponent(prompt||'')+(profileId?'&profileId='+encodeURIComponent(profileId):'');
 	return fetch('/api/web/ai/prose-complete',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body}).then(function(r){if(r.ok)return r.json();return r.json().catch(function(){return {error:'HTTP '+r.status}}).then(function(data){var err=new Error((data&&data.error)||('HTTP '+r.status));err.providerStatus=data&&data.providerStatus;err.providerError=data&&data.providerError;err.contextChars=data&&data.contextChars;throw err})}).then(function(data){if(data&&typeof data.contextChars==='number')console.info('[joplock] prose autocomplete provider context',{contextChars:data.contextChars});if(data&&data.emptyReason)console.warn('[joplock] prose autocomplete empty',{reason:data.emptyReason,rawChars:data.rawChars,suffixTrimmedChars:data.suffixTrimmedChars,trimmedChars:data.trimmedChars,finishReason:data.finishReason||''});return data&&data.text?String(data.text).trim():''}).catch(function(err){console.warn('[joplock] prose autocomplete failed:',err&&err.message?err.message:err);if(err&&typeof err.contextChars==='number')console.warn('[joplock] prose autocomplete provider context',{contextChars:err.contextChars});if(err&&err.providerError)console.warn('[joplock] AI provider error', {status:err.providerStatus,error:err.providerError});return ''});
+}
+// POST question+context to /api/web/ai/ask. Resolves to the answer string,
+// or empty string on failure (logs to console like requestProseCompletion).
+function requestAskCompletion(question,context,profileId){
+	if(!_openRouterEnabled)return Promise.resolve('');
+	var body='question='+encodeURIComponent(question||'')
+		+'&context='+encodeURIComponent(context||'')
+		+(profileId?'&profileId='+encodeURIComponent(profileId):'');
+	return fetch('/api/web/ai/ask',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
+		.then(function(r){
+			if(r.ok)return r.json();
+			return r.json().catch(function(){return {error:'HTTP '+r.status}}).then(function(data){
+				var err=new Error((data&&data.error)||('HTTP '+r.status));
+				err.providerStatus=data&&data.providerStatus;
+				err.providerError=data&&data.providerError;
+				throw err;
+			});
+		})
+		.then(function(data){return data&&data.text?String(data.text):''})
+		.catch(function(err){
+			console.warn('[joplock] ai ask failed:',err&&err.message?err.message:err);
+			if(err&&err.providerError)console.warn('[joplock] AI provider error',{status:err.providerStatus,error:err.providerError});
+			return '';
+		});
+}
+// True if the active editor form is a vault-encrypted note. /ask must not
+// send plaintext context to a third-party AI provider in this state.
+function askDisabledForActiveNote(){
+	var form=activeEditorForm();
+	if(!form)return false;
+	if(form.dataset.encrypted==='1')return true;
+	if(form.dataset.vaultId)return true;
+	return false;
+}
+// Handles the /ask flow inside CM6. Called from the Enter keymap when the
+// current line matches detectAskCommand. Replaces the /ask line with a
+// placeholder, fires the request, then swaps in the answer or restores the
+// original line on failure.
+function handleAskInCM(view,line,question){
+	var placeholder='\u23f3 Asking\u2026';
+	var originalLineText=line.text;
+	var lineFrom=line.from;
+	// Context = document text up to the /ask line start.
+	var context=view.state.sliceDoc(0,lineFrom);
+	// Replace the /ask line with the placeholder.
+	view.dispatch({
+		changes:{from:lineFrom,to:line.to,insert:placeholder},
+		selection:{anchor:lineFrom+placeholder.length},
+	});
+	cmSyncToTA();markEdited();scheduleSave();
+	// Capture note identity so a late response can't write into a different note.
+	var startedForm=activeEditorForm();
+	var startedNoteId=startedForm?_formNoteId(startedForm):'';
+	requestAskCompletion(question,context,'').then(function(answer){
+		var v=getCM();
+		if(!v)return;
+		var curForm=activeEditorForm();
+		var curNoteId=curForm?_formNoteId(curForm):'';
+		if(curForm!==startedForm||curNoteId!==startedNoteId){
+			console.info('[joplock] ask: note changed during request, dropping result');
+			return;
+		}
+		// Locate placeholder — user may have edited above it, so scan the doc.
+		var docText=v.state.doc.toString();
+		var idx=docText.indexOf(placeholder);
+		if(idx<0){
+			console.info('[joplock] ask: placeholder gone, dropping result');
+			return;
+		}
+		var replacement=answer||originalLineText;
+		v.dispatch({
+			changes:{from:idx,to:idx+placeholder.length,insert:replacement},
+			selection:{anchor:idx+replacement.length},
+		});
+		cmSyncToTA();markEdited();scheduleSave();
+		if(!answer)console.warn('[joplock] ask: empty answer, restored original line');
+	});
+}
+// Handles the /ask flow inside TinyMCE. Called from the editor keydown Enter
+// handler when the current block text matches detectAskCommand. Replaces the
+// block content with a placeholder, fires the request, then swaps in the
+// answer or restores the original text on failure.
+function handleAskInTinyMCE(editor,block,question,originalText,isSoftLine){
+	var placeholder='\u23f3 Asking\u2026';
+	// Context: all text before this block in the iframe body, plus any text
+	// on prior soft-lines within the same block when we're only replacing a soft-line.
+	var doc=editor.getDoc&&editor.getDoc();
+	var body=editor.getBody&&editor.getBody();
+	var context='';
+	if(doc&&body){
+		var pre=doc.createRange();
+		pre.setStart(body,0);
+		try{pre.setEndBefore(block);}catch(_){}
+		var frag=pre.cloneContents();
+		var host=doc.createElement('div');host.appendChild(frag);
+		context=(host.textContent||'').replace(/\u00a0/g,' ');
+	}
+	// Two strategies:
+	// - Soft-line replacement: find the last <br> in the block, remove everything
+	//   after it, and append placeholder text. Preserves earlier content on
+	//   previous soft-lines within the same <p>.
+	// - Whole-block replacement: clear block, insert placeholder as text node.
+	//   Used when the /ask line is the entire block (post-refresh scenario, or
+	//   typed as first content of a fresh <p>).
+	var placeholderTextNode=null;
+	if(isSoftLine){
+		// Locate the last <br> in the block; remove everything after it up to end.
+		var brs=block.querySelectorAll?block.querySelectorAll('br'):[];
+		var lastBr=brs.length?brs[brs.length-1]:null;
+		if(lastBr){
+			// Remove all siblings after lastBr (they contain the /ask line + anything
+			// after caret, though we already gated on nothing after caret).
+			while(lastBr.nextSibling)lastBr.parentNode.removeChild(lastBr.nextSibling);
+			placeholderTextNode=doc.createTextNode(placeholder);
+			block.appendChild(placeholderTextNode);
+		}else{
+			// Fallback: no <br> found (shouldn't happen if isSoftLine was true),
+			// treat as whole-block replacement.
+			while(block.firstChild)block.removeChild(block.firstChild);
+			placeholderTextNode=doc.createTextNode(placeholder);
+			block.appendChild(placeholderTextNode);
+		}
+		// Context for soft-line case: include all text before the placeholder
+		// within this block (previous soft-lines).
+		var preInBlock=doc.createRange();
+		preInBlock.selectNodeContents(block);
+		preInBlock.setEndBefore(placeholderTextNode);
+		var preInBlockText=preInBlock.toString().replace(/\u00a0/g,' ');
+		if(preInBlockText)context=context?context+'\n'+preInBlockText:preInBlockText;
+	}else{
+		while(block.firstChild)block.removeChild(block.firstChild);
+		placeholderTextNode=doc.createTextNode(placeholder);
+		block.appendChild(placeholderTextNode);
+	}
+	tinyMCESyncToTA();markEdited();scheduleSave();
+	// Note identity capture.
+	var startedForm=activeEditorForm();
+	var startedNoteId=startedForm?_formNoteId(startedForm):'';
+	requestAskCompletion(question,context,'').then(function(answer){
+		if(!block.isConnected){
+			console.info('[joplock] ask: block detached, dropping result');
+			return;
+		}
+		if(!placeholderTextNode||!placeholderTextNode.isConnected||(placeholderTextNode.textContent||'').indexOf(placeholder)<0){
+			console.info('[joplock] ask: placeholder gone, dropping result');
+			return;
+		}
+		var curForm=activeEditorForm();
+		var curNoteId=curForm?_formNoteId(curForm):'';
+		if(curForm!==startedForm||curNoteId!==startedNoteId){
+			console.info('[joplock] ask: note changed during request, dropping result');
+			return;
+		}
+		var textToInsert=answer||originalText;
+		// Replace the placeholder text node with answer text nodes (+ <br>s for newlines).
+		var parts=String(textToInsert).split(/\r?\n/);
+		var frag2=doc.createDocumentFragment();
+		for(var i=0;i<parts.length;i++){
+			if(i>0)frag2.appendChild(doc.createElement('br'));
+			frag2.appendChild(doc.createTextNode(parts[i]));
+		}
+		var lastInsertedNode=frag2.lastChild;
+		placeholderTextNode.parentNode.replaceChild(frag2,placeholderTextNode);
+		// Place caret right after the last inserted node.
+		var rng=doc.createRange();
+		if(lastInsertedNode&&lastInsertedNode.nodeType===3){
+			rng.setStart(lastInsertedNode,lastInsertedNode.length);
+		}else{
+			rng.selectNodeContents(block);
+			rng.collapse(false);
+		}
+		rng.collapse(true);
+		editor.selection.setRng(rng);
+		tinyMCESyncToTA();markEdited();scheduleSave();
+		if(!answer)console.warn('[joplock] ask: empty answer, restored original line');
+	});
 }
 var _manualProseCompletionInFlight=false;
 var _manualCodeMirrorProseText=null;
@@ -2748,7 +3056,18 @@ function initCM(host,content){
 			C.bracketMatching(),
 			C.highlightSelectionMatches(),
 			C.history(),
-					C.keymap.of([{key:'Mod-Space',run:function(){requestManualProseCompletion();return true}},{key:'Ctrl-Space',run:function(){requestManualProseCompletion();return true}},...C.defaultKeymap,...C.historyKeymap,...C.searchKeymap.filter(function(b){var k=b.key||'';return k!=='Mod-f'&&k!=='F3'&&k!=='Mod-g'}),C.indentWithTab]),
+					C.keymap.of([{key:'Mod-Space',run:function(){requestManualProseCompletion();return true}},{key:'Ctrl-Space',run:function(){requestManualProseCompletion();return true}},{key:'Enter',run:function(view){
+						if(askDisabledForActiveNote())return false;
+						var s=view.state;
+						var sel=s.selection.main;
+						if(!sel.empty)return false;
+						var line=s.doc.lineAt(sel.head);
+						if(sel.head!==line.to)return false;
+						var parsed=detectAskCommand(line.text);
+						if(!parsed)return false;
+						handleAskInCM(view,line,parsed.question);
+						return true;
+					}},...C.defaultKeymap,...C.historyKeymap,...C.searchKeymap.filter(function(b){var k=b.key||'';return k!=='Mod-f'&&k!=='F3'&&k!=='Mod-g'}),C.indentWithTab]),
 					C.placeholder('Start writing...'),
 			C.autocompletion({ override: [manualProseCompletionSource,noteCompletionSource] }),
 			onUpdate,

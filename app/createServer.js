@@ -212,6 +212,51 @@ Code block example
 `,
 			parentId: examplesFolder.id,
 		}, ctx);
+		await itemWriteService.createNote(user.sessionId, {
+			title: 'AI Features',
+			body: `# AI Features
+
+Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to help you write. All AI features are opt-in and configured per user.
+
+## Setup
+
+- Open **Settings -> AI**.
+- Create a provider profile with your API URL, model, and API key.
+- Mark one profile **Active**.
+- No AI features work until at least one profile is configured and active.
+
+## Prose autocomplete
+
+- **Ctrl-Space** (or **Cmd-Space** on Mac) inside a note asks the active AI profile to continue your text based on the surrounding context.
+- Works in both Markdown and Preview (rendered) mode.
+- A popup shows the suggestion; **Enter** or **Tab** accepts, **Esc** or any other key dismisses.
+
+## Expander triggers
+
+- Configure short trigger strings in **Settings -> Expander**.
+- Two kinds:
+  - **Text**: expands the trigger into a static snippet.
+  - **AI**: removes the trigger and runs a prose completion, optionally with a specific AI profile.
+- Type the trigger anywhere in a note and it fires automatically.
+
+## /ask slash command
+
+- On a line by itself, type \`/ask <your question>\` and press **Enter**.
+- The line is replaced with a \`⏳ Asking…\` placeholder while the AI answers.
+- The answer replaces the placeholder inline. There is no popup — press **Ctrl+Z** to reject.
+- Example: \`/ask what is the capital of Turkey?\`
+
+## Vault / encrypted notes
+
+- All AI features are **disabled inside vault/encrypted notes**.
+- Plaintext content is never sent to a third-party AI provider from an encrypted note.
+
+## Privacy note
+
+- Prose autocomplete and \`/ask\` send the surrounding note context (capped) to whichever provider you configured. Only use providers you trust with your data.
+`,
+			parentId: examplesFolder.id,
+		}, ctx);
 	};
 
 	const proxyToJoplinServer = (request, response, url) => {

@@ -454,6 +454,88 @@ const handle = async (url, request, response, ctx) => {
 		return true;
 	}
 
+	// POST /api/web/ai/ask
+	if (url.pathname === '/api/web/ai/ask' && request.method === 'POST') {
+		try {
+			const auth = await authenticatedUser(request);
+			if (auth.error || !auth.user) { sendJson(response, 401, { error: auth.error || 'Unauthorized' }); return true; }
+			const body = await parseBody(request);
+			const question = `${body.question || ''}`.trim();
+			const context = `${body.context || ''}`.trim();
+			if (!question) { sendJson(response, 400, { error: 'Question is required' }); return true; }
+			const settings = await settingsService.settingsByUserId(auth.user.id);
+			const activeProfile = getActiveProfileFromSettings(settings, body.profileId);
+			const apiKey = activeProfile.apiKey;
+			if (!apiKey) { sendJson(response, 400, { error: 'No AI provider API key is configured. Set one in Settings → AI.' }); return true; }
+			const model = normalizeOpenRouterModel(activeProfile.model) || 'openai/gpt-4o-mini';
+			const temperature = Number.isFinite(Number(activeProfile.temperature)) ? Math.max(0, Math.min(2, Number(activeProfile.temperature))) : 0.7;
+			const providerUrl = activeProfile.url;
+			// Cap context to keep prompts bounded.
+			const cappedContext = context.length > 4000 ? context.slice(context.length - 4000) : context;
+			const roleInstruction = 'You are a helpful assistant answering a question posed inside a note. Answer directly and concisely. Do not repeat the question. Do not preface your answer with "Sure", "Certainly", or similar. Return plain text suitable for pasting inline into a note. Do not wrap the answer in quotes or code fences unless the answer is code.';
+			const contextInstruction = cappedContext
+				? 'The user provided their note-so-far as optional grounding. Prefer information from the note when it is directly relevant to the question; otherwise answer from general knowledge.'
+				: '';
+			const userMessage = cappedContext
+				? `NOTE CONTEXT:\n${cappedContext}\n\nQUESTION:\n${question}`
+				: `QUESTION:\n${question}`;
+			if (proseDebugEnabled) {
+				console.info('[joplock] ai ask context', JSON.stringify({
+					model,
+					temperature,
+					questionPreview: previewText(question),
+					contextChars: cappedContext.length,
+					contextPreview: previewText(cappedContext),
+				}));
+			}
+			const messages = [{ role: 'system', content: roleInstruction }];
+			if (contextInstruction) messages.push({ role: 'system', content: contextInstruction });
+			messages.push({ role: 'user', content: userMessage });
+			const payload = {
+				model,
+				messages,
+				temperature,
+				max_tokens: 512,
+			};
+			const upstream = await fetch(providerUrl, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${apiKey}`,
+					'HTTP-Referer': `${request.headers.origin || ''}`,
+					'X-Title': 'Joplock',
+				},
+				body: JSON.stringify(payload),
+			});
+			if (!upstream.ok) {
+				const errorText = await upstream.text().catch(() => '');
+				const providerError = errorText.slice(0, 2000);
+				console.warn('[joplock] AI ask failed', upstream.status, providerError);
+				let errorMessage = errorText;
+				try {
+					const parsedError = JSON.parse(errorText);
+					errorMessage = parsedError && parsedError.error && parsedError.error.message ? parsedError.error.message : errorMessage;
+				} catch (_) {}
+				sendJson(response, upstream.status, { error: errorMessage || `AI provider request failed (${upstream.status})`, providerStatus: upstream.status, providerError });
+				return true;
+			}
+			const data = await upstream.json();
+			const choice = data && data.choices && data.choices[0] ? data.choices[0] : null;
+			const rawText = choice && choice.message && choice.message.content ? `${choice.message.content}` : '';
+			const text = rawText.trim();
+			if (proseDebugEnabled) {
+				console.info('[joplock] ai ask result', JSON.stringify({
+					rawPreview: previewText(rawText),
+					answerChars: text.length,
+				}));
+			}
+			sendJson(response, 200, { text });
+		} catch (error) {
+			sendJson(response, error.statusCode || 500, { error: error.message || `${error}` });
+		}
+		return true;
+	}
+
 	// POST /api/web/ai/test-profile
 	if (url.pathname === '/api/web/ai/test-profile' && request.method === 'POST') {
 		try {

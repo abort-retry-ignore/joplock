@@ -875,7 +875,7 @@ test('GET / creates starter content when user has no real folders', async () => 
 		const res = await request(port, { path: '/' });
 		assert.equal(res.statusCode, 200);
 		assert.equal(folderCreates, 1);
-		assert.equal(noteCreates, 1);
+		assert.equal(noteCreates, 2);
 		assert.ok(res.body.includes('Examples'));
 	});
 });
@@ -978,7 +978,7 @@ test('POST /login creates starter content for user with no real folders', async 
 			assert.ok(setCookie.includes('sessionId=fresh-session'));
 			assert.ok(setCookie.includes('Max-Age=31536000'));
 			assert.equal(folderCreates, 1);
-			assert.equal(noteCreates, 1);
+			assert.equal(noteCreates, 2);
 		});
 	} finally {
 		await new Promise(resolve => upstream.close(resolve));
@@ -2071,6 +2071,187 @@ test('POST /api/web/ai/prose-complete strips Joplin attachment references from n
 		assert.ok(!userMessage.includes('report.pdf'), 'attachment reference should be stripped');
 		assert.ok(userMessage.includes('Here is my diagram.'), 'surrounding text should be preserved');
 		assert.ok(userMessage.includes('The data shows a trend.'), 'surrounding text should be preserved');
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/ask returns 400 when question is missing', async () => {
+	await withServer({
+		settingsService: {
+			settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini' }),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/api/web/ai/ask',
+			method: 'POST',
+			body: 'question=&context=',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+		});
+		assert.equal(res.statusCode, 400);
+		const payload = JSON.parse(res.body);
+		assert.equal(payload.error, 'Question is required');
+	});
+});
+
+test('POST /api/web/ai/ask returns 400 when no API key configured', async () => {
+	await withServer({
+		settingsService: {
+			settingsByUserId: async () => ({ openRouterApiKey: '', aiProfiles: [] }),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/api/web/ai/ask',
+			method: 'POST',
+			body: 'question=' + encodeURIComponent('What is 2+2?'),
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+		});
+		assert.equal(res.statusCode, 400);
+		const payload = JSON.parse(res.body);
+		assert.ok(payload.error.includes('No AI provider API key'));
+	});
+});
+
+test('POST /api/web/ai/ask returns the answer text on success', async () => {
+	const originalFetch = global.fetch;
+	let receivedUrl = '';
+	let receivedBody = '';
+	global.fetch = async (url, options = {}) => {
+		receivedUrl = `${url}`;
+		receivedBody = `${options.body || ''}`;
+		return {
+			ok: true,
+			json: async () => ({ choices: [{ message: { content: '  4.  ' } }] }),
+			text: async () => '',
+		};
+	};
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({
+					openRouterApiKey: 'sk-or-v1-test',
+					openRouterModel: 'openai/gpt-4o-mini',
+					aiProfiles: [{ id: 'p-openrouter', name: 'OpenRouter', providerId: 'openrouter', apiKey: 'sk-or-v1-test', model: 'openai/gpt-4o-mini', temperature: 0.2, active: true }],
+				}),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/ask',
+				method: 'POST',
+				body: 'question=' + encodeURIComponent('What is 2+2?') + '&context=' + encodeURIComponent('Some note text.'),
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 200);
+			const payload = JSON.parse(res.body);
+			assert.equal(payload.text, '4.');
+		});
+		assert.equal(receivedUrl, 'https://openrouter.ai/api/v1/chat/completions');
+		const sentPayload = JSON.parse(receivedBody);
+		assert.equal(sentPayload.model, 'openai/gpt-4o-mini');
+		assert.equal(sentPayload.temperature, 0.2);
+		assert.equal(sentPayload.max_tokens, 512);
+		const userMessage = sentPayload.messages.find(m => m.role === 'user').content;
+		assert.ok(userMessage.includes('QUESTION:'));
+		assert.ok(userMessage.includes('What is 2+2?'));
+		assert.ok(userMessage.includes('NOTE CONTEXT:'));
+		assert.ok(userMessage.includes('Some note text.'));
+		const roleMessage = sentPayload.messages.find(m => m.role === 'system');
+		assert.ok(roleMessage.content.includes('Answer directly and concisely'));
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/ask omits NOTE CONTEXT block when context is empty', async () => {
+	const originalFetch = global.fetch;
+	let receivedBody = '';
+	global.fetch = async (url, options = {}) => {
+		receivedBody = `${options.body || ''}`;
+		return { ok: true, json: async () => ({ choices: [{ message: { content: 'Paris.' } }] }) };
+	};
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini' }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/ask',
+				method: 'POST',
+				body: 'question=' + encodeURIComponent('What is the capital of France?'),
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 200);
+			assert.equal(JSON.parse(res.body).text, 'Paris.');
+		});
+		const sentPayload = JSON.parse(receivedBody);
+		const userMessage = sentPayload.messages.find(m => m.role === 'user').content;
+		assert.ok(!userMessage.includes('NOTE CONTEXT:'));
+		assert.ok(userMessage.includes('QUESTION:'));
+		assert.equal(sentPayload.messages.filter(m => m.role === 'system').length, 1);
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/ask forwards upstream provider errors', async () => {
+	const originalFetch = global.fetch;
+	global.fetch = async () => ({
+		ok: false,
+		status: 401,
+		text: async () => JSON.stringify({ error: { message: 'bad key' } }),
+	});
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({ openRouterApiKey: 'sk-or-v1-test', openRouterModel: 'openai/gpt-4o-mini' }),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/ask',
+				method: 'POST',
+				body: 'question=' + encodeURIComponent('What is 2+2?'),
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 401);
+			const payload = JSON.parse(res.body);
+			assert.equal(payload.error, 'bad key');
+			assert.equal(payload.providerStatus, 401);
+		});
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test('POST /api/web/ai/ask uses the requested profileId over the active profile', async () => {
+	const originalFetch = global.fetch;
+	let receivedBody = '';
+	global.fetch = async (url, options = {}) => {
+		receivedBody = `${options.body || ''}`;
+		return { ok: true, json: async () => ({ choices: [{ message: { content: 'answer' } }] }) };
+	};
+	try {
+		await withServer({
+			settingsService: {
+				settingsByUserId: async () => ({
+					aiProfiles: [
+						{ id: 'p1', name: 'Active', providerId: 'openrouter', apiKey: 'sk-active', model: 'openai/gpt-4o-mini', temperature: 0.1, active: true },
+						{ id: 'p2', name: 'Other', providerId: 'openrouter', apiKey: 'sk-other', model: 'openai/gpt-4o', temperature: 0.9, active: false },
+					],
+				}),
+			},
+		}, async port => {
+			const res = await request(port, {
+				path: '/api/web/ai/ask',
+				method: 'POST',
+				body: 'question=' + encodeURIComponent('test') + '&profileId=p2',
+				headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			});
+			assert.equal(res.statusCode, 200);
+		});
+		const sentPayload = JSON.parse(receivedBody);
+		assert.equal(sentPayload.model, 'openai/gpt-4o');
+		assert.equal(sentPayload.temperature, 0.9);
 	} finally {
 		global.fetch = originalFetch;
 	}

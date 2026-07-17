@@ -57,20 +57,22 @@ async function waitForSaved(page) {
 }
 
 async function setNoteBody(page, body) {
+	// Notes can open in rich (TinyMCE) or markdown (CodeMirror) mode
+	// depending on account/editor preference. Typing must go through
+	// whichever editor is actually mounted — poking the hidden
+	// #note-body textarea directly does NOT work reliably: TinyMCE owns
+	// that element and will overwrite it with its own (unchanged)
+	// content the next time it syncs, silently discarding the injected
+	// text. Force markdown mode first so CodeMirror (which keeps
+	// #note-body in sync on every edit) is always the one driving input.
+	const mdToggle = page.locator('#editor-panel #markdown-toggle, #mobile-editor-body #markdown-toggle').first();
+	if (await mdToggle.count()) await mdToggle.click();
 	const cmContent = page.locator('#editor-panel .cm-content, #mobile-editor-body .cm-content').first();
-	if (await cmContent.count()) {
-		await cmContent.click();
-		await page.keyboard.press('Control+A');
-		await page.keyboard.press('Delete');
-		await page.keyboard.type(body);
-		return;
-	}
-	const textarea = page.locator('#editor-panel #note-body, #mobile-editor-body #note-body').first();
-	await expect(textarea).toHaveCount(1);
-	await textarea.evaluate((el, value) => {
-		el.value = value;
-		el.dispatchEvent(new Event('input', { bubbles: true }));
-	}, body);
+	await expect(cmContent).toBeVisible();
+	await cmContent.click();
+	await page.keyboard.press('Control+A');
+	await page.keyboard.press('Delete');
+	await page.keyboard.type(body);
 }
 
 async function setNoteTitle(page, title) {

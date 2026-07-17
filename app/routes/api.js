@@ -641,7 +641,16 @@ const handle = async (url, request, response, ctx) => {
 				const existing = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
 				if (!existing) { sendJson(response, 404, { error: 'Note not found' }); return true; }
 				const body = await parseBody(request);
-				await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, body.parentId !== undefined ? body.parentId : existing.parentId, body.body, noteId);
+				const targetParentId = `${body.parentId !== undefined ? body.parentId : existing.parentId}`;
+				const parentChanged = targetParentId !== `${existing.parentId || ''}`;
+				if (parentChanged && vaultService) {
+					const existingVault = await vaultService.getVaultByFolderId(auth.user.id, existing.parentId).catch(() => null);
+					if (existingVault) {
+						sendJson(response, 400, { error: 'Vault notes cannot be moved to a different folder' });
+						return true;
+					}
+				}
+				await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, targetParentId, body.body, noteId);
 				const updated = await itemWriteService.updateNote(auth.user.sessionId, existing, {
 					title: plainNoteTitle(body.title), body: body.body, parentId: body.parentId,
 				}, upstreamRequestContext(request));

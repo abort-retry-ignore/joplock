@@ -23,7 +23,7 @@ const {
 const VAULT_PASSWORD = 'pw-vault-test-password';
 
 async function createVault(page, title, password = VAULT_PASSWORD) {
-	await page.getByRole('button', { name: '+ Notebook' }).click();
+	await page.locator('button[title="New notebook"]').click();
 	await expect(page.locator('#new-folder-modal')).toBeVisible();
 	await page.locator('#new-folder-title').fill(title);
 	await page.locator('#new-folder-is-vault').check();
@@ -45,6 +45,19 @@ async function submitVaultModal(page, password = VAULT_PASSWORD) {
 	await page.locator('#vault-modal-password').fill(password);
 	await page.locator('#vault-modal-form').evaluate(form => form.requestSubmit());
 	await expect(page.locator('#vault-modal')).toBeHidden({ timeout: 10000 });
+}
+
+// Reopening a note whose vault is locked shows an INLINE unlock prompt
+// inside the editor panel (#editor-locked / #editor-locked-password +
+// "Unlock" button calling unlockNote()) — this is a different UI surface
+// from #vault-modal, which is the popup used by the nav sidebar's lock
+// toggle and by moving a plain note INTO a vault.
+async function unlockNoteInEditor(page, password = VAULT_PASSWORD) {
+	const overlay = page.locator('#editor-panel #editor-locked, #mobile-editor-body #editor-locked').first();
+	await expect(overlay).toBeVisible();
+	await page.locator('#editor-locked-password').fill(password);
+	await page.locator('#editor-locked-btn').click();
+	await expect(overlay).toBeHidden({ timeout: 10000 });
 }
 
 async function lockVault(page, folderId) {
@@ -74,12 +87,17 @@ async function getServerBody(page, noteId) {
 		const res = await fetch('/api/web/notes/' + encodeURIComponent(id), { credentials: 'same-origin' });
 		if (!res.ok) throw new Error('fetch note failed: ' + res.status);
 		const json = await res.json();
-		return { body: json.body || '', parent_id: json.parent_id || '' };
+		const item = json.item || {};
+		return { body: item.body || '', parent_id: item.parentId || '' };
 	}, noteId);
 }
 
 async function currentNoteId(page) {
-	return page.locator('#editor-panel #note-editor-form').evaluate(form => form.getAttribute('hx-put') || '');
+	return page.locator('#editor-panel #note-editor-form').evaluate(form => {
+		const attr = form.getAttribute('hx-put') || '';
+		const parts = attr.split('/');
+		return parts[parts.length - 1] || '';
+	});
 }
 
 test.describe('Vault save & move (refactor safety net)', () => {
@@ -152,7 +170,7 @@ test.describe('Vault save & move (refactor safety net)', () => {
 
 		// re-open note -> should prompt vault modal
 		await openDesktopNote(page, noteTitle);
-		await submitVaultModal(page);
+		await unlockNoteInEditor(page);
 
 		const visible = await page.locator('#editor-panel #note-body').inputValue();
 		expect(visible).toContain(body);
@@ -193,108 +211,151 @@ test.describe('Vault save & move (refactor safety net)', () => {
 		await logout(page);
 	});
 
-	test('5. move encrypted note from unlocked vault to normal folder stores plaintext', async ({ page }, testInfo) => {
+	test('5. folder select is disabled for notes inside a vault', async ({ page }, testInfo) => {
 		test.skip(testInfo.project.name !== 'desktop');
-		const vault = slug('pw-vault-src');
-		const plain = slug('pw-plain-dst');
-		const noteTitle = slug('pw move-out');
-		const body = 'move-out-body-' + Date.now();
+		const vault = slug('pw-vault-locked-sel');
+		const noteTitle = slug('pw locked sel');
+		const body = 'locked-select-body-' + Date.now();
 
 		await login(page);
-		await createVault(page, vault);
-		await createNotebook(page, plain);
+		const folderId = await createVault(page, vault);
 		await createDesktopNote(page, vault);
+		await setNoteTitle(page, noteTitle);
+		await setNoteBody(page, body);
+		await waitForSaved(page);
+
+		// Lock vault, reopen note → locked overlay, select should be disabled
+		await lockVault(page, folderId);
+		await page.locator('.nav-folder[data-folder-id="de1e7ede1e7ede1e7ede1e7ede1e7ede"] .nav-folder-row').first().click();
+		await openDesktopNote(page, noteTitle);
+
+		// Before unlock, the select is disabled (vault-protected)
+		const select = page.locator('#editor-panel #editor-folder-select').first();
+		await expect(select).toBeDisabled();
+
+		// Unlock the note — select should still be disabled
+		// (vault notes cannot change folder)
+		await unlockNoteInEditor(page);
+		await expect(select).toBeDisabled();
+
+		await deleteNotebook(page, vault);
+		await logout(page);
+	});
+
+	test('5b. server rejects PUT that changes parentId of a vault note', async ({ page }, testInfo) => {
+		test.skip(testInfo.project.name !== 'desktop');
+		const vaultName = slug('pw-vault-rej-put');
+		const plainName = slug('pw-plain-dst2');
+		const noteTitle = slug('pw rej put');
+		const body = 'reject-put-body-' + Date.now();
+
+		await login(page);
+		await createVault(page, vaultName);
+		await createNotebook(page, plainName);
+		await createDesktopNote(page, vaultName);
 		await setNoteTitle(page, noteTitle);
 		await setNoteBody(page, body);
 		await waitForSaved(page);
 		const noteId = await currentNoteId(page);
 
-		await changeEditorFolder(page, plain);
-		await waitForSaved(page);
+		// Get a known non-vault folder ID so we can attempt to move the
+		// vault note OUT of its vault.  We cannot use the folder title
+		// (slug) — the API expects a UUID-type folder id.
+		const plainFolderId = await page.locator('.nav-folder[data-folder-title="' + plainName + '"]').first().getAttribute('data-folder-id');
 
-		const stored = await getServerBody(page, noteId);
-		expect(stored.body).toContain(body);
-		expect(stored.body).not.toContain('joplock_encrypted');
+		// Try to move via direct API — server must reject
+		const res = await page.evaluate(async ({ noteId, body, targetFolderId }) => {
+			const r = await fetch('/api/web/notes/' + encodeURIComponent(noteId), {
+				method: 'PUT',
+				credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ body: body, parentId: targetFolderId }),
+			});
+			return { status: r.status, text: await r.text() };
+		}, { noteId, body, targetFolderId: plainFolderId });
 
-		const ds = await getFormDataset(page);
-		expect(ds.encrypted).toBe('');
-		expect(ds.vaultId).toBe('');
+		expect(res.status).toBe(400);
+		expect(JSON.parse(res.text).error).toContain('cannot be moved');
 
-		await deleteNotebook(page, vault);
-		await deleteNotebook(page, plain);
+		await deleteNotebook(page, vaultName);
+		await deleteNotebook(page, plainName);
 		await logout(page);
 	});
 
-	test('6. move note between two unlocked vaults re-encrypts under destination key', async ({ page }, testInfo) => {
+	test('6. move plaintext note between normal notebooks via folder dropdown', async ({ page }, testInfo) => {
 		test.skip(testInfo.project.name !== 'desktop');
-		const vaultA = slug('pw-vault-a');
-		const vaultB = slug('pw-vault-b');
-		const noteTitle = slug('pw move-vv');
-		const body = 'cross-vault-body-' + Date.now();
+		const folderA = slug('pw-folder-a');
+		const folderB = slug('pw-folder-b');
+		const noteTitle = slug('pw move-plain');
+		const body = 'plain-move-body-' + Date.now();
 
 		await login(page);
-		const idA = await createVault(page, vaultA, 'pw-A-password');
-		const idB = await createVault(page, vaultB, 'pw-B-password');
-		await createDesktopNote(page, vaultA);
+		await createNotebook(page, folderA);
+		await createNotebook(page, folderB);
+		await createDesktopNote(page, folderA);
 		await setNoteTitle(page, noteTitle);
 		await setNoteBody(page, body);
 		await waitForSaved(page);
 		const noteId = await currentNoteId(page);
 
 		const before = await getServerBody(page, noteId);
-		expect(before.body).toContain('joplock_encrypted');
-		const cipherBefore = before.body;
+		const parentBefore = before.parent_id;
+		expect(before.body).toContain(body);
 
-		await changeEditorFolder(page, vaultB);
+		// Move to folderB via the editor folder dropdown
+		await changeEditorFolder(page, folderB);
 		await waitForSaved(page);
 
+		// Same noteId still resolves — no duplicate created
 		const after = await getServerBody(page, noteId);
-		expect(after.body).toContain('joplock_encrypted');
-		expect(after.body).not.toEqual(cipherBefore);
-		expect(after.body).not.toContain(body);
-		expect(after.parent_id).toBe(idB);
+		expect(after.body).toContain(body);
+		expect(after.body).not.toContain('joplock_encrypted');
+		expect(after.parent_id).toBeTruthy();
+		expect(after.parent_id).not.toBe(parentBefore);
 
-		// lock A, ensure B still decrypts (sanity: editor still shows plaintext)
-		await lockVault(page, idA);
-		const visible = await page.locator('#editor-panel #note-body').inputValue();
-		expect(visible).toContain(body);
-
-		await deleteNotebook(page, vaultA);
-		await deleteNotebook(page, vaultB);
+		await deleteNotebook(page, folderA);
+		await deleteNotebook(page, folderB);
 		await logout(page);
 	});
 
-	test('7. decrypt a note then move it out of the vault (orphan-style decrypt + move)', async ({ page }, testInfo) => {
+	test('7. move plaintext note back to original notebook preserves data', async ({ page }, testInfo) => {
 		test.skip(testInfo.project.name !== 'desktop');
-		const vault = slug('pw-vault-orph');
-		const plain = slug('pw-plain-orph');
-		const noteTitle = slug('pw orph');
-		const body = 'orphan-decrypt-body-' + Date.now();
+		const folderA = slug('pw-round-a');
+		const folderB = slug('pw-round-b');
+		const noteTitle = slug('pw roundtrip');
+		const body = 'roundtrip-body-' + Date.now();
 
 		await login(page);
-		const folderId = await createVault(page, vault);
-		await createNotebook(page, plain);
-		await createDesktopNote(page, vault);
+		await createNotebook(page, folderA);
+		await createNotebook(page, folderB);
+		await createDesktopNote(page, folderA);
 		await setNoteTitle(page, noteTitle);
 		await setNoteBody(page, body);
 		await waitForSaved(page);
 		const noteId = await currentNoteId(page);
 
-		// Lock vault, reopen note -> prompt, decrypt, then move out
-		await lockVault(page, folderId);
-		await page.locator('.nav-folder[data-folder-id="de1e7ede1e7ede1e7ede1e7ede1e7ede"] .nav-folder-row').first().click();
-		await openDesktopNote(page, noteTitle);
-		await submitVaultModal(page);
+		const origin = await getServerBody(page, noteId);
+		expect(origin.body).toContain(body);
 
-		await changeEditorFolder(page, plain);
+		// A → B
+		await changeEditorFolder(page, folderB);
 		await waitForSaved(page);
 
-		const stored = await getServerBody(page, noteId);
-		expect(stored.body).toContain(body);
-		expect(stored.body).not.toContain('joplock_encrypted');
+		const mid = await getServerBody(page, noteId);
+		expect(mid.parent_id).not.toBe(origin.parent_id);
+		expect(mid.body).toContain(body);
 
-		await deleteNotebook(page, vault);
-		await deleteNotebook(page, plain);
+		// B → A
+		await changeEditorFolder(page, folderA);
+		await waitForSaved(page);
+
+		// Back in A — body intact, parent restored, no duplicate
+		const back = await getServerBody(page, noteId);
+		expect(back.body).toContain(body);
+		expect(back.parent_id).toBe(origin.parent_id);
+
+		await deleteNotebook(page, folderA);
+		await deleteNotebook(page, folderB);
 		await logout(page);
 	});
 

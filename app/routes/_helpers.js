@@ -213,8 +213,15 @@ const nextConflictCopyTitle = (title, existingTitles) => {
 	return `${base}-${maxSuffix + 1}`;
 };
 
-const assertVaultNoteBodyEncrypted = async (vaultService, userId, existingParentId, targetParentId, body, noteId) => {
+const assertVaultNoteBodyEncrypted = async (vaultService, userId, existingParentId, targetParentId, body, noteId, opts) => {
 	if (!vaultService || !userId) return;
+	// `enforceExistingVault` = require ciphertext even when the note is being
+	// moved out of a vault into a plain folder.  This is the SYNC-PROXY policy:
+	// external Joplin clients don't understand vaults and must not be able to
+	// strip ciphertext by re-parenting.  The UI PUT/autosave path never passes
+	// this flag — vault notes cannot change parentId at all (the guard runs
+	// in the PUT handler before this call).
+	const enforceExistingVault = !!(opts && opts.enforceExistingVault);
 	const currentFolderId = `${existingParentId || ''}`;
 	const nextFolderId = `${targetParentId !== undefined ? targetParentId : currentFolderId}`;
 	const [existingVault, targetVault] = await Promise.all([
@@ -222,20 +229,30 @@ const assertVaultNoteBodyEncrypted = async (vaultService, userId, existingParent
 		nextFolderId && nextFolderId !== currentFolderId ? vaultService.getVaultByFolderId(userId, nextFolderId).catch(() => null) : Promise.resolve(null),
 	]);
 	const bodyStr = `${body || ''}`;
-	if (!(existingVault || targetVault)) return;
+	// Vault ciphertext must never be written to a non-vault folder.
+	// Only applies when the folder *changes* — same-folder saves (where
+	// targetVault is null because nextFolderId===currentFolderId is
+	// short-circuited) are normal vault operations and pass through.
+	if (nextFolderId !== currentFolderId && !targetVault && existingVault && isEncryptedBody(bodyStr)) {
+		const error = new Error('Vault encrypted data cannot be written outside a vault folder');
+		error.statusCode = 400;
+		throw error;
+	}
+	// Determine whether we're writing to a vault (same-folder or target) or
+	// the proxy is forcing vault-level enforcement on a vault→plain move.
+	// ParentId changes for vault notes are rejected by the PUT handler
+	// before we get here, so same-folder + proxy are the only vault-tied
+	// paths that remain.
+	const effectiveTargetVault = targetVault
+		|| (nextFolderId === currentFolderId ? existingVault : null)
+		|| (enforceExistingVault ? existingVault : null);
+	if (!effectiveTargetVault) return;
 	if (!isEncryptedBody(bodyStr)) {
 		const error = new Error('Vault notes must be saved encrypted');
 		error.statusCode = 400;
 		throw error;
 	}
 	// Extract the Joplock ciphertext blob and check its embedded metadata.
-	// The blob is a JSON object wrapped between the encrypted-start/end
-	// markers. It carries `vault` (folder id it was encrypted for) and
-	// optionally `noteId` (bound target note id). Both must match the
-	// destination folder / note we are about to write. This blocks the
-	// entire "wrong note's ciphertext ends up in another note" class of
-	// bug — a stale client timer or a rogue caller cannot smuggle a
-	// blob encrypted for vault X (or bound to note X) into note Y.
 	const START = '<!--joplock-encrypted-start-->';
 	const END = '<!--joplock-encrypted-end-->';
 	const startIdx = bodyStr.indexOf(START);
@@ -245,7 +262,7 @@ const assertVaultNoteBodyEncrypted = async (vaultService, userId, existingParent
 	let meta = null;
 	try { meta = JSON.parse(json); } catch (e) { meta = null; }
 	if (!meta || !meta.joplock_encrypted) return; // unknown / v1 shape — best-effort only
-	const targetVaultId = `${(targetVault && targetVault.folderId) || (existingVault && existingVault.folderId) || nextFolderId || ''}`;
+	const targetVaultId = `${(effectiveTargetVault && effectiveTargetVault.folderId) || nextFolderId || ''}`;
 	if (meta.vault && targetVaultId && `${meta.vault}` !== targetVaultId) {
 		const error = new Error('Encrypted body was produced for a different vault than the target folder');
 		error.statusCode = 400;

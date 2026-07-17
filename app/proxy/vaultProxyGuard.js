@@ -246,6 +246,7 @@ const enforceNoteWrite = async ({ vaultService, itemService, userId, existingNot
 			parsedParentId !== undefined ? parsedParentId : existingParentId,
 			itemBody,
 			existingNoteId,
+			{ enforceExistingVault: true },
 		);
 	} catch (err) {
 		if (err.statusCode === 400) {

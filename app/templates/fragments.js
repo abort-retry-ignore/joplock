@@ -278,7 +278,7 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 		return '<div class="editor-empty">Select a note</div>';
 	}
 	const folderOptions = realNotebookOptions(folders).map(f =>
-		`<option value="${escapeHtml(f.id)}"${f.id === note.parentId ? ' selected' : ''}>${escapeHtml(f.title || 'Untitled')}</option>`,
+		`<option value="${escapeHtml(f.id)}"${f.id === note.parentId ? ' selected' : ''}${f.isVault ? ' data-is-vault="1"' : ''}>${escapeHtml(f.title || 'Untitled')}</option>`,
 	).join('');
 	const encrypted = !!note.isEncrypted;
 	const vaultId = note.vaultId || '';
@@ -305,7 +305,7 @@ const editorFragment = (note, folders, currentFolderId = '') => {
 		${vaultId ? `data-vault-id="${escapeHtml(vaultId)}"` : ''}
 		data-note-id="${escapeHtml(note.id)}">
 		<div class="editor-titlebar">
-			<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="Move to folder">${folderOptions}</select>
+			<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="${vaultProtected ? 'Unlock the note to move it' : 'Move to folder'}"${vaultProtected ? ' disabled' : ''}>${folderOptions}</select>
 			<span class="editor-folder-arrow">&#9656;</span>
 			${noteSyncStateFragment(note)}
 			<input type="hidden" name="currentFolderId" value="${escapeHtml(currentFolderId || '')}" />
@@ -409,7 +409,7 @@ const searchResultsFragment = (notes, hasMore = false, nextOffset = 0, query = '
 
 const folderSelectOob = (folders) => {
 	const options = realNotebookOptions(folders)
-		.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.title || 'Untitled')}</option>`).join('');
+		.map(f => `<option value="${escapeHtml(f.id)}"${f.isVault ? ' data-is-vault="1"' : ''}>${escapeHtml(f.title || 'Untitled')}</option>`).join('');
 	return `<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="Move to folder" hx-swap-oob="true">${options}</select>`;
 };
 

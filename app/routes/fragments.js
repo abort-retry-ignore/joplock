@@ -352,18 +352,20 @@ const handle = async (url, request, response, ctx) => {
 			const noteId = decodeURIComponent(url.pathname.slice('/fragments/editor/'.length));
 			const currentFolderId = url.searchParams.get('currentFolderId') || '';
 			const currentSettings = await userSettings(auth.user.id);
-			const [note, folders] = await Promise.all([
+			const [note, folders, vaultFolderIds] = await Promise.all([
 				itemService.noteByUserIdAndJopId(auth.user.id, noteId, { deleted: 'all' }),
 				itemService.foldersByUserId(auth.user.id),
+				vaultService ? vaultService.getVaultFolderIdSet(auth.user.id).catch(() => new Set()) : Promise.resolve(new Set()),
 			]);
 			if (!note) { sendHtml(response, 404, '<div class="editor-empty">Note not found.</div>'); return true; }
-			const enrichedNote = await enrichNoteWithVault(auth.user.id, note, folders);
+			const enrichedFolders = folders.map(f => ({ ...f, isVault: vaultFolderIds.has(f.id) }));
+			const enrichedNote = await enrichNoteWithVault(auth.user.id, note, enrichedFolders);
 			await saveLastNoteState(auth.user.id, currentSettings, note.id, currentFolderId || note.parentId);
 			const uiMode = (currentSettings && currentSettings.uiMode) || 'auto';
 			const mobileRequested = uiMode === 'mobile' || request.headers['hx-target'] === 'mobile-editor-body';
 			sendHtml(response, 200, mobileRequested
-				? templates.mobileEditorFragment(enrichedNote, folders, currentFolderId || note.parentId)
-				: templates.editorFragment(enrichedNote, folders, currentFolderId || note.parentId));
+				? templates.mobileEditorFragment(enrichedNote, enrichedFolders, currentFolderId || note.parentId)
+				: templates.editorFragment(enrichedNote, enrichedFolders, currentFolderId || note.parentId));
 		} catch {
 			sendHtml(response, 500, '<div class="editor-empty">Error</div>');
 		}
@@ -387,6 +389,21 @@ const handle = async (url, request, response, ctx) => {
 			const currentFolderId = `${body.currentFolderId || body.parentId || existing.parentId || ''}`;
 			if (createCopy) {
 				const parentFolderId = body.parentId || existing.parentId || '';
+				// Block copy if the source note is in a vault and the
+				// destination is different.  A vault note unlocked in the
+				// editor has plaintext in the DOM — copying it to a
+				// non-vault folder would leak plaintext that should be
+				// encrypted.  Copies within the same vault keep the body
+				// as-is (already ciphertext for locked notes, or the
+				// encrypted-save path will encrypt for unlocked notes).
+				const parentChanged = parentFolderId !== `${existing.parentId || ''}`;
+				if (parentChanged && vaultService) {
+					const srcVault = await vaultService.getVaultByFolderId(auth.user.id, existing.parentId).catch(() => null);
+					if (srcVault) {
+						sendHtml(response, 400, '<span class="autosave-error">Cannot copy a vault note to a different folder</span>');
+						return true;
+					}
+				}
 				await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, parentFolderId, body.body);
 				const [{ folders, counts }, siblingNotes] = await Promise.all([
 					navData(auth.user.id),
@@ -423,6 +440,14 @@ const handle = async (url, request, response, ctx) => {
 				return true;
 			}
 			const targetParentId = `${body.parentId || existing.parentId || ''}`;
+			const parentChanged = targetParentId !== `${existing.parentId || ''}`;
+			if (parentChanged && vaultService) {
+				const existingVault = await vaultService.getVaultByFolderId(auth.user.id, existing.parentId).catch(() => null);
+				if (existingVault) {
+					sendHtml(response, 400, '<span class="autosave-error">Vault notes cannot be moved to a different folder</span>');
+					return true;
+				}
+			}
 			await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, targetParentId, body.body, noteId);
 			await itemWriteService.updateNote(auth.user.sessionId, existing, {
 				title: plainNoteTitle(body.title),

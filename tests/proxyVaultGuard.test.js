@@ -256,6 +256,18 @@ test('inspectAndGuard: single PUT moving vault note to non-vault with plaintext 
 	assert.equal(result.status, 403);
 });
 
+test('inspectAndGuard: single PUT moving vault note to non-vault with ciphertext is rejected (data leak prevention)', async () => {
+	// Vault ciphertext must never be written to a non-vault folder, even
+	// through the sync proxy. The encrypted body belongs to the vault.
+	const note = serializeNote({ id: NOTE_ID, title: 'T', body: ENCRYPTED_BODY, parentId: NON_VAULT_FOLDER_ID });
+	const { buffer, contentType } = buildMultipartBuffer('file', note.body);
+	const req = makeRequest('PUT', `/api/items/root:/${NOTE_ID}.md:/content`, buffer, { 'content-type': contentType });
+	const ctx = makeCtx({ itemService: makeItemService({ existingNoteParentId: VAULT_FOLDER_ID }) });
+	const result = await inspectAndGuard(req, `/api/items/root:/${NOTE_ID}.md:/content`, ctx);
+	assert.equal(result.action, 'reject');
+	assert.equal(result.status, 403);
+});
+
 test('inspectAndGuard: single PUT folder item (type_ 2) is allowed without vault check', async () => {
 	const folder = serializeFolder({ id: VAULT_FOLDER_ID, title: 'Vault', parentId: '' });
 	const { buffer, contentType } = buildMultipartBuffer('file', folder.body);

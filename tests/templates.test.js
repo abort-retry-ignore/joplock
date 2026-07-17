@@ -158,6 +158,18 @@ test('editorFragment hides plaintext body for vault-protected notes', () => {
 	assert.ok(!html.includes('editor-locked-back'));
 });
 
+test('editorFragment disables folder select for vault-protected (locked) notes', () => {
+	const html = editorFragment({ id: 'n1', title: 'Active', body: 'ciphertext', parentId: 'vault-1', deletedTime: 0, createdTime: 1000, updatedTime: 2000, isEncrypted: true, inVault: true, vaultId: 'vault-1', vaultTitle: 'Vault 1' }, [{ id: 'vault-1', title: 'Vault 1' }, { id: 'f2', title: 'Plain' }]);
+	assert.ok(/<select[^>]*id="editor-folder-select"[^>]*\bdisabled\b/.test(html), 'folder select should be disabled for vault-protected notes');
+	assert.ok(html.includes('title="Unlock the note to move it"'));
+});
+
+test('editorFragment does not disable folder select for plain notes', () => {
+	const html = editorFragment({ id: 'n1', title: 'Plain', body: 'body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'Folder 1' }]);
+	assert.ok(!/<select[^>]*id="editor-folder-select"[^>]*\bdisabled\b/.test(html), 'folder select should be enabled for plain notes');
+	assert.ok(html.includes('title="Move to folder"'));
+});
+
 test('mobileEditorFragment hides plaintext preview for vault-protected notes', () => {
 	const html = mobileEditorFragment({ id: 'n1', title: 'Active', body: 'Top secret', parentId: 'vault-1', deletedTime: 0, createdTime: 1000, updatedTime: 2000, isEncrypted: false, inVault: true, vaultId: 'vault-1', vaultTitle: 'Vault 1' }, [{ id: 'vault-1', title: 'Vault 1' }]);
 	assert.ok(html.includes('id="editor-locked"'));

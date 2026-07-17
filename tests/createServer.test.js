@@ -1495,6 +1495,200 @@ test('PUT /fragments/editor rejects plaintext save when moving note into vault',
 	});
 });
 
+// --- Vault boundary tests: ensure vault data never leaks to non-vault ---
+
+const VAULT_CIPHERTEXT_BODY = '> **This note is encrypted**\n\n<!--joplock-encrypted-start-->\n{"joplock_encrypted":1,"vault":"vault-1","noteId":"n1"}\n<!--joplock-encrypted-end-->';
+
+test('PUT /fragments/editor rejects vault ciphertext body when moving to non-vault (data leak prevention)', async () => {
+	let updateCalled = false;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: VAULT_CIPHERTEXT_BODY, parentId: 'vault-1', updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updateCalled = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Secret&body=' + encodeURIComponent(VAULT_CIPHERTEXT_BODY) + '&parentId=f1&currentFolderId=vault-1&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.ok(res.body.includes('Vault notes cannot be moved to a different folder'));
+		assert.equal(updateCalled, false);
+	});
+});
+
+test('PUT /fragments/editor rejects move when moving vault note to non-vault (parentId changes rejected)', async () => {
+	let updateCalled = false;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: VAULT_CIPHERTEXT_BODY, parentId: 'vault-1', updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updateCalled = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Secret&body=plain%20text%20body&parentId=f1&currentFolderId=vault-1&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.ok(res.body.includes('Vault notes cannot be moved to a different folder'));
+		assert.equal(updateCalled, false);
+	});
+});
+
+test('PUT /fragments/editor rejects plaintext save when moving vault note to non-vault (parentId changes rejected)', async () => {
+	// Vault notes cannot change parentId at all — the guard in the PUT
+	// handler rejects before any body-content checks.
+	let updateCalled = false;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: 'still plain', parentId: 'vault-1', updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updateCalled = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Secret&body=plain%20text%20body&parentId=f1&currentFolderId=vault-1&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.ok(res.body.includes('Vault notes cannot be moved to a different folder'));
+		assert.equal(updateCalled, false);
+	});
+});
+
+test('PUT /fragments/editor allows vault ciphertext saved within same vault (normal vault operation)', async () => {
+	let updateCalled = false;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: VAULT_CIPHERTEXT_BODY, parentId: 'vault-1', updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updateCalled = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Secret&body=' + encodeURIComponent(VAULT_CIPHERTEXT_BODY) + '&parentId=vault-1&currentFolderId=vault-1&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 200);
+		assert.equal(updateCalled, true);
+	});
+});
+
+test('PUT /fragments/editor rejects vault-to-vault move (parentId changes rejected)', async () => {
+	// ParentId changes for vault notes are rejected entirely — the guard
+	// fires before any body-content checks.  Re-encrypting for the target
+	// vault does not help; the note cannot be moved at all.
+	let updateCalled = false;
+	const ciphertextForVault2 = '<!--joplock-encrypted-start-->\n{"joplock_encrypted":1,"vault":"vault-2","noteId":"n1"}\n<!--joplock-encrypted-end-->';
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: VAULT_CIPHERTEXT_BODY, parentId: 'vault-1', updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updateCalled = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => (folderId === 'vault-1' || folderId === 'vault-2') ? { folderId } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1', 'vault-2']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Secret&body=' + encodeURIComponent(ciphertextForVault2) + '&parentId=vault-2&currentFolderId=vault-1&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.ok(res.body.includes('Vault notes cannot be moved to a different folder'));
+		assert.equal(updateCalled, false);
+	});
+});
+
+test('PUT /fragments/editor rejects vault-to-vault move (parentId changes rejected, metadata check replaced)', async () => {
+	// The parentId guard fires before the metadata-integrity check.
+	// Any parentId change for a vault note is rejected regardless of body.
+	let updateCalled = false;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: VAULT_CIPHERTEXT_BODY, parentId: 'vault-1', updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updateCalled = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => (folderId === 'vault-1' || folderId === 'vault-2') ? { folderId } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1', 'vault-2']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Secret&body=' + encodeURIComponent(VAULT_CIPHERTEXT_BODY) + '&parentId=vault-2&currentFolderId=vault-1&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.ok(res.body.includes('Vault notes cannot be moved to a different folder'));
+		assert.equal(updateCalled, false);
+	});
+});
+
+test('PUT /fragments/editor rejects vault-to-vault move with plaintext body (parentId changes rejected)', async () => {
+	// ParentId guard fires before the body-encryption check.
+	let updateCalled = false;
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Secret', body: VAULT_CIPHERTEXT_BODY, parentId: 'vault-1', updatedTime: 1000 }),
+		},
+		itemWriteService: {
+			updateNote: async () => { updateCalled = true; return { id: 'n1' }; },
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => (folderId === 'vault-1' || folderId === 'vault-2') ? { folderId } : null,
+			getVaultFolderIdSet: async () => new Set(['vault-1', 'vault-2']),
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Secret&body=plain%20text&parentId=vault-2&currentFolderId=vault-1&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 400);
+		assert.ok(res.body.includes('Vault notes cannot be moved to a different folder'));
+		assert.equal(updateCalled, false);
+	});
+});
+
 test('GET /fragments/search passes offset to searchNotes', async () => {
 	let receivedOffset;
 	await withServer({

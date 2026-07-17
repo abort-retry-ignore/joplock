@@ -947,7 +947,10 @@ function _applyFormReadonly(on){
 		else{title.setAttribute('contenteditable','true');title.removeAttribute('tabindex')}
 	}
 	var folderSelect=form.querySelector('.editor-folder-select');
-	if(folderSelect)folderSelect.disabled=!!on;
+	// Vault notes: folder select stays disabled regardless of readonly mode.
+	// Vault notes cannot change parent folder — the server rejects any
+	// parentId change for notes inside a vault.
+	if(folderSelect&&!(form.dataset.encrypted==='1'||form.dataset.vaultId))folderSelect.disabled=!!on;
 	var toolbar=form.querySelector('#editor-toolbar');
 	if(toolbar){
 		toolbar.setAttribute('aria-disabled',on?'true':'false');
@@ -1305,9 +1308,18 @@ function initPersistentTinyMCE(){
 					e.preventDefault();
 					var href=link.getAttribute('href')||'';
 					if(href){if(e.ctrlKey||e.metaKey){window.open(href,'_blank','noopener')}else{_copyTextToClipboard(href,function(ok){if(ok)_showLinkCopiedToast(e.clientX,e.clientY)})}}
+				return;
+			}
+			if(link){
+				var resId=link.getAttribute('data-resource-id')||'';
+				if(resId){
+					e.preventDefault();
+					if(isDesktopMode()){return}
+					_openResourceInNewContext('/resources/'+resId+'?download=1');
 					return;
 				}
-				var pre=_resolveTinyMCEPre(target);
+			}
+			var pre=_resolveTinyMCEPre(target);
 				if(!pre)return;
 				// Touch: long-press already handled (or was scroll/tap). Suppress
 				// the synthetic click so a tap never opens the editor.
@@ -1633,7 +1645,7 @@ function initPersistentTinyMCE(){
 					if(!e.ctrlKey&&!e.metaKey&&!e.altKey)hideRenderAutocompletePopup();
 				}
 				if(e.key==='Enter'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
-					if(!askDisabledForActiveNote()){
+					{
 						try{
 							var askRng=editor.selection.getRng&&editor.selection.getRng();
 							if(askRng&&askRng.collapsed){
@@ -1744,6 +1756,7 @@ function initPersistentTinyMCE(){
 										var atEnd=!postText.replace(/[\s\u200b]+/g,'');
 										if(atEnd){
 											e.preventDefault();
+											if(askDisabledForActiveNote()){_notifyAskDisabledInVault();return}
 											handleAskInTinyMCE(editor,askBlock,askParsed.question,softLine,foundBrBeforeCaret);
 											return;
 										}
@@ -2080,6 +2093,18 @@ function askDisabledForActiveNote(){
 	if(form.dataset.encrypted==='1')return true;
 	if(form.dataset.vaultId)return true;
 	return false;
+}
+// User-visible explanation for why /ask silently no-ops in vault notes. Shown
+// once per note-open so users don't keep re-typing hoping it will work. The
+// underlying policy (see AGENT_GUIDE "Ask Slash Command") is that plaintext
+// context from an encrypted note must never leave the browser.
+var _askDisabledNotified={};
+function _notifyAskDisabledInVault(){
+	var form=activeEditorForm();
+	var noteId=form&&form.dataset.noteId;
+	if(noteId&&_askDisabledNotified[noteId])return;
+	if(noteId)_askDisabledNotified[noteId]=1;
+	alert('/ask is disabled inside vault notes. Sending note content to an external AI provider would defeat the vault. Move the note out of the vault to use /ask.');
 }
 // Handles the /ask flow inside CM6. Called from the Enter keymap when the
 // current line matches detectAskCommand. Replaces the /ask line with a
@@ -3057,7 +3082,6 @@ function initCM(host,content){
 			C.highlightSelectionMatches(),
 			C.history(),
 					C.keymap.of([{key:'Mod-Space',run:function(){requestManualProseCompletion();return true}},{key:'Ctrl-Space',run:function(){requestManualProseCompletion();return true}},{key:'Enter',run:function(view){
-						if(askDisabledForActiveNote())return false;
 						var s=view.state;
 						var sel=s.selection.main;
 						if(!sel.empty)return false;
@@ -3065,6 +3089,7 @@ function initCM(host,content){
 						if(sel.head!==line.to)return false;
 						var parsed=detectAskCommand(line.text);
 						if(!parsed)return false;
+						if(askDisabledForActiveNote()){_notifyAskDisabledInVault();return false}
 						handleAskInCM(view,line,parsed.question);
 						return true;
 					}},...C.defaultKeymap,...C.historyKeymap,...C.searchKeymap.filter(function(b){var k=b.key||'';return k!=='Mod-f'&&k!=='F3'&&k!=='Mod-g'}),C.indentWithTab]),
@@ -4110,7 +4135,7 @@ function _lazyTinyMCESyncBeforeSave(){
 }
 function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
 function scheduleSaveTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(mobileTitle&&document.activeElement===mobileTitle)return;// Don't save while user is still editing title
-if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
+if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}/* For encrypted vault notes we MUST go through scheduleSave() so the encrypted-save override wraps the PUT (swaps ciphertext into #note-body via _setOneShotEncryptedBody). Firing htmx directly here would send the plaintext body and the server would reject with "Vault notes must be saved encrypted". */if(form.dataset.encrypted==='1'&&form.dataset.vaultId){_log('scheduleSaveTitle routing through encrypted scheduleSave');scheduleSave();return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
 function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_dbgline('snapshotHash',_savedHash,'stack',new Error().stack&&new Error().stack.split('\n').slice(1,5).join(' | '))}
 function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
 function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_resetRingBuffer('note-switch');_dbgline('initEditorPanel begin',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form input',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form change',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
@@ -4162,7 +4187,7 @@ document.body.addEventListener('htmx:afterSwap',function(e){var target=e.detail&
 function showOffline(){setSaveState('<span class="autosave-offline">Offline</span>','Offline');document.body.classList.add('is-offline');_log('offline indicator shown');showDisconnected()}
 function clearOffline(){document.body.classList.remove('is-offline');_log('offline indicator cleared')}
 document.body.addEventListener('htmx:sendError',function(e){var elt=e.detail&&e.detail.elt;_log('htmx:sendError',elt&&elt.id);if(elt&&elt.id==='note-editor-form')showOffline()});
-document.body.addEventListener('htmx:responseError',function(e){var elt=e.detail&&e.detail.elt;var xhr=e.detail&&e.detail.xhr;_log('htmx:responseError',elt&&elt.id,xhr&&xhr.status);if(xhr&&xhr.status===401){_log('htmx 401, session invalid, logging out');window.location.assign('/logout');return;}if(elt&&elt.id==='note-editor-form')showOffline()});
+document.body.addEventListener('htmx:responseError',function(e){var elt=e.detail&&e.detail.elt;var xhr=e.detail&&e.detail.xhr;_log('htmx:responseError',elt&&elt.id,xhr&&xhr.status);if(xhr&&xhr.status===401){_log('htmx 401, session invalid, logging out');window.location.assign('/logout');return;}/* Only treat 5xx (server error) as offline. 4xx is a rejection — the response body already surfaced the reason via the swap into #autosave-status, and showing the disconnected overlay for a business-logic rejection (e.g. vault guard, conflict) is misleading. */if(elt&&elt.id==='note-editor-form'&&xhr&&xhr.status>=500)showOffline()});
 // --- Disconnected overlay (server unreachable) ---
 var _dcFailCount=0;
 var _dcFailThreshold=1;
@@ -5224,10 +5249,17 @@ async function _doEncryptNoteInVault(noteId,folderId){
 		if(form){
 			form.dataset.encrypted='1';
 			form.dataset.vaultId=folderId;
+			// The vault must already be unlocked to reach this point (callers
+			// gate on _ensureUnlocked before calling _doEncryptNoteInVault),
+			// and the editor is displaying live plaintext right now — so the
+			// note is unlocked from the editor's point of view too. Without
+			// this flag, the folder-change hard-block (`isLocked` check)
+			// could misjudge this freshly-encrypted note as locked on a
+			// subsequent folder change within the same session.
+			form.dataset.vaultUnlocked='1';
 			_triggerEncryptedSave(form,ciphertext,noteId,folderId);
 		}
-		_updateLockToggle(noteId,true);
-		_updateNoteLockIcon(noteId,true);
+		_syncEditorVaultChrome(noteId,true,true);
 	}catch(e){
 		_log('_doEncryptNoteInVault error',e);
 		alert('Encryption failed: '+e.message);
@@ -5374,9 +5406,42 @@ function toggleNoteLock(noteId){
 
 function _updateLockToggle(noteId,unlocked){
 	var btn=document.getElementById('lock-toggle-btn');
-	if(!btn)return;
-	btn.innerHTML=unlocked?SVG_LOCK_OPEN:SVG_LOCK_CLOSED;
-	btn.title=unlocked?'Lock vault':'Unlock vault';
+	if(btn){
+		btn.innerHTML=unlocked?SVG_LOCK_OPEN:SVG_LOCK_CLOSED;
+		btn.title=unlocked?'Lock vault':'Unlock vault';
+	}
+}
+
+// Ensure the vault-chrome (#lock-toggle-btn) reflects the note's vault state.
+// Called after moving a note between vault/non-vault folders so UI updates
+// without a page refresh. `inVault` true means the note is (now) in a vault;
+// `unlocked` reflects whether the body is currently plaintext-visible.
+function _syncEditorVaultChrome(noteId,inVault,unlocked){
+	// Lock toggle button: only present when the note is in a vault.
+	var existing=document.getElementById('lock-toggle-btn');
+	if(inVault){
+		if(!existing){
+			// Inject the button next to the delete button in the titlebar.
+			var titlebar=document.querySelector('.editor-titlebar');
+			if(titlebar){
+				var delBtn=titlebar.querySelector('button.btn-danger');
+				var btn=document.createElement('button');
+				btn.type='button';
+				btn.className='btn btn-icon';
+				btn.id='lock-toggle-btn';
+				btn.title=unlocked?'Lock vault':'Unlock vault';
+				btn.innerHTML=unlocked?SVG_LOCK_OPEN:SVG_LOCK_CLOSED;
+				btn.setAttribute('onclick',"toggleNoteLock('"+String(noteId).replace(/'/g,"\\'")+"')");
+				if(delBtn)titlebar.insertBefore(btn,delBtn);else titlebar.appendChild(btn);
+			}
+		}else{
+			_updateLockToggle(noteId,unlocked);
+		}
+	}else{
+		if(existing)existing.remove();
+	}
+	// Note-list icons across the app.
+	_updateNoteLockIcon(noteId,unlocked);
 }
 
 function _updateNoteLockIcon(noteId,unlocked){
@@ -5510,6 +5575,16 @@ function buildFlushRequest(form){
 		var expectedNoteId=_formNoteId(form);
 		var expectedVaultId=form.dataset.vaultId;
 		if(!expectedNoteId){return Promise.resolve(null)}
+		// Parent-id guard (see scheduleSave override for full rationale).
+		// A flush during a pending folder change would encrypt with the old
+		// vault key and PUT to a new parent, triggering the server's
+		// vault-leak guard. Abort instead.
+		var flushParentSel=form.querySelector('select[name="parentId"], input[name="parentId"]');
+		var flushFormParent=flushParentSel?flushParentSel.value:'';
+		if(flushFormParent&&flushFormParent!==expectedVaultId){
+			_log('buildFlushRequest aborted: form parentId does not match vault',{formParent:flushFormParent,vaultId:expectedVaultId});
+			return Promise.resolve(null);
+		}
 		return getVaultKey(expectedVaultId).then(function(key){
 			if(!key)throw new Error('Vault is locked');
 			// Identity guard: same reasoning as scheduleSave. Refuse to
@@ -5561,8 +5636,33 @@ scheduleSave=function(){
 			_log('encrypted scheduleSave aborted: note switched during debounce',{noteId:noteId,vaultId:vaultId,activeNoteId:_activeEditorNoteId(),connected:form.isConnected});
 			return;
 		}
+		// Rich-text (TinyMCE) edits don't touch #note-body on every keystroke
+		// (perf optimization — see onEdit's comment). The plain-note save
+		// path (scheduleSave in the un-overridden case) accounts for this via
+		// _lazyTinyMCESyncBeforeSave() before its hash check; this override
+		// must do the same, otherwise typed content never reaches ta.value,
+		// formHash(form) never changes, and the save is silently skipped —
+		// the note looks "Saved" while the real edit only exists in the
+		// TinyMCE iframe.
+		_lazyTinyMCESyncBeforeSave();
 		var h=formHash(form);
 		if(h===_savedHash){_log('encrypted scheduleSave skip, hash unchanged',h);return}
+
+		// Parent-id guard: the encrypted-save path assumes the note is
+		// staying in its current vault (`vaultId`). If the user has changed
+		// the folder select to anything else — a different vault, a plain
+		// folder, or same folder id but temporarily-out-of-sync — encrypting
+		// with THIS vault's key and PUTing to the new parent would produce
+		// exactly the "vault ciphertext leaks to non-vault" server rejection.
+		// The folder-change handler drives all legitimate vault-move flows;
+		// if the form's parentId no longer matches the captured vaultId,
+		// defer to that handler and abort here.
+		var parentSel=form.querySelector('select[name="parentId"], input[name="parentId"]');
+		var formParent=parentSel?parentSel.value:'';
+		if(formParent&&formParent!==vaultId){
+			_log('encrypted scheduleSave aborted: form parentId does not match vault (folder change in progress)',{formParent:formParent,vaultId:vaultId});
+			return;
+		}
 
 		// Read plaintext from the CAPTURED form's textarea, never from the
 		// global getTA() (which returns whatever editor is currently visible).
@@ -5571,8 +5671,14 @@ scheduleSave=function(){
 		var plaintext=ta.value;
 		_log('encrypted save begin',vaultId,{noteId:noteId,plaintextLength:plaintext.length,alreadyEncrypted:isEncryptedBody(plaintext)});
 
-		// Skip if somehow the textarea already holds ciphertext
-		if(isEncryptedBody(plaintext)){_origScheduleSave();return}
+		// Skip if the textarea already holds ciphertext. This means the note
+		// is still LOCKED (never decrypted in the editor). Falling back to
+		// the plain save path here would PUT the ciphertext body — server
+		// rejects it with the vault-leak guard, but the safe behaviour is to
+		// abort here rather than round-trip to the server. Any change event
+		// that triggered this on a locked note (e.g. the folder select) is
+		// itself a bug the folder-change handler should have blocked.
+		if(isEncryptedBody(plaintext)){_log('encrypted scheduleSave aborted: textarea still ciphertext (note locked)');return}
 
 		try{
 			var key=await getVaultKey(vaultId);
@@ -5688,6 +5794,17 @@ initEditorPanel=function(){
 // Move note: encrypt/decrypt when folder changes
 // Called when user changes folder via the editor folder select
 (function(){
+	// Snapshot the current select value BEFORE the user commits a change,
+	// so cancel paths can revert cleanly. `change` fires after the value
+	// has already moved, and there is no built-in "previous value" hook.
+	document.body.addEventListener('focus',function(e){
+		var s=e.target;
+		if(s&&s.id==='editor-folder-select')s.dataset.prevValue=s.value;
+	},true);
+	document.body.addEventListener('mousedown',function(e){
+		var s=e.target.closest?e.target.closest('#editor-folder-select'):null;
+		if(s)s.dataset.prevValue=s.value;
+	});
 	document.body.addEventListener('change',function(e){
 		var select=e.target;
 		if(!select||select.id!=='editor-folder-select')return;
@@ -5696,60 +5813,130 @@ initEditorPanel=function(){
 		var noteId=form.dataset.noteId;
 		var ta=getTA();
 		if(!ta||!noteId)return;
+		// Sync TinyMCE (rich mode) content into #note-body before reading
+		// ta.value below. Rich-text edits don't sync on every keystroke
+		// (perf optimization), so without this, moving a note out of a
+		// vault right after typing in rich mode would read a stale/empty
+		// ta.value and save that instead of what's actually on screen.
+		_lazyTinyMCESyncBeforeSave();
 
 		var newFolderId=select.value;
+		var _selOrig=select.querySelector('option[selected]');
+		var prevFolderId=select.dataset.prevValue||(_selOrig?_selOrig.value:'');
 		var oldVaultId=form.dataset.vaultId||null;
 		var isEnc=form.dataset.encrypted==='1';
 
-		// Determine if destination is a vault (check nav DOM for vault icon)
-		var newFolderIsVault=!!document.querySelector('.vault-folder-lock[data-folder-id="'+newFolderId+'"]');
+		// Determine if destination is a vault.  Check the <option>'s
+		// data-is-vault attribute first — it is available as soon as the
+		// folder select is rendered and does not depend on the nav DOM
+		// being loaded or in-sync.  Fall back to the nav DOM query for
+		// folder selects rendered by older server builds that don't
+		// include the attribute.
+		var _selOpt=select.options[select.selectedIndex]||null;
+		var newFolderIsVault=(_selOpt&&_selOpt.dataset.isVault==='1')
+			||!!document.querySelector('.vault-folder-lock[data-folder-id="'+newFolderId+'"]');
+		var _selText=(select.options[select.selectedIndex]||{}).text||'';
+		_log('folder-change',{noteId:noteId,from:prevFolderId,to:newFolderId,toText:_selText,selectedIndex:select.selectedIndex,optionCount:select.options.length,isEnc:isEnc,newIsVault:newFolderIsVault,vaultId:oldVaultId});
 
-		if(!isEnc&&!newFolderIsVault)return; // plain note to plain folder, nothing to do
+		// Detect a broken vault-state: the note's data-vault-id points to a
+		// folder that isn't the note's actual current parent AND isn't the
+		// destination. This happens for notes that were moved out of a vault
+		// in older builds without stripping the ciphertext markers, so the
+		// body stays encrypted-shaped but the folder is not a vault. Treat
+		// them as effectively plain for folder-change purposes so the user
+		// can recover them.
+		var isBrokenVaultState=isEnc&&oldVaultId&&oldVaultId!==prevFolderId&&oldVaultId!==newFolderId&&!document.querySelector('.vault-folder-lock[data-folder-id="'+String(oldVaultId).replace(/"/g,'\\"')+'"]');
+		if(isBrokenVaultState){
+			_log('folder-change: broken vault-state detected, treating note as plain',{oldVaultId:oldVaultId,prevFolderId:prevFolderId,newFolderId:newFolderId});
+			isEnc=false;
+		}
+
+		// No-op: user picked the same folder that was already selected.
+		// Nothing to encrypt, re-encrypt, or move.
+		// UNLESS the note is a plaintext body sitting inside a vault
+		// folder (e.g. placed there via drag-and-drop or created before
+		// the folder was converted to a vault).  In that broken state the
+		// user can't edit or save until the body is encrypted.  Treat
+		// "pick the same vault" as a request to encrypt-in-place.
+		if(prevFolderId&&newFolderId===prevFolderId){
+			if(!isEnc&&newFolderIsVault){
+				// encrypt-in-place — same flow as plain→vault below
+			}else{
+				return;
+			}
+		}
+
+		if(!isEnc&&!newFolderIsVault){
+			// Plain note to plain folder: nothing to encrypt/decrypt.
+			// The normal autosave (already scheduled by the form-input
+			// listener) will PUT the new parentId and the server will
+			// honour the move.  This is the common fast-path.
+			return;
+		}
+
+		// HARD BLOCK: a note that is still locked (not decrypted in the
+		// editor) must not be moved anywhere. The client has no plaintext to
+		// re-encrypt for a different vault, and moving to a non-vault would
+		// either try to write ciphertext (server rejects) or accidentally
+		// leak plaintext-in-DOM for notes whose body was never encrypted at
+		// rest (vault-parented + plaintext body transitional state). Force
+		// the user to unlock first so the flow is explicit and safe.
+		// `#editor-locked` stays in the DOM after unlock (just hidden), so
+		// treat "locked overlay visible" as the real signal — and always
+		// double-check the textarea, because the overlay can be stale.
+		var lockedEl=document.getElementById('editor-locked');
+		var lockedVisible=!!(lockedEl&&lockedEl.style.display!=='none'&&lockedEl.offsetParent!==null);
+		var vaultUnlockedFlag=form.dataset.vaultUnlocked==='1';
+		var taIsCipher=!!(ta&&isEncryptedBody(ta.value));
+		var isLocked=(lockedVisible||taIsCipher)&&!vaultUnlockedFlag;
+		if(isLocked&&(isEnc||newFolderIsVault)){
+			select.value=prevFolderId;
+			// The form's change listener already fired scheduleSave() before
+			// this bubble reached body. Cancel the pending autosave so the
+			// captured (locked) form doesn't PUT a stale value after we
+			// revert the select. Also reset the save-state UI.
+			if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}
+			if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}
+			setSaveState('','');
+			alert('Unlock this note before moving it. A locked vault note cannot be moved to another folder.');
+			return;
+		}
 
 		// Helper: only show the unlock modal if the vault is not already unlocked
 		var _ensureUnlocked=function(vaultId,cb){
 			if(isVaultUnlocked(vaultId)){cb(true);return}
 			_showVaultModal(vaultId,'unlock',cb);
 		};
+		// Helper: resolve a human-readable folder title from nav DOM.
+		var _folderTitle=function(fid){
+			var el=document.querySelector('.nav-folder[data-folder-id="'+String(fid).replace(/"/g,'\\"')+'"]');
+			var t=el&&el.getAttribute('data-folder-title');
+			return t||fid||'(unknown)';
+		};
 
-		if(isEnc&&!newFolderIsVault){
-			// Moving encrypted note out of vault → save as plaintext.
-			// ta.value is already plaintext (note is open and unlocked in editor).
+		if(!isEnc&&newFolderIsVault){
+			// Moving plain note into vault → encrypt it.
+			// Confirm before prompting for the destination vault password so
+			// an accidental folder pick can be cancelled without a modal.
+			var intoMsg='Move this note INTO vault "'+_folderTitle(newFolderId)+'"?\n\nIts contents will be encrypted with that vault\'s key from now on.';
+			if(!confirm(intoMsg)){
+				select.value=prevFolderId;
+				return;
+			}
+			select.value=prevFolderId;
+			// Cancel any pending autosave — the form's change listener already
+			// called scheduleSave() before this handler ran.  The 2s debounce
+			// could fire while the vault modal is open and send a plaintext
+			// body to the server (which would reject it as a vault violation).
+			// The encrypted save that _doEncryptNoteInVault triggers replaces
+			// this, so cancelling here is safe.
 			if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}
-			delete form.dataset.encrypted;
-			delete form.dataset.vaultId;
-			delete form.dataset.vaultUnlocked;
-			_updateLockToggle(noteId,false);
-			_updateNoteLockIcon(noteId,false);
-			htmx.trigger(form,'joplock:save');
-		}else if(!isEnc&&newFolderIsVault){
-			// Moving plain note into vault → encrypt it
-			select.value=form.dataset.vaultId||'';
+			if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}
+			setSaveState('','');
 			_ensureUnlocked(newFolderId,function(ok){
-				if(!ok)return;
+				if(!ok){select.value=prevFolderId;return}
 				select.value=newFolderId;
 				_doEncryptNoteInVault(noteId,newFolderId);
-			});
-		}else if(isEnc&&newFolderIsVault&&oldVaultId!==newFolderId){
-			// Moving between vaults → re-encrypt with new vault key.
-			// ta.value is plaintext (note is open and unlocked); old vault key
-			// is irrelevant for the body content. We just need the new vault
-			// unlocked so we can encrypt with its key.
-			select.value=oldVaultId;
-			_ensureUnlocked(newFolderId,function(ok){
-				if(!ok)return;
-				select.value=newFolderId;
-				if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}
-				getVaultKey(newFolderId).then(function(newKey){
-					if(!newKey){_log('new vault key missing',newFolderId);return}
-					var salt=getVaultSalt(newFolderId);
-					if(!salt){_log('new vault salt missing',newFolderId);return}
-					return encryptForVault(ta.value,newFolderId,newKey,salt,noteId).then(function(ct){
-						form.dataset.vaultId=newFolderId;
-						form.dataset.encrypted='1';
-						_triggerEncryptedSave(form,ct,noteId,newFolderId);
-					});
-				}).catch(function(e){_log('re-encrypt failed',e);alert('Re-encryption failed: '+e.message)});
 			});
 		}
 	});

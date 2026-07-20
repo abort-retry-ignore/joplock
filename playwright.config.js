@@ -15,7 +15,7 @@ module.exports = defineConfig({
 	use: {
 		baseURL,
 		trace: 'on-first-retry',
-		screenshot: 'only-on-failure',
+		screenshot: 'on',
 		video: 'retain-on-failure',
 		headless: true,
 	},

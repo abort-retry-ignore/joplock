@@ -584,6 +584,11 @@ If a UI action appears broken, check:
 - Cleanup relies on `GET /api/web/notes/headers` returning `parentId` (added for this), `DELETE /api/web/folders/:id`, `DELETE /fragments/notes/:id` (trash then purge), `POST /fragments/trash/empty`, and `POST /admin/orphaned-resources/cleanup`.
 - Verify a change doesn't leak by running a data-creating spec twice and confirming the DB item counts are identical before/after (they must be stable, i.e. zero accumulation).
 
+### Playwright screenshots
+
+- Screenshots are captured on every test run (pass or fail) under `test-results/`, named `{testTitle}-{project}-{browser}-{retry}.png`. Configured via `use.screenshot: 'on'` in `playwright.config.js`.
+- Videos are still `retain-on-failure`, traces `on-first-retry`, and `test-results/` is already git-ignored.
+
 
 ## Development Stack
 

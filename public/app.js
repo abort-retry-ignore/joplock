@@ -4141,7 +4141,7 @@ function scheduleSaveTitle(){var mobileTitle=document.getElementById('mobile-edi
 if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}/* For encrypted vault notes we MUST go through scheduleSave() so the encrypted-save override wraps the PUT (swaps ciphertext into #note-body via _setOneShotEncryptedBody). Firing htmx directly here would send the plaintext body and the server would reject with "Vault notes must be saved encrypted". */if(form.dataset.encrypted==='1'&&form.dataset.vaultId){_log('scheduleSaveTitle routing through encrypted scheduleSave');scheduleSave();return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
 function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_dbgline('snapshotHash',_savedHash,'stack',new Error().stack&&new Error().stack.split('\n').slice(1,5).join(' | '))}
 function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
-function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';_resetRingBuffer('note-switch');_dbgline('initEditorPanel begin',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form input',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form change',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
+function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';if(form.dataset.shareReadonly==='1'){_applyFormReadonly(true);}_resetRingBuffer('note-switch');_dbgline('initEditorPanel begin',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form input',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form change',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
 e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+1;ta.dispatchEvent(new Event('input',{bubbles:true}))}else{// Enter = new paragraph (\n\n)
 e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+2;ta.dispatchEvent(new Event('input',{bubbles:true}))}})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';/* Persistent TinyMCE: refresh content for this note (skip locked encrypted notes) */if(form.dataset.encrypted!=='1'){var _mobileRO=_tinymceReadonlyDefault();_editorMode=(_mobileRO?false:_defaultNoteOpenMode==='markdown')?'markdown':'rich';_tinymceReadonly=_mobileRO;syncEditorModeButtons();if(_editorMode==='markdown'){hideTinyMCEHost();applyEditorModeVisibility('markdown');var mdta=getTA();mountMarkdownEditor(mdta?mdta.value:'');initPersistentTinyMCE()}else{initPersistentTinyMCE();refreshTinyMCEForActiveNote()}if(pendingSearch){var _pendTerm=pendingSearch;if(_editorMode==='markdown'){setTimeout(function(){var si=activeSearchInput();if(si&&!si.value)si.value=_pendTerm;applySearchHighlight()},0)}else{/* rich: highlight is (re)applied by _setTinyMCEContent once the body is painted (covers sync + async render) */var si2=activeSearchInput();if(si2&&!si2.value)si2.value=_pendTerm;_log('initEditorPanel: setting pendingSearchHighlight, rich mode, term='+(_pendTerm||''));_pendingSearchHighlight=true;/* Fallback: if no setContent fires (e.g. same-note reopen with body already loaded), apply once the body has text. */var _tries=0;var _fb=setInterval(function(){_tries++;if(!_pendingSearchHighlight||_tries>20){clearInterval(_fb);return}var _b=_tinymceEditor&&_tinymceEditor.getBody&&_tinymceEditor.getBody();if(_b&&(_b.textContent||'').trim()&&activeSearchTerm()&&activeSearchTerm().trim()){_pendingSearchHighlight=false;clearInterval(_fb);applySearchHighlight()}},50)}}}else{hideTinyMCEHost()}}
 function applySearchHighlight(){var term=activeSearchTerm();_log('applySearchHighlight mode='+_editorMode+' term='+(term||''));var bar=document.getElementById('search-nav-bar');if(bar)bar.hidden=true;_searchMarks=[];_searchMarkIdx=0;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);clearTinyMCESearchMarks();if(!term||!term.trim()){clearCodeMirrorSearch();return}term=term.trim();if(_editorMode==='markdown'||_editorMode==='md'){_log('applySearchHighlight: markdown/CM6 branch');if(_cmView&&window.CM&&window.CM.SearchQuery&&window.CM.setSearchQuery){window.CM.openSearchPanel(_cmView);var q=new window.CM.SearchQuery({search:term,caseSensitive:false});_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)});_cmSearchMatches=collectCodeMirrorSearchMatches(q);if(_cmSearchMatches.length)setCodeMirrorSearchActive(0);else searchNavShow(0,0)}}else if(_editorMode==='preview'&&pv){clearCodeMirrorSearch();var savedHandler=pv.oninput;pv.oninput=null;highlightInPreview(pv,term);pv.oninput=savedHandler}else{_log('applySearchHighlight: rich/TinyMCE branch');clearCodeMirrorSearch();highlightInTinyMCE(term)}}
@@ -6180,4 +6180,263 @@ window.exportNoteAsMarkdown=exportNoteAsMarkdown;
 window.exportNoteAsHtml=exportNoteAsHtml;
 window.exportNoteAsDocx=exportNoteAsDocx;
 window.exportNoteAsPdf=exportNoteAsPdf;
+window.openShareForFolderFromMenu=openShareForFolderFromMenu;
+window.openShareDialog=openShareDialog;
+window.closeShareDialog=closeShareDialog;
+window.inviteToShare=inviteToShare;
+window.removeShareUser=removeShareUser;
+window.stopSharingNotebook=stopSharingNotebook;
+window.openShareInbox=openShareInbox;
+window.closeShareInbox=closeShareInbox;
+window.acceptShareInvite=acceptShareInvite;
+window.rejectShareInvite=rejectShareInvite;
+window.toggleShareWrite=toggleShareWrite;
+window.leaveShareNotebook=leaveShareNotebook;
+// --- Share dialog ---
+function _shareEscapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function openShareDialog(notebookId, notebookTitle) {
+	var modal = document.getElementById('share-modal');
+	var backdrop = document.getElementById('share-modal-backdrop');
+	if (modal && modal.parentNode !== document.body) document.body.appendChild(modal);
+	if (backdrop && backdrop.parentNode !== document.body) document.body.appendChild(backdrop);
+	if (modal) modal.hidden = false;
+	if (backdrop) backdrop.hidden = false;
+
+	window._shareNotebookId = notebookId;
+	window._shareIsOwner = (modal && modal.dataset.shareOwner === '1');
+	window._shareId = modal ? (modal.dataset.shareId || null) : null;
+	var titleEl = modal && modal.querySelector('.folder-modal-title');
+	if (titleEl && notebookTitle) titleEl.innerHTML = 'Share &ldquo;' + _shareEscapeHtml(notebookTitle) + '&rdquo;';
+	var idInput = document.getElementById('share-notebook-id');
+	if (idInput) idInput.value = notebookId || '';
+	var stopBtn = document.getElementById('share-stop-btn');
+	if (stopBtn) stopBtn.hidden = true;
+	renderSharePeople([]);
+
+	if (!window._shareIsOwner) {
+		renderRecipientView(notebookId);
+		return;
+	}
+
+	fetch('/api/web/shares?notebook_id=' + encodeURIComponent(notebookId))
+		.then(function(r) { return r.json(); })
+		.then(function(data) {
+			var items = data.items || [];
+			var share = items.length > 0 ? items[0] : null;
+			if (share && share.id) {
+				window._shareId = share.id;
+				if (stopBtn) stopBtn.hidden = false;
+				return fetch('/api/web/shares/' + encodeURIComponent(share.id) + '/invites')
+					.then(function(r) { return r.json(); })
+					.then(function(invData) {
+						renderSharePeople(invData.items || []);
+					});
+			}
+			renderSharePeople([]);
+		})
+		.catch(function(e) { console.error('Failed to load share info', e); });
+}
+
+function closeShareDialog() {
+	var modal = document.getElementById('share-modal');
+	var backdrop = document.getElementById('share-modal-backdrop');
+	if (modal) modal.hidden = true;
+	if (backdrop) backdrop.hidden = true;
+}
+
+function inviteToShare(notebookId) {
+	var emailInput = document.getElementById('share-invite-email');
+	var errorEl = document.getElementById('share-invite-error');
+	var btn = document.getElementById('share-invite-btn');
+	var email = (emailInput ? emailInput.value : '').trim();
+	if (!email) {
+		if (errorEl) { errorEl.textContent = 'Please enter an email address'; errorEl.style.display = 'block'; }
+		return;
+	}
+	if (errorEl) { errorEl.textContent = ''; errorEl.style.display = 'none'; }
+	if (btn) btn.disabled = true;
+
+	var ensureShare = window._shareId
+		? Promise.resolve({ id: window._shareId })
+		: fetch('/api/web/shares', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'notebookId=' + encodeURIComponent(notebookId)
+		}).then(function(r) { return r.json().then(function(j){ if(!r.ok) throw new Error(j.error||'Failed to create share'); return j; }); });
+
+	ensureShare
+	.then(function(share) {
+		if (!share || !share.id) throw new Error((share && share.error) || 'Failed to create share');
+		window._shareId = share.id;
+		var stopBtn = document.getElementById('share-stop-btn');
+		if (stopBtn) stopBtn.hidden = false;
+		return fetch('/api/web/shares/' + encodeURIComponent(share.id) + '/invites', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'email=' + encodeURIComponent(email) + '&can_write=1'
+		}).then(function(r) { return r.json().then(function(j){ if(!r.ok) throw new Error(j.error||j.message||'Failed to share'); return j; }); });
+	})
+	.then(function() {
+		if (emailInput) emailInput.value = '';
+		openShareDialog(notebookId);
+		if (window.htmx) htmx.ajax('GET', '/fragments/nav', { target: '#nav-panel', swap: 'innerHTML' });
+	})
+	.catch(function(e) {
+		if (errorEl) { errorEl.textContent = e.message || 'Failed to share'; errorEl.style.display = 'block'; }
+	})
+	.finally(function(){ if (btn) btn.disabled = false; });
+}
+
+function renderSharePeople(invitees) {
+	var list = document.getElementById('share-people-list');
+	if (!list) return;
+
+	if (!invitees || !invitees.length) {
+		list.innerHTML = '<div class="empty-hint">No people with access yet</div>';
+		return;
+	}
+
+	list.innerHTML = invitees.map(function(inv) {
+		var st = Number(inv.status);
+		var status = st === 1 ? 'Has access' : (st === 0 ? 'Pending' : 'Rejected');
+		var canWrite = inv.can_write !== undefined ? !!Number(inv.can_write) : !!(inv.canWrite);
+		var email = inv.email || inv.user_email || inv.user_id || 'Unknown';
+		var id = inv.id || '';
+		var isOwner = !!window._shareIsOwner;
+		return '<div class="share-person-row" data-invite-id="' + _shareEscapeHtml(id) + '" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border,rgba(255,255,255,.08))">' +
+			'<span class="share-person-email" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _shareEscapeHtml(email) + '</span>' +
+			(isOwner ? '<span class="share-person-status" style="opacity:.75;font-size:12px">' + _shareEscapeHtml(status) + '</span>' +
+			'<label class="share-can-write-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;opacity:.85">' +
+				'<input type="checkbox" class="share-can-write-cb"' + (canWrite ? ' checked' : '') +
+				(id ? ' onchange="toggleShareWrite(\'' + _shareEscapeHtml(id) + '\',this.checked)"' : '') + '>' +
+				'Can edit</label>' : '') +
+			(isOwner && id ? '<button type="button" class="btn btn-sm btn-secondary" onclick="removeShareUser(\'' + _shareEscapeHtml(id) + '\')">Remove</button>' : '') +
+			'</div>';
+	}).join('');
+}
+
+function renderRecipientView(notebookId) {
+	var list = document.getElementById('share-people-list');
+	if (!list) return;
+	list.innerHTML = '<div class="share-person-row" style="display:flex;align-items:center;gap:8px;padding:6px 0">' +
+		'<span style="flex:1;opacity:.75">You have access to this notebook</span>' +
+		'</div>';
+}
+
+function leaveShareNotebook(notebookId) {
+	if (!confirm('Leave this shared notebook? You will lose access to its contents.')) return;
+	var shareId = window._shareId;
+	if (shareId) {
+		fetch('/api/web/shares/' + encodeURIComponent(shareId) + '/leave', { method: 'POST' })
+			.then(function() {
+				closeShareDialog();
+				if (window.htmx) htmx.ajax('GET', '/fragments/nav', { target: '#nav-panel', swap: 'innerHTML' });
+			})
+			.catch(function(e) { console.error('Failed to leave share', e); });
+	}
+}
+
+function toggleShareWrite(inviteId, checked) {
+	fetch('/api/web/shares/invites/' + encodeURIComponent(inviteId), {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		body: 'can_write=' + (checked ? '1' : '0')
+	}).catch(function(e) { console.error('Failed to update permissions', e); });
+}
+
+function removeShareUser(inviteId) {
+	if (!confirm('Remove this user from the share?')) return;
+	fetch('/api/web/shares/invites/' + encodeURIComponent(inviteId), { method: 'DELETE' })
+		.then(function() {
+			if (window._shareNotebookId) openShareDialog(window._shareNotebookId);
+		})
+		.catch(function(e) { console.error('Failed to remove user', e); });
+}
+
+function stopSharingNotebook(notebookId) {
+	if (!window._shareId) return;
+	if (!confirm('Stop sharing this notebook? Other users will lose access.')) return;
+	fetch('/api/web/shares/' + encodeURIComponent(window._shareId), { method: 'DELETE' })
+		.then(function(r){ return r.json().catch(function(){return{}}); })
+		.then(function() {
+			window._shareId = null;
+			openShareDialog(notebookId || window._shareNotebookId);
+			if (window.htmx) htmx.ajax('GET', '/fragments/nav', { target: '#nav-panel', swap: 'innerHTML' });
+		})
+		.catch(function(e) { console.error('Failed to stop sharing', e); });
+}
+
+// --- Share inbox ---
+function openShareInbox() {
+	var modal = document.getElementById('share-inbox-modal');
+	var backdrop = document.getElementById('share-inbox-backdrop');
+	if (!modal || !backdrop) {
+		fetch('/fragments/shares/inbox')
+			.then(function(r) { return r.text(); })
+			.then(function(html) {
+				var div = document.createElement('div');
+				div.innerHTML = html;
+				while (div.firstChild) document.body.appendChild(div.firstChild);
+				setTimeout(function() { openShareInbox(); }, 50);
+			});
+		return;
+	}
+	if (modal.parentNode !== document.body) document.body.appendChild(modal);
+	if (backdrop.parentNode !== document.body) document.body.appendChild(backdrop);
+	modal.hidden = false;
+	backdrop.hidden = false;
+}
+
+function closeShareInbox() {
+	var modal = document.getElementById('share-inbox-modal');
+	var backdrop = document.getElementById('share-inbox-backdrop');
+	if (modal) modal.hidden = true;
+	if (backdrop) backdrop.hidden = true;
+}
+
+function acceptShareInvite(inviteId) {
+	fetch('/api/web/shares/invites/' + encodeURIComponent(inviteId) + '/accept', { method: 'POST' })
+		.then(function(r) { return r.json(); })
+		.then(function() {
+			closeShareInbox();
+			if (window.htmx) htmx.ajax('GET', '/fragments/nav', { target: '#nav-panel', swap: 'innerHTML' });
+		})
+		.catch(function(e) { console.error('Failed to accept share', e); });
+}
+
+function rejectShareInvite(inviteId) {
+	fetch('/api/web/shares/invites/' + encodeURIComponent(inviteId) + '/reject', { method: 'POST' })
+		.then(function() {
+			var item = document.querySelector('[data-invite-id="' + inviteId + '"]');
+			if (item) item.remove();
+		})
+		.catch(function(e) { console.error('Failed to reject share', e); });
+}
+
+function openShareForFolderFromMenu() {
+	if (!_folderMenuState || !_folderMenuState.id) return;
+	closeFolderContextMenu();
+	var notebookId = _folderMenuState.id;
+	var notebookTitle = _folderMenuState.title || 'Untitled';
+
+	var existing = document.getElementById('share-modal');
+	if (existing) {
+		existing.remove();
+		var oldBd = document.getElementById('share-modal-backdrop');
+		if (oldBd) oldBd.remove();
+	}
+	fetch('/fragments/shares/' + encodeURIComponent(notebookId))
+		.then(function(r) {
+			if (!r.ok) return r.text().then(function(t){ throw new Error(t.replace(/<[^>]+>/g,' ').trim() || 'Failed to open share dialog'); });
+			return r.text();
+		})
+		.then(function(html) {
+			var div = document.createElement('div');
+			div.innerHTML = html;
+			while (div.firstChild) document.body.appendChild(div.firstChild);
+			openShareDialog(notebookId, notebookTitle);
+		})
+		.catch(function(e) { alert(e.message || 'Failed to open share dialog'); });
+}
+
 })(); // end main IIFE

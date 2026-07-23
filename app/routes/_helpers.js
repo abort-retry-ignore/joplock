@@ -277,6 +277,13 @@ const assertVaultNoteBodyEncrypted = async (vaultService, userId, existingParent
 	}
 };
 
+const assertShareWriteAccess = async (itemService, userId, itemId) => {
+	const { resolveItemShareAccess, assertCanWrite } = require('../items/shareAccess');
+	const access = await resolveItemShareAccess(itemService, userId, itemId);
+	if (!access) return; // new item path
+	assertCanWrite(access);
+};
+
 module.exports = {
 	// response
 	send,
@@ -306,4 +313,5 @@ module.exports = {
 	navPanelOob,
 	rebuildNavOob,
 	assertVaultNoteBodyEncrypted,
+	assertShareWriteAccess,
 };

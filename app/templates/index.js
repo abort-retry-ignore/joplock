@@ -6,6 +6,7 @@ const fragments = require('./fragments');
 const settings = require('./settings');
 const pages = require('./pages');
 const mobile = require('./mobile');
+const shares = require('./shares');
 
 module.exports = {
 	// shared
@@ -14,6 +15,12 @@ module.exports = {
 	renderInlineMarkdown: shared.renderInlineMarkdown,
 	renderMarkdown: shared.renderMarkdown,
 	passwordField: shared.passwordField,
+
+	// shares
+	shareDialog: shares.shareDialog,
+	shareInviteesList: shares.shareInviteesList,
+	shareInboxBadge: shares.shareInboxBadge,
+	shareInboxModal: shares.shareInboxModal,
 
 	// fragments
 	noteDomId: fragments.noteDomId,

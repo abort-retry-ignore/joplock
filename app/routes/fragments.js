@@ -4,7 +4,11 @@ const { NOTE_PAGE_SIZE, VIRTUAL_ALL_NOTES_ID, VIRTUAL_TRASH_ID } = require('../i
 const {
 	parseBody, TRASH_FOLDER_ID, ALL_NOTES_FOLDER_ID, selectedFolderForNav,
 	mapNavNotes, nextConflictCopyTitle, navPanelOob, rebuildNavOob, assertVaultNoteBodyEncrypted,
+	assertShareWriteAccess,
 } = require('./_helpers');
+const {
+	resolveItemShareAccess, resolveFolderShareState, assertCanWrite, assertOwnerForDestructive, deriveShareFieldsForMove,
+} = require('../items/shareAccess');
 const templates = require('../templates');
 
 const editorPanelOob = html => `<div id="editor-panel" hx-swap-oob="innerHTML">${html}</div>`;
@@ -68,6 +72,56 @@ const handle = async (url, request, response, ctx) => {
 		if (!vaultFolderIds.size) return notes;
 		return notes.map(note => vaultFolderIds.has(note.parentId) ? { ...note, inVault: true } : note);
 	};
+
+	// GET /fragments/shares/inbox
+	if (url.pathname === '/fragments/shares/inbox' && request.method === 'GET') {
+		try {
+			const auth = await authenticatedUser(request);
+			if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return true; }
+			sendHtml(response, 200, templates.shareInboxModal([]));
+		} catch (error) {
+			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
+		}
+		return true;
+	}
+
+	// GET /fragments/shares/:notebookId
+	if (url.pathname.startsWith('/fragments/shares/') && request.method === 'GET') {
+		try {
+			const auth = await authenticatedUser(request);
+			if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return true; }
+			const notebookId = decodeURIComponent(url.pathname.slice('/fragments/shares/'.length).split('/')[0] || '');
+			if (!notebookId || notebookId === 'inbox') {
+				sendHtml(response, 400, '<div class="empty-hint">Notebook id required.</div>');
+				return true;
+			}
+			const folder = await itemService.folderByUserIdAndJopId(auth.user.id, notebookId);
+			if (!folder) {
+				sendHtml(response, 404, '<div class="empty-hint">Notebook not found.</div>');
+				return true;
+			}
+			const isOwner = !folder.ownerId || folder.ownerId === auth.user.id;
+			let shareId = '';
+			if (!isOwner && itemService.database) {
+				const r = await itemService.database.query(
+					`SELECT su.share_id FROM share_users su WHERE su.user_id = $1 AND su.status = 1 AND su.share_id = $2 LIMIT 1`,
+					[auth.user.id, folder.shareId || ''],
+				).catch(() => ({ rows: [] }));
+				if (r.rows && r.rows[0]) shareId = r.rows[0].share_id;
+			}
+			if (vaultService) {
+				const vault = await vaultService.getVaultByFolderId(auth.user.id, notebookId).catch(() => null);
+				if (vault) {
+					sendHtml(response, 400, '<div class="empty-hint">Vault notebooks cannot be shared.</div>');
+					return true;
+				}
+			}
+			sendHtml(response, 200, templates.shareDialog(notebookId, folder.title || 'Untitled', isOwner, shareId));
+		} catch (error) {
+			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
+		}
+		return true;
+	}
 
 	// POST /fragments/folders
 	if (url.pathname === '/fragments/folders' && request.method === 'POST') {
@@ -172,10 +226,17 @@ const handle = async (url, request, response, ctx) => {
 			const parentId = `${body.parentId || ''}`;
 			const currentFolderId = `${body.currentFolderId || parentId || ''}`;
 			if (!parentId) { sendHtml(response, 400, '<div class="empty-hint">Select a folder first.</div>'); return true; }
+			const parentState = await resolveFolderShareState(itemService, auth.user.id, parentId);
+			if (parentState && parentState.shareId && !parentState.isOwner) {
+				sendHtml(response, 403, '<div class="empty-hint">Shared items are read-only</div>');
+				return true;
+			}
+			const shareFields = parentState ? deriveShareFieldsForMove(parentState.folder) : { shareId: '', isShared: false };
 			const created = await itemWriteService.createNote(auth.user.sessionId, {
 				title: plainNoteTitle(body.title),
 				body: '',
 				parentId,
+				...shareFields,
 			}, upstreamRequestContext(request));
 			const [{ folders, counts }, rawNote] = await Promise.all([
 				navData(auth.user.id),
@@ -189,7 +250,7 @@ const handle = async (url, request, response, ctx) => {
 			const selFolder = selectedFolderForNav(currentFolderId);
 			sendHtml(response, 200,
 				`${templates.navigationFragment(folders, counts, selFolder, created.id, '', selFolder)}` +
-				editorPanelOob(templates.editorFragment(note, folders, selFolder))
+				editorPanelOob(templates.editorFragment(note, folders, selFolder, auth.user.id))
 			);
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
@@ -208,10 +269,13 @@ const handle = async (url, request, response, ctx) => {
 				const created = await itemWriteService.createFolder(auth.user.sessionId, { title: 'General', parentId: '' }, upstreamRequestContext(request));
 				general = { id: created.id, title: 'General' };
 			}
+			const parentState = { folder: general, shareId: general.shareId || '', isShared: !!(general.isShared || general.shareId), isOwner: !general.ownerId || general.ownerId === auth.user.id };
+			const shareFields = deriveShareFieldsForMove(general);
 			const created = await itemWriteService.createNote(auth.user.sessionId, {
 				title: 'Untitled note',
 				body: '',
 				parentId: general.id,
+				...shareFields,
 			}, upstreamRequestContext(request));
 			const [{ folders: navFolders, counts }, rawNote] = await Promise.all([
 				navData(auth.user.id),
@@ -225,7 +289,7 @@ const handle = async (url, request, response, ctx) => {
 			const selFolder = selectedFolderForNav(general.id);
 			sendHtml(response, 200,
 				`${templates.navigationFragment(navFolders, counts, selFolder, created.id, '', selFolder)}` +
-				editorPanelOob(templates.editorFragment(note, navFolders, selFolder))
+				editorPanelOob(templates.editorFragment(note, navFolders, selFolder, auth.user.id))
 			);
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
@@ -242,6 +306,9 @@ const handle = async (url, request, response, ctx) => {
 			let existing = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
 			if (!existing) existing = await itemService.noteByUserIdAndJopId(auth.user.id, noteId, { deleted: 'only' });
 			if (!existing) { sendHtml(response, 404, '<div class="empty-hint">Note not found.</div>'); return true; }
+			let access = await resolveItemShareAccess(itemService, auth.user.id, noteId, { deleted: 'all' });
+			if (!access) access = await resolveItemShareAccess(itemService, auth.user.id, noteId, { deleted: 'only' });
+			assertOwnerForDestructive(access);
 			if (existing.deletedTime) {
 				await itemWriteService.deleteNote(auth.user.sessionId, noteId, upstreamRequestContext(request));
 			} else {
@@ -269,6 +336,8 @@ const handle = async (url, request, response, ctx) => {
 				itemService.foldersByUserId(auth.user.id),
 			]);
 			if (!existing) { sendHtml(response, 404, '<div class="empty-hint">Note not found.</div>'); return true; }
+			const access = await resolveItemShareAccess(itemService, auth.user.id, noteId);
+			assertOwnerForDestructive(access);
 			let restoreParentId = existing.parentId;
 			if (!folders.find(f => f.id === restoreParentId)) {
 				if (folders.length) {
@@ -285,7 +354,7 @@ const handle = async (url, request, response, ctx) => {
 			]);
 			sendHtml(response, 200,
 				`${templates.navigationFragment(navFolders, counts, restoreParentId, noteId, '', restoreParentId)}` +
-				editorPanelOob(templates.editorFragment(restoredNote, navFolders))
+				editorPanelOob(templates.editorFragment(restoredNote, navFolders, restoreParentId, auth.user.id))
 			);
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
@@ -360,12 +429,20 @@ const handle = async (url, request, response, ctx) => {
 			if (!note) { sendHtml(response, 404, '<div class="editor-empty">Note not found.</div>'); return true; }
 			const enrichedFolders = folders.map(f => ({ ...f, isVault: vaultFolderIds.has(f.id) }));
 			const enrichedNote = await enrichNoteWithVault(auth.user.id, note, enrichedFolders);
+			let canWrite = true;
+			if (note.shareId && note.ownerId && note.ownerId !== auth.user.id && itemService.database) {
+				const su = await itemService.database.query(
+					`SELECT can_write FROM share_users WHERE share_id = $1 AND user_id = $2 AND status = 1 LIMIT 1`,
+					[note.shareId, auth.user.id],
+				).catch(() => ({ rows: [] }));
+				if (su.rows && su.rows[0]) canWrite = !!(Number(su.rows[0].can_write));
+			}
 			await saveLastNoteState(auth.user.id, currentSettings, note.id, currentFolderId || note.parentId);
 			const uiMode = (currentSettings && currentSettings.uiMode) || 'auto';
 			const mobileRequested = uiMode === 'mobile' || request.headers['hx-target'] === 'mobile-editor-body';
 			sendHtml(response, 200, mobileRequested
-				? templates.mobileEditorFragment(enrichedNote, enrichedFolders, currentFolderId || note.parentId)
-				: templates.editorFragment(enrichedNote, enrichedFolders, currentFolderId || note.parentId));
+				? templates.mobileEditorFragment(enrichedNote, enrichedFolders, currentFolderId || note.parentId, auth.user.id, canWrite)
+				: templates.editorFragment(enrichedNote, enrichedFolders, currentFolderId || note.parentId, auth.user.id, canWrite));
 		} catch {
 			sendHtml(response, 500, '<div class="editor-empty">Error</div>');
 		}
@@ -386,6 +463,10 @@ const handle = async (url, request, response, ctx) => {
 			let existing = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
 			if (!existing) existing = await itemService.noteByUserIdAndJopId(auth.user.id, noteId, { deleted: 'only' });
 			if (!existing) { sendHtml(response, 404, '<span class="autosave-error">Note not found</span>'); return true; }
+			const access = await resolveItemShareAccess(itemService, auth.user.id, noteId);
+			assertCanWrite(access);
+			const parentChanged = (body.parentId !== undefined && `${body.parentId || ''}` !== `${existing.parentId || ''}`);
+			if (parentChanged) assertOwnerForDestructive(access);
 			const currentFolderId = `${body.currentFolderId || body.parentId || existing.parentId || ''}`;
 			if (createCopy) {
 				const parentFolderId = body.parentId || existing.parentId || '';
@@ -410,10 +491,13 @@ const handle = async (url, request, response, ctx) => {
 					itemService.noteHeadersByFolder(auth.user.id, parentFolderId || '__all__', 500, 0),
 				]);
 				const copyTitle = nextConflictCopyTitle(plainNoteTitle(body.title), siblingNotes.map(n => n.title));
+				const targetState = await resolveFolderShareState(itemService, auth.user.id, parentFolderId);
+				const copyShareFields = targetState ? deriveShareFieldsForMove(targetState.folder) : { shareId: '', isShared: false };
 				const created = await itemWriteService.createNote(auth.user.sessionId, {
 					title: copyTitle,
 					body: body.body,
 					parentId: parentFolderId,
+					...copyShareFields,
 				}, upstreamRequestContext(request));
 				const rawCreatedNote = await itemService.noteByUserIdAndJopId(auth.user.id, created.id);
 				const createdNote = rawCreatedNote
@@ -426,7 +510,7 @@ const handle = async (url, request, response, ctx) => {
 				sendHtml(response, 200,
 					`${templates.autosaveStatusFragment()}` +
 					navPanelOob(templates.navigationFragment(folders, counts, selFolder, created.id, '', selFolder)) +
-					editorPanelOob(templates.editorFragment(createdNote, folders, selFolder))
+					editorPanelOob(templates.editorFragment(createdNote, folders, selFolder, auth.user.id))
 				);
 				return true;
 			}
@@ -440,7 +524,6 @@ const handle = async (url, request, response, ctx) => {
 				return true;
 			}
 			const targetParentId = `${body.parentId || existing.parentId || ''}`;
-			const parentChanged = targetParentId !== `${existing.parentId || ''}`;
 			if (parentChanged && vaultService) {
 				const existingVault = await vaultService.getVaultByFolderId(auth.user.id, existing.parentId).catch(() => null);
 				if (existingVault) {
@@ -449,11 +532,19 @@ const handle = async (url, request, response, ctx) => {
 				}
 			}
 			await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, targetParentId, body.body, noteId);
-			await itemWriteService.updateNote(auth.user.sessionId, existing, {
+			const updateFields = {
 				title: plainNoteTitle(body.title),
 				body: body.body,
 				parentId: body.parentId,
-			}, upstreamRequestContext(request));
+			};
+			if (parentChanged) {
+				const target = await resolveFolderShareState(itemService, auth.user.id, targetParentId);
+				if (!target) { sendHtml(response, 404, '<span class="autosave-error">Target folder not found</span>'); return true; }
+				const shareFields = deriveShareFieldsForMove(target.folder);
+				updateFields.isShared = shareFields.isShared;
+				updateFields.shareId = shareFields.shareId;
+			}
+			await itemWriteService.updateNote(auth.user.sessionId, existing, updateFields, upstreamRequestContext(request));
 			if (historyService) {
 				historyService.saveSnapshot(auth.user.id, noteId, existing.title, existing.body).catch(() => {});
 			}

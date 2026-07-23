@@ -73,6 +73,21 @@ Use this guide when working in this repository.
 - Out-of-band swaps are used sparingly; note metadata is one example
 - Client logic often relies on stable IDs, so be careful renaming DOM IDs used by inline JS
 
+## Sharing Ownership Model
+
+- One authoritative tree owned by sharer (`owner_id` never transferred).
+- Recipients gain access via Joplin `user_items` + accepted `share_users` (auto-accept on invite).
+- Phase 1: recipients read-only. Only owner can edit, move, or delete shared notes.
+- Move into a shared notebook sets `share_id`; move out clears it and drops recipient access to that item.
+- Revoke/stop sharing removes recipient access; owner keeps folders/notes in place.
+
+### Shared-note guard layers
+
+- **Route layer** (`app/routes/fragments.js`, `app/routes/api.js`): `resolveItemShareAccess` → `assertCanWrite`/`assertOwnerForDestructive` on create/update/delete/restore/move. Recipient creates in shared folder blocked with 403. Recipient edits/moves/deletes blocked with 403.
+- **Proxy layer** (`app/proxy/shareProxyGuard.js`): inspects PUT and DELETE sync-proxy requests. Shared non-owner writes/deletes rejected 403 before upstream. Inherits `noteIdFromItemPath`/`bufferRequest` from vault proxy guard.
+- **Editor UI** (`app/templates/fragments.js`, `public/app.js`): `editorFragment` renders read-only banner, disables folder select, hides delete button, sets `contenteditable="false"` on title. `initEditorPanel` detects `data-share-readonly` and calls `_applyFormReadonly(true)`.
+- **Share-id propagation** (`app/items/shareAccess.js`): `deriveShareFieldsForMove` sets/clears `shareId`/`isShared` on move. `createNote` / `updateNote` serialize these fields into Joplin note metadata. `itemWriteService` uses them via `serializeNote`.
+
 ## Core Rules
 
 1. Do not modify Joplin Server source for Joplock features unless explicitly approved.

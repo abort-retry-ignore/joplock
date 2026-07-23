@@ -24,6 +24,9 @@ test('mapFolderRow should combine joplin ids and JSON content', () => {
 		deletedTime: 0,
 		createdTime: 100,
 		updatedTime: 200,
+		ownerId: '',
+		shareId: '',
+		isShared: false,
 	});
 });
 
@@ -45,6 +48,9 @@ test('mapNoteRow should build preview and note metadata', () => {
 	assert.equal(note.createdTime, 150);
 	assert.equal(note.isTodo, false);
 	assert.equal(note.todoCompleted, 0);
+	assert.equal(note.ownerId, '');
+	assert.equal(note.shareId, '');
+	assert.equal(note.isShared, false);
 });
 
 test('mapNoteHeaderRow should use projected note fields', () => {
@@ -63,5 +69,8 @@ test('mapNoteHeaderRow should use projected note fields', () => {
 		isEncrypted: false,
 		deletedTime: 0,
 		updatedTime: 400,
+		ownerId: '',
+		shareId: '',
+		isShared: false,
 	});
 });

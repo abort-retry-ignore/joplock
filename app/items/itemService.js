@@ -22,6 +22,9 @@ const mapFolderRow = row => {
 		deletedTime: Number(content.deleted_time || 0),
 		createdTime: Number(content.created_time || row.created_time || 0),
 		updatedTime: Number(row.jop_updated_time || content.updated_time || 0),
+		ownerId: row.owner_id || '',
+		shareId: content.share_id || '',
+		isShared: !!(Number(content.is_shared || 0)),
 	};
 };
 
@@ -45,6 +48,9 @@ const mapNoteRow = row => {
 		deletedTime: Number(content.deleted_time || 0),
 		createdTime: Number(content.created_time || row.created_time || 0),
 		updatedTime: Number(row.jop_updated_time || content.updated_time || 0),
+		ownerId: row.owner_id || '',
+		shareId: content.share_id || '',
+		isShared: !!(Number(content.is_shared || 0)),
 	};
 };
 
@@ -57,6 +63,9 @@ const mapNoteHeaderRow = row => {
 		isEncrypted: encrypted,
 		deletedTime: Number(row.deleted_time || 0),
 		updatedTime: Number(row.jop_updated_time || 0),
+		ownerId: row.owner_id || '',
+		shareId: row.share_id || '',
+		isShared: !!Number(row.is_shared || 0),
 	};
 };
 
@@ -69,6 +78,12 @@ const deletedFilterSql = mode => {
 const NOTE_PAGE_SIZE = 100;
 const VIRTUAL_ALL_NOTES_ID = '__all__';
 const VIRTUAL_TRASH_ID = '__trash__';
+
+const itemAccessExpression = () => `
+	(items.owner_id = $1 OR items.jop_id IN (
+		SELECT ui.item_id FROM user_items ui
+		WHERE ui.user_id = $1
+	))`;
 
 const ensureIndexes = async database => {
 	await database.query(`
@@ -101,15 +116,18 @@ const ensureIndexes = async database => {
 		)
 		WHERE jop_type = 1
 	`);
+	await database.query(`CREATE INDEX IF NOT EXISTS idx_user_items_user_item ON user_items (user_id, item_id)`);
+	await database.query(`CREATE INDEX IF NOT EXISTS idx_share_users_user_status ON share_users (user_id, status)`);
+	await database.query(`ALTER TABLE share_users ADD COLUMN IF NOT EXISTS can_write INTEGER NOT NULL DEFAULT 1`).catch(() => null);
 };
 
 const createItemService = database => {
 	return {
 		async foldersByUserId(userId) {
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
 				FROM items
-				WHERE owner_id = $1 AND jop_type = $2${deletedFilterSql('exclude')}
+				WHERE jop_type = $2${deletedFilterSql('exclude')} AND ${itemAccessExpression()}
 				ORDER BY LOWER(COALESCE(convert_from(content, 'UTF8')::json->>'title', '')) ASC, created_time ASC
 			`, [userId, MODEL_TYPE_FOLDER]);
 
@@ -118,9 +136,9 @@ const createItemService = database => {
 
 		async folderByUserIdAndJopId(userId, folderId) {
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
 				FROM items
-				WHERE owner_id = $1 AND jop_type = $2 AND jop_id = $3
+				WHERE jop_type = $2 AND jop_id = $3 AND ${itemAccessExpression()}
 				LIMIT 1
 			`, [userId, MODEL_TYPE_FOLDER, folderId]);
 
@@ -133,7 +151,7 @@ const createItemService = database => {
 			const folderId = options.folderId || '';
 			const deleted = options.deleted || 'exclude';
 			const params = [userId, MODEL_TYPE_NOTE];
-			let where = `WHERE owner_id = $1 AND jop_type = $2${deletedFilterSql(deleted)}`;
+			let where = `WHERE jop_type = $2${deletedFilterSql(deleted)} AND ${itemAccessExpression()}`;
 
 			if (folderId) {
 				params.push(folderId);
@@ -141,7 +159,7 @@ const createItemService = database => {
 			}
 
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
 				FROM items
 				${where}
 				ORDER BY jop_updated_time DESC, created_time DESC
@@ -157,11 +175,14 @@ const createItemService = database => {
 					jop_id,
 					jop_parent_id,
 					jop_updated_time,
+					owner_id,
 					COALESCE(convert_from(content, 'UTF8')::json->>'title', '') AS title,
 					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time,
+					COALESCE(convert_from(content, 'UTF8')::json->>'share_id', '') AS share_id,
+					COALESCE((convert_from(content, 'UTF8')::json->>'is_shared')::int, 0) AS is_shared,
 					(COALESCE(convert_from(content, 'UTF8')::json->>'body', '') LIKE '%<!--joplock-encrypted-start-->%') AS is_encrypted
 				FROM items
-				WHERE owner_id = $1 AND jop_type = $2${deletedFilterSql(deleted)}
+				WHERE jop_type = $2${deletedFilterSql(deleted)} AND ${itemAccessExpression()}
 				ORDER BY jop_updated_time DESC, created_time DESC
 			`, [userId, MODEL_TYPE_NOTE]);
 
@@ -175,15 +196,17 @@ const createItemService = database => {
 				database.query(`
 					SELECT jop_parent_id AS folder_id, COUNT(*) AS count
 					FROM items
-					WHERE owner_id = $1 AND jop_type = $2
+					WHERE jop_type = $2
 					  AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) = 0
+					  AND ${itemAccessExpression()}
 					GROUP BY jop_parent_id
 				`, [userId, MODEL_TYPE_NOTE]),
 				database.query(`
 					SELECT COUNT(*) AS count
 					FROM items
-					WHERE owner_id = $1 AND jop_type = $2
+					WHERE jop_type = $2
 					  AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) > 0
+					  AND ${itemAccessExpression()}
 				`, [userId, MODEL_TYPE_NOTE]),
 			]);
 			const counts = new Map();
@@ -200,7 +223,7 @@ const createItemService = database => {
 
 		// Paginated note headers for one folder (or virtual __all__ / __trash__).
 		async noteHeadersByFolder(userId, folderId, limit = NOTE_PAGE_SIZE, offset = 0) {
-			let where = `WHERE owner_id = $1 AND jop_type = $2`;
+			let where = `WHERE jop_type = $2 AND ${itemAccessExpression()}`;
 			const params = [userId, MODEL_TYPE_NOTE];
 
 			if (folderId === VIRTUAL_TRASH_ID) {
@@ -219,8 +242,11 @@ const createItemService = database => {
 					jop_id,
 					jop_parent_id,
 					jop_updated_time,
+					owner_id,
 					COALESCE(convert_from(content, 'UTF8')::json->>'title', '') AS title,
 					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time,
+					COALESCE(convert_from(content, 'UTF8')::json->>'share_id', '') AS share_id,
+					COALESCE((convert_from(content, 'UTF8')::json->>'is_shared')::int, 0) AS is_shared,
 					(COALESCE(convert_from(content, 'UTF8')::json->>'body', '') LIKE '%<!--joplock-encrypted-start-->%') AS is_encrypted
 				FROM items
 				${where}
@@ -234,12 +260,12 @@ const createItemService = database => {
 			if (!query || !query.trim()) return [];
 			const pattern = `%${query.trim()}%`;
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
 				FROM (
-					SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content,
+					SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id,
 						${safeJsonExpression("convert_from(content, 'UTF8')")} AS parsed
 					FROM items
-					WHERE owner_id = $1 AND jop_type = $2
+					WHERE jop_type = $2 AND ${itemAccessExpression()}
 				) sub
 				WHERE COALESCE((parsed->>'deleted_time')::bigint, 0) = 0
 					AND (
@@ -262,9 +288,9 @@ const createItemService = database => {
 		async noteByUserIdAndJopId(userId, noteId, options = {}) {
 			const deleted = options.deleted || 'exclude';
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
 				FROM items
-				WHERE owner_id = $1 AND jop_type = $2 AND jop_id = $3${deletedFilterSql(deleted)}
+				WHERE jop_type = $2 AND jop_id = $3${deletedFilterSql(deleted)} AND ${itemAccessExpression()}
 				LIMIT 1
 			`, [userId, MODEL_TYPE_NOTE, noteId]);
 
@@ -281,7 +307,7 @@ const createItemService = database => {
 				SELECT jop_updated_time,
 					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time
 				FROM items
-				WHERE owner_id = $1 AND jop_type = $2 AND jop_id = $3
+				WHERE jop_type = $2 AND jop_id = $3 AND ${itemAccessExpression()}
 				LIMIT 1
 			`, [userId, MODEL_TYPE_NOTE, noteId]);
 
@@ -299,7 +325,7 @@ const createItemService = database => {
 			const result = await database.query(`
 				SELECT content
 				FROM items
-				WHERE owner_id = $1 AND name = $2
+				WHERE name = $2 AND ${itemAccessExpression()}
 				LIMIT 1
 			`, [userId, blobName]);
 
@@ -311,9 +337,9 @@ const createItemService = database => {
 		// Returns resource metadata (mime, filename, etc.) from the .md item
 		async resourceMetaByUserId(userId, resourceId) {
 			const result = await database.query(`
-				SELECT content
+				SELECT content, owner_id
 				FROM items
-				WHERE owner_id = $1 AND jop_type = $2 AND jop_id = $3
+				WHERE jop_type = $2 AND jop_id = $3 AND ${itemAccessExpression()}
 				LIMIT 1
 			`, [userId, MODEL_TYPE_RESOURCE, resourceId]);
 
@@ -337,8 +363,9 @@ const createItemService = database => {
 					SELECT jop_id,
 						COALESCE((convert_from(content, 'UTF8')::json ->> 'size')::bigint, 0) AS size
 					FROM items
-					WHERE owner_id = $1 AND jop_type = $2
+					WHERE jop_type = $2
 						AND COALESCE((convert_from(content, 'UTF8')::json ->> 'deleted_time')::bigint, 0) = 0
+						AND ${itemAccessExpression()}
 				),
 				referenced_ids AS (
 					SELECT DISTINCT m[1] AS ref_id
@@ -347,8 +374,9 @@ const createItemService = database => {
 						convert_from(content, 'UTF8')::json ->> 'body',
 						'(?::/|resources/)([0-9a-fA-F]{32})', 'g'
 					) AS m
-					WHERE owner_id = $1 AND jop_type = $3
+					WHERE jop_type = $3
 						AND COALESCE((convert_from(content, 'UTF8')::json ->> 'deleted_time')::bigint, 0) = 0
+						AND ${itemAccessExpression()}
 				)
 				SELECT COUNT(*)::int AS resource_count,
 					COALESCE(SUM(r.size), 0)::bigint AS total_bytes
@@ -370,8 +398,9 @@ const createItemService = database => {
 				WITH resource_ids AS (
 					SELECT jop_id
 					FROM items
-					WHERE owner_id = $1 AND jop_type = $2
+					WHERE jop_type = $2
 						AND COALESCE((convert_from(content, 'UTF8')::json ->> 'deleted_time')::bigint, 0) = 0
+						AND ${itemAccessExpression()}
 				),
 				referenced_ids AS (
 					SELECT DISTINCT m[1] AS ref_id
@@ -380,8 +409,9 @@ const createItemService = database => {
 						convert_from(content, 'UTF8')::json ->> 'body',
 						'(?::/|resources/)([0-9a-fA-F]{32})', 'g'
 					) AS m
-					WHERE owner_id = $1 AND jop_type = $3
+					WHERE jop_type = $3
 						AND COALESCE((convert_from(content, 'UTF8')::json ->> 'deleted_time')::bigint, 0) = 0
+						AND ${itemAccessExpression()}
 				)
 				SELECT r.jop_id
 				FROM resource_ids r

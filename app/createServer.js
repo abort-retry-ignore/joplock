@@ -13,6 +13,7 @@ const {
 } = require('./routes/_helpers');
 
 const { inspectAndGuard } = require('./proxy/vaultProxyGuard');
+const { inspectAndGuard: shareInspectAndGuard } = require('./proxy/shareProxyGuard');
 
 const routeAuth = require('./routes/auth');
 const routeRecovery = require('./routes/recovery');
@@ -22,6 +23,7 @@ const routeHistory = require('./routes/history');
 const routeResources = require('./routes/resources');
 const routeFragments = require('./routes/fragments');
 const routeMobile = require('./routes/mobile');
+const routeShares = require('./routes/shares');
 const routeApi = require('./routes/api');
 const { handleExportDocx, handleExportPdf, handleExportHtml } = routeApi;
 
@@ -382,6 +384,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 			routeResources,
 			routeMobile,
 			routeFragments,
+			routeShares,
 			routeApi,
 		];
 
@@ -409,6 +412,17 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 
 			if (guardResult.action === 'reject') {
 				send(response, guardResult.status, guardResult.message, {
+					'Content-Type': 'text/plain; charset=utf-8',
+				});
+				return;
+			}
+
+			// Share enforcement: block non-owner writes to shared items
+			const shareResult = await shareInspectAndGuard(request, strippedPathname, {
+				itemService, authenticatedUser, log,
+			});
+			if (shareResult.action === 'reject') {
+				send(response, shareResult.status, shareResult.message, {
 					'Content-Type': 'text/plain; charset=utf-8',
 				});
 				return;
@@ -494,13 +508,14 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 					editorContent,
 					joplinBasePath: joplinPublicBasePath,
 				}));
-			} catch {
-				sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug, user: null, joplinBasePath: joplinPublicBasePath }));
-			}
-			return;
+} catch (err) {
+			process.stderr.write(`[joplock] GET / SSR error: ${err && err.stack ? err.stack : err}\n`);
+			sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug, user: null, joplinBasePath: joplinPublicBasePath }));
 		}
+		return;
+	}
 
-		// Static files
+	// Static files
 		const filePath = path.join(publicDir, relativePath.replace(/^\/+/, ''));
 		if (filePath.startsWith(publicDir) && fileExists(filePath) && !relativePath.endsWith('/')) {
 			serveFile(response, filePath);

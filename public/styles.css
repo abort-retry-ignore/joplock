@@ -785,6 +785,12 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	color: var(--accent);
 }
 
+.nav-share-icon {
+	font-size: 14px;
+	margin-right: 4px;
+	opacity: 0.7;
+}
+
 .theme-matrix .nav-folder-title,
 .theme-matrix .sidebar-item-name {
 	color: #7ee787;
@@ -1393,6 +1399,16 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .editor-form.editor-readonly .editor-title { opacity: 0.75; cursor: default; caret-color: transparent; }
 .editor-form.editor-readonly .editor-folder-select { opacity: 0.6; cursor: not-allowed; }
 .editor-form.editor-readonly .cm-content { caret-color: transparent; }
+
+.share-readonly-banner {
+	background: var(--accent);
+	color: var(--bg);
+	padding: 4px 12px;
+	font-size: 12px;
+	font-weight: 600;
+	text-align: center;
+	letter-spacing: 0.5px;
+}
 
 .editor-titlebar {
 	display: flex;

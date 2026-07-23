@@ -49,10 +49,10 @@ user_updated_time: ${formatTimestamp(now)}
 encryption_cipher_text: 
 encryption_applied: 0
 markup_language: 1
-is_shared: 0
-share_id: 
+is_shared: ${note.isShared ? 1 : 0}
+share_id: ${note.shareId || ''}
 conflict_original_id: 
-master_key_id: 
+master_key_id: ${note.masterKeyId || ''}
 user_data: 
 deleted_time: ${deletedTime}
 type_: 1`,
@@ -77,8 +77,8 @@ user_updated_time: ${formatTimestamp(now)}
 encryption_cipher_text:
 encryption_applied: 0
 parent_id: ${parentId}
-is_shared: 0
-share_id: 
+is_shared: ${folder.isShared ? 1 : 0}
+share_id: ${folder.shareId || ''}
 user_data: 
 type_: 2`,
 	};
@@ -110,9 +110,9 @@ encryption_cipher_text:
 encryption_applied: 0
 encryption_blob_encrypted: 0
 size: ${size}
-is_shared: 0
-share_id: 
-master_key_id: 
+is_shared: ${resource.isShared ? 1 : 0}
+share_id: ${resource.shareId || ''}
+master_key_id: ${resource.masterKeyId || ''}
 user_data: 
 blob_updated_time: ${formatTimestamp(now)}
 type_: 4`,
@@ -241,6 +241,8 @@ const createItemWriteService = options => {
 				id: existingFolder.id,
 				title: updates.title !== undefined ? updates.title : existingFolder.title,
 				parentId: updates.parentId !== undefined ? updates.parentId : existingFolder.parentId,
+				isShared: updates.isShared !== undefined ? updates.isShared : (existingFolder.isShared || false),
+				shareId: updates.shareId !== undefined ? updates.shareId : (existingFolder.shareId || ''),
 			});
 			await putSerializedItem(sessionId, serialized, requestContext);
 			return { id: serialized.id };
@@ -260,6 +262,8 @@ const createItemWriteService = options => {
 				parentId: updates.parentId !== undefined ? updates.parentId : existingNote.parentId,
 				createdTime: existingNote.createdTime,
 				deletedTime: updates.deletedTime !== undefined ? updates.deletedTime : existingNote.deletedTime,
+				isShared: updates.isShared !== undefined ? updates.isShared : (existingNote.isShared || false),
+				shareId: updates.shareId !== undefined ? updates.shareId : (existingNote.shareId || ''),
 			});
 			await putSerializedItem(sessionId, serialized, requestContext);
 			return { id: serialized.id };
@@ -297,4 +301,5 @@ module.exports = {
 	serializeFolder,
 	serializeNote,
 	serializeResource,
+	requestUpstream,
 };

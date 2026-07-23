@@ -272,6 +272,137 @@ async function teardownTestData(page, { folders = [], folderPrefixes = [], title
 	}
 }
 
+async function loginAs(page, email, password) {
+	await page.goto('/login');
+	await expect(page.getByRole('heading', { name: 'Joplock' })).toBeVisible();
+	await page.getByPlaceholder('Email').fill(email);
+	await page.locator('#login-password').fill(password);
+	await page.getByRole('button', { name: 'Login' }).click();
+	await page.waitForURL(/\/$/);
+	await expect(page.locator('body.app-shell')).toBeVisible();
+}
+
+const SHARE_OWNER_EMAIL = 'share-owner@joplock.test';
+const SHARE_OWNER_PASSWORD = 'ShareOwner1!';
+const SHARE_READER_EMAIL = 'share-reader@joplock.test';
+const SHARE_READER_PASSWORD = 'ShareReader1!';
+
+async function createUserViaAdmin(page, { email, password, fullName = '' }) {
+	// Must already be logged in as admin. Navigates to admin tab and POSTs.
+	await page.goto('/settings?tab=admin');
+	await page.waitForURL(/\/settings/);
+	// POST to /admin/users via API request context (shares cookies with page).
+	await page.request.post('/admin/users', {
+		form: { email, fullName, password },
+		// maxRedirects: follow redirect is fine — we don't parse the response.
+	});
+	// Brief settle for redirect/creation to complete.
+	await page.waitForTimeout(400);
+}
+
+async function ensureShareTestUsers(page) {
+	// Creates the share-reader test user. Admin is already logged in as owner.
+	// If the user already exists, the admin route redirects with an error
+	// parameter, which is harmless.
+	await createUserViaAdmin(page, {
+		email: SHARE_READER_EMAIL,
+		password: SHARE_READER_PASSWORD,
+	});
+}
+
+async function openShareModalForNotebook(page, folderTitle) {
+	const folder = page.locator(`.nav-folder[data-folder-title="${folderTitle}"]`).first();
+	await folder.locator('.nav-folder-row').first().click({ button: 'right' });
+	await expect(page.locator('#folder-context-menu')).toBeVisible();
+	// Button inside the context menu has class folder-context-item and
+	// calls openShareForFolderFromMenu().
+	await page.locator('#folder-context-menu button.folder-context-item:has-text("Share")').click();
+	await expect(page.locator('#share-modal')).toBeVisible({ timeout: 10000 });
+}
+
+async function shareNotebookWithEmail(page, folderTitle, email) {
+	await openShareModalForNotebook(page, folderTitle);
+	await page.locator('#share-invite-email').fill(email);
+	await page.locator('#share-invite-btn').click();
+	await expect(page.locator('.share-person-email', { hasText: email })).toBeVisible({ timeout: 15000 });
+}
+
+async function shareNotebookWithAccess(page, folderTitle, email, canWrite = true) {
+	await openShareModalForNotebook(page, folderTitle);
+	await page.locator('#share-invite-email').fill(email);
+	await page.locator('#share-invite-btn').click();
+	await expect(page.locator('.share-person-email', { hasText: email })).toBeVisible({ timeout: 15000 });
+	if (!canWrite) {
+		const row = page.locator('.share-person-row', { has: page.locator('.share-person-email', { hasText: email }) });
+		const cb = row.locator('.share-can-write-cb');
+		if (await cb.isChecked()) await cb.uncheck();
+		await page.waitForTimeout(300);
+	}
+}
+
+async function closeShareDialog(page) {
+	await page.locator('#share-modal button:has-text("Close")').click();
+	await expect(page.locator('#share-modal')).toBeHidden({ timeout: 5000 });
+}
+
+async function leaveSharedNotebook(page, folderTitle) {
+	await openShareModalForNotebook(page, folderTitle);
+	await page.locator('#share-leave-btn').click();
+	await page.waitForTimeout(500);
+	await expect(page.locator('#share-modal')).toBeHidden({ timeout: 5000 });
+}
+
+async function createNoteInFolder(page, folderTitle, noteTitle, body) {
+	const folder = page.locator(`.nav-folder[data-folder-title="${folderTitle}"]`);
+	const addBtn = folder.locator('.nav-folder-add');
+	await addBtn.click();
+	await page.waitForTimeout(500);
+	await setNoteTitle(page, noteTitle);
+	await setNoteBody(page, body);
+	await waitForSaved(page);
+}
+
+async function verifyNoteBodyContains(page, text) {
+	const body = page.locator('#note-body');
+	await expect(body).toContainText(text, { timeout: 10000 });
+}
+
+async function verifyEditorReadOnly(page) {
+	await expect(page.locator('[data-share-readonly="1"]')).toBeVisible({ timeout: 5000 });
+	const title = page.locator('.editor-title');
+	await expect(title).toHaveAttribute('contenteditable', 'false');
+}
+
+async function verifyEditorEditable(page) {
+	const form = page.locator('#note-editor-form');
+	await expect(form).not.toHaveAttribute('data-share-readonly', '1', { timeout: 5000 });
+	const title = page.locator('.editor-title');
+	await expect(title).toHaveAttribute('contenteditable', 'true');
+}
+
+async function toggleShareCanWrite(page, email, checked) {
+	const row = page.locator('.share-person-row', { has: page.locator('.share-person-email', { hasText: email }) });
+	const cb = row.locator('.share-can-write-cb');
+	if (checked) {
+		if (!(await cb.isChecked())) await cb.check();
+	} else {
+		if (await cb.isChecked()) await cb.uncheck();
+	}
+	await page.waitForTimeout(300);
+}
+
+async function removeShareUserFromModal(page, email) {
+	const row = page.locator('.share-person-row', { has: page.locator('.share-person-email', { hasText: email }) });
+	await row.locator('button:has-text("Remove")').click();
+	await expect(row).toBeHidden({ timeout: 5000 });
+}
+
+async function stopSharingNotebookFromModal(page) {
+	await expect(page.locator('#share-stop-btn')).toBeVisible({ timeout: 15000 });
+	await page.locator('#share-stop-btn').click();
+	await page.waitForTimeout(500);
+}
+
 module.exports = {
 	acceptDialogs,
 	ADMIN_EMAIL: DEV_EMAIL,
@@ -279,19 +410,38 @@ module.exports = {
 	hasAdminCredentials: () => !!(DEV_EMAIL && DEV_PASSWORD),
 	createDesktopNote,
 	createNotebook,
+	createUserViaAdmin,
 	deleteNotebook,
+	ensureShareTestUsers,
 	login,
+	loginAs,
 	logout,
 	ensureMobileFoldersScreen,
 	openDesktopNote,
 	openMobileFolder,
 	openMobileNote,
 	openSettings,
+	openShareModalForNotebook,
 	getActiveNoteId,
 	searchDesktop,
 	setNoteBody,
 	setNoteTitle,
 	setUiMode,
+	SHARE_OWNER_EMAIL,
+	SHARE_OWNER_PASSWORD,
+	SHARE_READER_EMAIL,
+	SHARE_READER_PASSWORD,
+	shareNotebookWithEmail,
+	shareNotebookWithAccess,
+	closeShareDialog,
+	leaveSharedNotebook,
+	createNoteInFolder,
+	verifyNoteBodyContains,
+	verifyEditorReadOnly,
+	verifyEditorEditable,
+	toggleShareCanWrite,
+	removeShareUserFromModal,
+	stopSharingNotebookFromModal,
 	slug,
 	teardownTestData,
 	trashDesktopNote,

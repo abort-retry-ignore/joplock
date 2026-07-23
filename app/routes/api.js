@@ -1,6 +1,9 @@
 'use strict';
 
 const { sendJson, parseBody, normalizeStoredFolderId, assertVaultNoteBodyEncrypted } = require('./_helpers');
+const {
+	resolveItemShareAccess, resolveFolderShareState, assertCanWrite, assertOwnerForDestructive, deriveShareFieldsForMove,
+} = require('../items/shareAccess');
 const templates = require('../templates');
 const { AI_PROVIDERS } = require('../settingsService');
 
@@ -605,11 +608,18 @@ const handle = async (url, request, response, ctx) => {
 				const body = await parseBody(request);
 				const parentId = `${body.parentId || ''}`;
 				if (!parentId) { sendJson(response, 400, { error: 'Note parentId is required' }); return true; }
+				const parentState = await resolveFolderShareState(itemService, auth.user.id, parentId);
+				if (parentState && parentState.shareId && !parentState.isOwner) {
+					sendJson(response, 403, { error: 'Shared items are read-only' });
+					return true;
+				}
+				const shareFields = parentState ? deriveShareFieldsForMove(parentState.folder) : { shareId: '', isShared: false };
 				await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, '', parentId, body.body);
 				const created = await itemWriteService.createNote(auth.user.sessionId, {
 					title: plainNoteTitle(body.title),
 					body: `${body.body || ''}`,
 					parentId,
+					...shareFields,
 				}, upstreamRequestContext(request));
 				const note = await itemService.noteByUserIdAndJopId(auth.user.id, created.id);
 				sendJson(response, 201, { item: note });
@@ -640,9 +650,14 @@ const handle = async (url, request, response, ctx) => {
 				if (!noteId) { sendJson(response, 404, { error: 'Note not found' }); return true; }
 				const existing = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
 				if (!existing) { sendJson(response, 404, { error: 'Note not found' }); return true; }
+				const access = await resolveItemShareAccess(itemService, auth.user.id, noteId);
+				assertCanWrite(access);
 				const body = await parseBody(request);
 				const targetParentId = `${body.parentId !== undefined ? body.parentId : existing.parentId}`;
 				const parentChanged = targetParentId !== `${existing.parentId || ''}`;
+				if (parentChanged) {
+					assertOwnerForDestructive(access);
+				}
 				if (parentChanged && vaultService) {
 					const existingVault = await vaultService.getVaultByFolderId(auth.user.id, existing.parentId).catch(() => null);
 					if (existingVault) {
@@ -651,8 +666,12 @@ const handle = async (url, request, response, ctx) => {
 					}
 				}
 				await assertVaultNoteBodyEncrypted(vaultService, auth.user.id, existing.parentId, targetParentId, body.body, noteId);
+				const target = parentChanged ? await resolveFolderShareState(itemService, auth.user.id, targetParentId) : null;
+				if (parentChanged && !target) { sendJson(response, 404, { error: 'Target folder not found' }); return true; }
+				const shareFields = parentChanged && target ? deriveShareFieldsForMove(target.folder) : {};
 				const updated = await itemWriteService.updateNote(auth.user.sessionId, existing, {
 					title: plainNoteTitle(body.title), body: body.body, parentId: body.parentId,
+					...shareFields,
 				}, upstreamRequestContext(request));
 				const note = await itemService.noteByUserIdAndJopId(auth.user.id, updated.id);
 				sendJson(response, 200, { item: note });
@@ -666,6 +685,8 @@ const handle = async (url, request, response, ctx) => {
 				const auth = await authenticatedUser(request);
 				if (auth.error) { sendJson(response, 401, { error: auth.error }); return true; }
 				if (!noteId) { sendJson(response, 404, { error: 'Note not found' }); return true; }
+				const access = await resolveItemShareAccess(itemService, auth.user.id, noteId);
+				assertOwnerForDestructive(access);
 				await itemWriteService.deleteNote(auth.user.sessionId, noteId, upstreamRequestContext(request));
 				sendJson(response, 204, {});
 			} catch (error) {

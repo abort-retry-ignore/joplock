@@ -1626,6 +1626,60 @@ function initPersistentTinyMCE(){
 					_tinymceSuppressEdits=prev;
 				}
 			});
+			// When a <p> block contains <br>-separated lines (linebreak mode),
+			// insertUnorderedList / insertOrderedList wraps the entire block into
+			// a single <li>. Split the block at <br> boundaries first so only the
+			// line containing the caret becomes a list item.
+			editor.on('BeforeExecCommand',function(e){
+				if(!e||(e.command!=='InsertUnorderedList'&&e.command!=='InsertOrderedList'))return;
+				if(_tinymceSuppressEdits)return;
+				var sel=editor.selection;
+				if(!sel)return;
+				var body=editor.getBody();
+				var node=sel.getNode();
+				var block=node;
+				while(block&&block!==body&&block.parentNode!==body){
+					block=block.parentNode;
+				}
+				if(!block||block===body)return;
+				if(block.nodeName!=='P')return;
+				if(!block.querySelector('br'))return;
+				var prev=_tinymceSuppressEdits;
+				_tinymceSuppressEdits=true;
+				try{
+					var rng0=sel.getRng();
+					var caretNode=rng0&&rng0.startContainer;
+					var caretOffset=rng0?rng0.startOffset:0;
+					var newBlocks=_splitBrBlock(block,editor);
+					if(newBlocks){
+						// Suppress default <p> margins on split blocks so
+						// spacing stays consistent with linebreak mode.
+						for(var i=0;i<newBlocks.length;i++){
+							if(newBlocks[i].nodeName==='P'){
+								newBlocks[i].style.margin='0';
+							}
+						}
+					}
+					if(newBlocks&&caretNode){
+						var targetBlock=null;
+						newBlocks.forEach(function(p){
+							if(!targetBlock&&(p===caretNode||p.contains(caretNode)))targetBlock=p;
+						});
+						if(!targetBlock)targetBlock=newBlocks[0];
+						var rng=editor.getDoc().createRange();
+						if(targetBlock.contains(caretNode)){
+							try{rng.setStart(caretNode,caretOffset);}
+							catch(_e){rng.setStart(targetBlock,0);}
+						}else{
+							rng.setStart(targetBlock,0);
+						}
+						rng.collapse(true);
+						sel.setRng(rng);
+					}
+				}finally{
+					_tinymceSuppressEdits=prev;
+				}
+			});
 			// Text-expander: after text is committed to the iframe DOM, check the
 			// caret suffix for a trigger and expand. Runs on keyup so the just-typed
 			// character is present. Guarded to rendered mode + text triggers only.

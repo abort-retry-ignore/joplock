@@ -77,16 +77,34 @@ Use this guide when working in this repository.
 
 - One authoritative tree owned by sharer (`owner_id` never transferred).
 - Recipients gain access via Joplin `user_items` + accepted `share_users` (auto-accept on invite).
-- Phase 1: recipients read-only. Only owner can edit, move, or delete shared notes.
+- `share_users.can_write` controls whether recipients can edit shared notes (default `1` — editable). Only the owner can move, delete, or stop-share.
 - Move into a shared notebook sets `share_id`; move out clears it and drops recipient access to that item.
 - Revoke/stop sharing removes recipient access; owner keeps folders/notes in place.
+- Recipients can leave a shared notebook via the share dialog ("Leave notebook" button) → removes their `share_users` row + `user_items` entries.
+- Only the share owner sees invite/remove/stop controls in the share dialog. Recipients see only their own access status and the Leave button.
 
 ### Shared-note guard layers
 
-- **Route layer** (`app/routes/fragments.js`, `app/routes/api.js`): `resolveItemShareAccess` → `assertCanWrite`/`assertOwnerForDestructive` on create/update/delete/restore/move. Recipient creates in shared folder blocked with 403. Recipient edits/moves/deletes blocked with 403.
-- **Proxy layer** (`app/proxy/shareProxyGuard.js`): inspects PUT and DELETE sync-proxy requests. Shared non-owner writes/deletes rejected 403 before upstream. Inherits `noteIdFromItemPath`/`bufferRequest` from vault proxy guard.
-- **Editor UI** (`app/templates/fragments.js`, `public/app.js`): `editorFragment` renders read-only banner, disables folder select, hides delete button, sets `contenteditable="false"` on title. `initEditorPanel` detects `data-share-readonly` and calls `_applyFormReadonly(true)`.
-- **Share-id propagation** (`app/items/shareAccess.js`): `deriveShareFieldsForMove` sets/clears `shareId`/`isShared` on move. `createNote` / `updateNote` serialize these fields into Joplin note metadata. `itemWriteService` uses them via `serializeNote`.
+- **Route layer** (`app/routes/fragments.js`, `app/routes/api.js`): `resolveItemShareAccess` → `assertCanWrite`/`assertOwnerForDestructive` on create/update/delete/restore/move. `canWrite` respects `share_users.can_write` for recipients. Owner-only for move/delete regardless of `can_write`. Recipient creates in shared folder blocked with 403.
+- **Proxy layer** (`app/proxy/shareProxyGuard.js`): inspects PUT and DELETE sync-proxy requests. PUT checks `resolveItemShareAccess` → `canWrite`. DELETE is owner-only. Inherits `noteIdFromItemPath`/`bufferRequest` from vault proxy guard.
+- **Editor UI** (`app/templates/fragments.js`, `public/app.js`): `editorFragment` accepts `canWrite` param from route handler (queries `share_users.can_write`). When `canWrite=false` renders read-only banner, disables folder select, hides delete button, sets `contenteditable="false"` on title. When `canWrite=true` the editor is fully interactive.
+- **Share-id propagation** (`app/items/shareAccess.js`): `deriveShareFieldsForMove` sets/clears `shareId`/`isShared` on move. `ensureShareIdsOnNotebook` writes `share_id` directly to items DB content JSON. `createNote`/`updateNote` serialize these fields into Joplin note metadata.
+- **Share dialog API** (`app/routes/shares.js`): uses Joplin Server's `/api/shares/:id/users` endpoints (not deprecated `/api/share_users`). PATCH/ACCEPT/REJECT/DELETE operations use DB-only writes since Joplin Server's newer API doesn't support mutations on individual share_users. `can_write` column managed via direct `share_users` table updates.
+
+### File map
+
+| Layer | File |
+|-------|------|
+| Access helpers | `app/items/shareAccess.js` |
+| Share API routes | `app/routes/shares.js` |
+| Proxy write guard | `app/proxy/shareProxyGuard.js` |
+| Fragment write gates | `app/routes/fragments.js` |
+| API write gates | `app/routes/api.js` |
+| Share dialog template | `app/templates/shares.js` |
+| Share dialog client | `public/app.js` (openShareDialog, inviteToShare, toggleShareWrite, leaveShareNotebook, etc.) |
+| Read-only editor | `app/templates/fragments.js` (editorFragment) |
+| Unit tests | `tests/shareAccess.test.js`, `tests/shareProxyGuard.test.js`, `tests/shareWriteGuards.test.js` |
+| Playwright tests | `playwright-tests/share-modal.spec.js`, `playwright-tests/share-access.spec.js`, `playwright-tests/share-revoke-move.spec.js` |
 
 ## Core Rules
 
@@ -603,6 +621,29 @@ If a UI action appears broken, check:
 
 - Screenshots are captured on every test run (pass or fail) under `test-results/`, named `{testTitle}-{project}-{browser}-{retry}.png`. Configured via `use.screenshot: 'on'` in `playwright.config.js`.
 - Videos are still `retain-on-failure`, traces `on-first-retry`, and `test-results/` is already git-ignored.
+
+### Playwright share tests
+
+Share tests require the admin account and two browser contexts (owner + recipient). The shared reader user is created automatically by `ensureShareTestUsers()` via the admin API.
+
+```
+# All share tests (requires live dev stack)
+npx playwright test playwright-tests/share-*.spec.js --project=desktop
+
+# Individual specs
+npx playwright test playwright-tests/share-modal.spec.js --project=desktop
+npx playwright test playwright-tests/share-access.spec.js --project=desktop
+npx playwright test playwright-tests/share-revoke-move.spec.js --project=desktop
+```
+
+Env vars (same credential chain as other Playwright tests via `JOPLOCK_ADMIN_*`):
+```
+JOPLOCK_ADMIN_EMAIL="admin@example.com" JOPLOCK_ADMIN_PASSWORD="..." npx playwright test ...
+```
+
+Multi-user fixtures use `test.extend` with per-test `ownerPage`/`readerPage` (separate browser pages). All tests are `desktop`-only and skip on mobile (right-click context menu). Dialogs are auto-accepted by `acceptDialogs()` in `beforeEach`.
+
+Test data uses `slug('share-...')` prefixes and is cleaned via `teardownTestData` per test. The global teardown also purges `share-*` prefixed folders (add `'share-'` to the prefix list in `global-teardown.js` if missing).
 
 
 ## Development Stack

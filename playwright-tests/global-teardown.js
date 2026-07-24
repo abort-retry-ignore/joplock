@@ -26,6 +26,7 @@ const TEST_FOLDER_PREFIXES = [
 	// legacy / removed-test prefixes
 	'up-reload-',
 	'pnb-', 'p3nb-', 'p4nb-', 'p5nb-',
+	'share-',
 	'Findable-', 'Esc-',
 ];
 

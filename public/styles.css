@@ -2736,7 +2736,11 @@ select.login-input option {
 	opacity: 1;
 }
 
-/* Scrollbar */
+/* Scrollbar — standard props (Firefox, modern Chromium/Safari) + WebKit
+   pseudo-elements (older Chromium/Safari) so every scrollable panel in the
+   app (note list, sidebars, modals, etc.) gets the same thin, theme-colored
+   scrollbar as the markdown editor (.cm-scroller). */
+body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 0; }

@@ -320,7 +320,7 @@ function handleViewportResize(){
 		if(window._syncResponsiveMode)window._syncResponsiveMode();
 	},200);
 }
-(function(){var serverTheme=_cfg.theme||'matrix';var s=localStorage.getItem('joplock-theme');var e=document.querySelector('.theme-picker');if(s&&s!==serverTheme){localStorage.setItem('joplock-theme',serverTheme)}if(e)e.value=serverTheme})();
+(function(){var serverTheme=_cfg.theme||'earth';var s=localStorage.getItem('joplock-theme');var e=document.querySelector('.theme-picker');if(e)e.value=serverTheme})();
 window.addEventListener('pageshow',function(e){if(e.persisted)window.location.replace('/login')});
 function setMobileNav(open){var nav=document.getElementById('nav-panel');var bd=document.getElementById('mobile-nav-backdrop');if(!nav||!bd)return;nav.classList.toggle('open',open);bd.classList.toggle('open',open);document.body.classList.toggle('mobile-nav-open',open)}
 function toggleNav(){if(isMobileShellMode()){var nav=document.getElementById('nav-panel');if(!nav)return;setMobileNav(!nav.classList.contains('open'))}else{document.body.classList.toggle('nav-collapsed');localStorage.setItem('joplock-nav-collapsed',document.body.classList.contains('nav-collapsed')?'1':'');requestAnimationFrame(positionTinyMCEHost);setTimeout(positionTinyMCEHost,60)}}
@@ -826,6 +826,10 @@ function _tinyMCEContentFontStyle(){
 	var fontSizeCode=rs.getPropertyValue('--font-size-code').trim()||'13px';
 	return ''
 		+'body{font-family:'+fontFamily+';font-size:'+fontSize+';line-height:1.7;color:var(--text);background:var(--bg)}'
+		+'html{scrollbar-width:thin;scrollbar-color:var(--scrollbar) transparent}'
+		+'::-webkit-scrollbar{width:6px;height:6px}'
+		+'::-webkit-scrollbar-track{background:transparent}'
+		+'::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:0}'
 		+'h1,h2,h3,h4,h5,h6{color:var(--accent)}'
 		+'strong{color:var(--text-heading)}'
 		+'a{color:var(--accent)}'
@@ -863,7 +867,7 @@ function _syncTinyMCEThemeVars(){
 		var iframeDoc=_tinymceEditor.getDoc();
 		if(!iframeDoc||!iframeDoc.documentElement)return;
 		var rs=getComputedStyle(document.body);
-		var vars=['--bg','--text','--text-dim','--text-heading','--accent','--border','--bg-hover','--toolbar-bg'];
+		var vars=['--bg','--text','--text-dim','--text-heading','--accent','--border','--bg-hover','--toolbar-bg','--scrollbar'];
 		for(var i=0;i<vars.length;i++){
 			var val=rs.getPropertyValue(vars[i]).trim();
 			if(val)iframeDoc.documentElement.style.setProperty(vars[i],val);
@@ -1514,8 +1518,20 @@ function initPersistentTinyMCE(){
 			// caret position after Enter (linebreak mode inserts a <br> which
 			// would trigger a split and move the caret to offset 0 of the new
 			// block, so the cursor visibly jumps to the start of the line).
+			// Track the last known caret position inside the editor body so
+			// FormatBlock can still split <br>-separated blocks even when a
+			// toolbar interaction (e.g. clicking the blocks dropdown) clears
+			// the active selection.
+			var _lastBlockSelBookmark=null;
+			editor.on('NodeChange',function(ev){
+				try{
+					if(ev&&ev.element&&editor.getBody().contains(ev.element)){
+						_lastBlockSelBookmark=editor.selection.getBookmark(2,true);
+					}
+				}catch(_e){}
+			});
 			editor.on('BeforeExecCommand',function(e){
-				if(!e||e.command!=='FormatBlock')return;
+				if(!e||(e.command!=='FormatBlock'&&e.command!=='mceToggleFormat'))return;
 				if(_tinymceSuppressEdits)return;
 				var sel=editor.selection;
 				if(!sel)return;
@@ -1528,10 +1544,16 @@ function initPersistentTinyMCE(){
 				if(!block||block===body)return;
 				var isP=block.nodeName==='P';
 				var isHeading=/^H[1-6]$/.test(block.nodeName);
-				// Only handle <p> and headings here; other blocks (lists, blockquote,
-				// pre) have their own semantics.
 				if(!isP&&!isHeading)return;
 				var rng0=sel.getRng();
+				if(!rng0||!body.contains(rng0.startContainer)){
+					if(_lastBlockSelBookmark){
+						try{
+							sel.moveToBookmark(_lastBlockSelBookmark);
+							rng0=sel.getRng();
+						}catch(_e){}
+					}
+				}
 				// Defensive clamp: when the caret/selection is inside a heading
 				// (user toggling h3 -> paragraph via blocks dropdown), some
 				// upstream state can leave the effective range spanning the

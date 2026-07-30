@@ -3776,7 +3776,7 @@ function getTurndown(){
 		if(!rows.length)return'';
 		var head=node.querySelector('thead'),body=node.querySelector('tbody');
 		var headerRow=rows[0];
-		var bodyRows=body?Array.from(body.querySelectorAll('tr')):(head?rows.slice(1):rows);
+		var bodyRows=body?(head?Array.from(body.querySelectorAll('tr')):rows.slice(1)):(head?rows.slice(1):rows.slice(1));
 		var headerCells=Array.from(headerRow.querySelectorAll('th,td'));
 		var cols=headerCells.length||1;
 		var cellText=function(cell){
@@ -3786,7 +3786,7 @@ function getTurndown(){
 		var lines=[];
 		lines.push('| '+headerCells.map(cellText).join(' | ')+' |');
 		lines.push('| '+Array(cols).fill('---').join(' | ')+' |');
-		(bodyRows.length?bodyRows:rows.slice(head?1:0)).forEach(function(row){
+		(bodyRows.length?bodyRows:head?rows.slice(1):[]).forEach(function(row){
 			var cells=Array.from(row.querySelectorAll('td,th'));
 			if(!cells.length)return;
 			lines.push('| '+cells.map(cellText).join(' | ')+' |');

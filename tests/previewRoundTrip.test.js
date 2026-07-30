@@ -93,7 +93,7 @@ const previewRoundTrip = markdown => {
 			if(!rows.length)return'';
 			var head=node.querySelector('thead'),body=node.querySelector('tbody');
 			var headerRow=rows[0];
-			var bodyRows=body?Array.from(body.querySelectorAll('tr')):(head?rows.slice(1):rows);
+			var bodyRows=body?(head?Array.from(body.querySelectorAll('tr')):rows.slice(1)):(head?rows.slice(1):rows.slice(1));
 			var headerCells=Array.from(headerRow.querySelectorAll('th,td'));
 			var cols=headerCells.length||1;
 			var cellText=function(cell){
@@ -103,7 +103,7 @@ const previewRoundTrip = markdown => {
 			var lines=[];
 			lines.push('| '+headerCells.map(cellText).join(' | ')+' |');
 			lines.push('| '+Array(cols).fill('---').join(' | ')+' |');
-			(bodyRows.length?bodyRows:rows.slice(head?1:0)).forEach(function(row){
+			(bodyRows.length?bodyRows:head?rows.slice(1):[]).forEach(function(row){
 				var cells=Array.from(row.querySelectorAll('td,th'));
 				if(!cells.length)return;
 				lines.push('| '+cells.map(cellText).join(' | ')+' |');
@@ -245,7 +245,7 @@ const previewHtmlRoundTrip = html => {
 			if(!rows.length)return'';
 			var head=node.querySelector('thead'),body=node.querySelector('tbody');
 			var headerRow=rows[0];
-			var bodyRows=body?Array.from(body.querySelectorAll('tr')):(head?rows.slice(1):rows);
+			var bodyRows=body?(head?Array.from(body.querySelectorAll('tr')):rows.slice(1)):(head?rows.slice(1):rows.slice(1));
 			var headerCells=Array.from(headerRow.querySelectorAll('th,td'));
 			var cols=headerCells.length||1;
 			var cellText=function(cell){
@@ -255,7 +255,7 @@ const previewHtmlRoundTrip = html => {
 			var lines=[];
 			lines.push('| '+headerCells.map(cellText).join(' | ')+' |');
 			lines.push('| '+Array(cols).fill('---').join(' | ')+' |');
-			(bodyRows.length?bodyRows:rows.slice(head?1:0)).forEach(function(row){
+			(bodyRows.length?bodyRows:head?rows.slice(1):[]).forEach(function(row){
 				var cells=Array.from(row.querySelectorAll('td,th'));
 				if(!cells.length)return;
 				lines.push('| '+cells.map(cellText).join(' | ')+' |');
@@ -480,7 +480,7 @@ test('preview round-trip does not add blank line after trailing code block', () 
 			if(!rows.length)return'';
 			var head=node.querySelector('thead'),body=node.querySelector('tbody');
 			var headerRow=rows[0];
-			var bodyRows=body?Array.from(body.querySelectorAll('tr')):(head?rows.slice(1):rows);
+			var bodyRows=body?(head?Array.from(body.querySelectorAll('tr')):rows.slice(1)):(head?rows.slice(1):rows.slice(1));
 			var headerCells=Array.from(headerRow.querySelectorAll('th,td'));
 			var cols=headerCells.length||1;
 			var cellText=function(cell){
@@ -490,7 +490,7 @@ test('preview round-trip does not add blank line after trailing code block', () 
 			var lines=[];
 			lines.push('| '+headerCells.map(cellText).join(' | ')+' |');
 			lines.push('| '+Array(cols).fill('---').join(' | ')+' |');
-			(bodyRows.length?bodyRows:rows.slice(head?1:0)).forEach(function(row){
+			(bodyRows.length?bodyRows:head?rows.slice(1):[]).forEach(function(row){
 				var cells=Array.from(row.querySelectorAll('td,th'));
 				if(!cells.length)return;
 				lines.push('| '+cells.map(cellText).join(' | ')+' |');
@@ -639,4 +639,103 @@ test('table: markdown table with bold and inline code in cells', () => {
 	const out = previewRoundTrip(md + '\n');
 	assert.ok(out.includes('**bold**'), `bold in table cell must survive: ${JSON.stringify(out)}`);
 	assert.ok(out.includes('`code`'), `inline code in table cell must survive: ${JSON.stringify(out)}`);
+});
+
+test('table: html table (tbody only) with row inserted on top does not duplicate header', () => {
+	// Simulates TinyMCE's output after adding a row "above" the first body row
+	// in a table that has only <tbody> (no <thead>). The turndown table rule
+	// must not treat the new top row as both header and body.
+	const html = '<table><tbody><tr><td>NEW</td><td>NEW</td><td>NEW</td><td>NEW</td></tr><tr><td>A</td><td>B</td><td>C</td><td>D</td></tr><tr><td>1</td><td>2</td><td>3</td><td>4</td></tr></tbody></table>';
+	const expected = '| NEW | NEW | NEW | NEW |\n| --- | --- | --- | --- |\n| A | B | C | D |\n| 1 | 2 | 3 | 4 |';
+	assert.equal(previewHtmlRoundTrip(html), expected);
+});
+
+test('table: html table (thead + tbody) with row inserted on top does not duplicate header', () => {
+	// Simulates TinyMCE's output after adding a row "above" the first body row
+	// in a table that already has <thead> and <tbody>. The inserted row goes
+	// into <tbody>, leaving <thead> intact.
+	const html = '<table><thead><tr><th>A</th><th>B</th><th>C</th><th>D</th></tr></thead><tbody><tr><td>NEW</td><td>NEW</td><td>NEW</td><td>NEW</td></tr><tr><td>1</td><td>2</td><td>3</td><td>4</td></tr></tbody></table>';
+	const expected = '| A | B | C | D |\n| --- | --- | --- | --- |\n| NEW | NEW | NEW | NEW |\n| 1 | 2 | 3 | 4 |';
+	assert.equal(previewHtmlRoundTrip(html), expected);
+});
+
+test('table: thead only (no tbody) converts correctly', () => {
+	const html = '<table><thead><tr><th>X</th><th>Y</th></tr></thead></table>';
+	const expected = '| X | Y |\n| --- | --- |';
+	assert.equal(previewHtmlRoundTrip(html), expected);
+});
+
+test('table: tbody single row (header only, no thead) converts correctly', () => {
+	const html = '<table><tbody><tr><td>H1</td><td>H2</td><td>H3</td></tr></tbody></table>';
+	const expected = '| H1 | H2 | H3 |\n| --- | --- | --- |';
+	assert.equal(previewHtmlRoundTrip(html), expected);
+});
+
+test('table: bare table with no thead and no tbody converts correctly', () => {
+	const html = '<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>';
+	const expected = '| A | B |\n| --- | --- |\n| 1 | 2 |';
+	assert.equal(previewHtmlRoundTrip(html), expected);
+});
+
+test('table: multiple rows inserted on top (tbody only) does not duplicate', () => {
+	// Two rows inserted at the top of the tbody — only the first should be header
+	const html = '<table><tbody><tr><td>TOP1</td><td>a</td><td>b</td><td>c</td></tr><tr><td>TOP2</td><td>d</td><td>e</td><td>f</td></tr><tr><td>ORIG_H</td><td>g</td><td>h</td><td>i</td></tr><tr><td>DATA1</td><td>j</td><td>k</td><td>l</td></tr></tbody></table>';
+	const expected = '| TOP1 | a | b | c |\n| --- | --- | --- | --- |\n| TOP2 | d | e | f |\n| ORIG_H | g | h | i |\n| DATA1 | j | k | l |';
+	assert.equal(previewHtmlRoundTrip(html), expected);
+});
+
+test('table: 4-column markdown round-trips stably', () => {
+	const md = '| A | B | C | D |\n| --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 |\n| 5 | 6 | 7 | 8 |\n| 9 | 10 | 11 | 12 |';
+	const rt1 = previewRoundTrip(md + '\n');
+	assert.equal(rt1, md);
+	// Second round-trip must also be stable
+	const rt2 = previewRoundTrip(rt1 + '\n');
+	assert.equal(rt2, rt1);
+});
+
+test('table: 5-column table with mixed content round-trips', () => {
+	const md = '| Name | Age | City | Job | Salary |\n| --- | --- | --- | --- | --- |\n| Alice | 30 | NYC | Engineer | $100k |\n| Bob | 25 | SF | Designer | $90k |';
+	const out = previewRoundTrip(md + '\n');
+	assert.equal(out, md);
+});
+
+test('table: with empty cells converts correctly', () => {
+	const html = '<table><thead><tr><th>A</th><th></th><th>C</th></tr></thead><tbody><tr><td>1</td><td></td><td>3</td></tr></tbody></table>';
+	const expected = '| A |  | C |\n| --- | --- | --- |\n| 1 |  | 3 |';
+	assert.equal(previewHtmlRoundTrip(html), expected);
+});
+
+test('table: with formatted cells (link, bold, code) converts correctly', () => {
+	const html = '<table><tbody><tr><td><a href="https://example.com">link</a></td><td><strong>bold</strong></td><td><code>code</code></td></tr></tbody></table>';
+	const out = previewHtmlRoundTrip(html);
+	assert.ok(out.includes('[link](https://example.com)'), `link in table cell must survive: ${JSON.stringify(out)}`);
+	assert.ok(out.includes('**bold**'), `bold in table cell must survive: ${JSON.stringify(out)}`);
+	assert.ok(out.includes('`code`'), `code in table cell must survive: ${JSON.stringify(out)}`);
+});
+
+test('table: followed by paragraph does not absorb following content', () => {
+	const md = '| A | B |\n| --- | --- |\n| 1 | 2 |\n\nAfter table.';
+	const out = previewRoundTrip(md + '\n');
+	assert.equal(out, md);
+});
+
+test('table: two tables in one note remain separate', () => {
+	// The blank line between adjacent tables doesn't survive the markdown→HTML
+	// round-trip because block tables render back-to-back, but both tables
+	// must still be present and correctly structured.
+	const md = '| A | B |\n| --- | --- |\n| 1 | 2 |\n\n| C | D |\n| --- | --- |\n| 3 | 4 |';
+	const out = previewRoundTrip(md + '\n');
+	assert.ok(out.includes('| A | B |'), 'first table must be present');
+	assert.ok(out.includes('| C | D |'), 'second table must be present');
+	assert.ok(out.includes('| 1 | 2 |'), 'first table body must be present');
+	assert.ok(out.includes('| 3 | 4 |'), 'second table body must be present');
+});
+
+test('table: multiple round-trips of tbody-only table with row-on-top shape are stable', () => {
+	// The exact bug shape: tbody-only table with 4 columns after inserting a row
+	// on top. Verify that repeated round-trips don't drift.
+	const html = '<table><tbody><tr><td>NEW</td><td>NEW</td><td>NEW</td><td>NEW</td></tr><tr><td>A</td><td>B</td><td>C</td><td>D</td></tr><tr><td>1</td><td>2</td><td>3</td><td>4</td></tr></tbody></table>';
+	const md = previewHtmlRoundTrip(html);
+	const mdAgain = previewRoundTrip(md + '\n');
+	assert.equal(mdAgain, md);
 });

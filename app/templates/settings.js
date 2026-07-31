@@ -124,8 +124,8 @@ const adminUserRow = (u, currentUserId) => {
 };
 
 const settingsPage = (options = {}) => {
-	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', orphanedResources = null, dbCompression = null, flash = '', flashError = '', activeTab = 'appearance', hasExplicitTab = false, debug = false } = options;
-	const validTabs = ['appearance', 'ai', 'expander', 'profile', 'security'];
+	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', orphanedResources = null, dbCompression = null, joplockVersion = '', joplinServerVersion = null, flash = '', flashError = '', activeTab = 'appearance', hasExplicitTab = false, debug = false } = options;
+	const validTabs = ['appearance', 'ai', 'expander', 'profile', 'security', 'about'];
 	if (isAdmin) validTabs.push('admin');
 	const tab = validTabs.includes(activeTab) ? activeTab : 'appearance';
 	const initialJob = JSON.stringify({
@@ -169,6 +169,7 @@ const settingsPage = (options = {}) => {
 				<button type="button" role="tab" class="settings-tab${tab === 'expander' ? ' active' : ''}" data-tab="expander" onclick="switchTab('expander')">Expander</button>
 				<button type="button" role="tab" class="settings-tab${tab === 'profile' ? ' active' : ''}" data-tab="profile" onclick="switchTab('profile')">Profile</button>
 				<button type="button" role="tab" class="settings-tab${tab === 'security' ? ' active' : ''}" data-tab="security" onclick="switchTab('security')">Security</button>
+				<button type="button" role="tab" class="settings-tab${tab === 'about' ? ' active' : ''}" data-tab="about" onclick="switchTab('about')">About</button>
 				${isAdmin ? `<button type="button" role="tab" class="settings-tab${tab === 'admin' ? ' active' : ''}" data-tab="admin" onclick="switchTab('admin')">Admin</button>` : ''}
 			</div>
 
@@ -441,6 +442,20 @@ const settingsPage = (options = {}) => {
 						</form>
 					</div>
 					`}
+				</section>
+			</div>
+
+			<!-- Tab: About -->
+			<div class="settings-tab-panel${tab === 'about' ? ' active' : ''}" id="tab-about">
+				<section class="settings-section">
+					<h2 class="settings-section-title">About Joplock</h2>
+					<p class="settings-section-sub">Open source thin-client web UI for Joplin Server.</p>
+					<div class="about-info">
+						${joplockVersion ? `<div class="about-row"><span class="about-label">Joplock version</span><span class="about-value">${escapeHtml(joplockVersion)}</span></div>` : ''}
+						${joplinServerVersion ? `<div class="about-row"><span class="about-label">Joplin Server</span><span class="about-value">${escapeHtml(joplinServerVersion)}</span></div>` : ''}
+						<div class="about-row"><span class="about-label">Author</span><span class="about-value">Igor Divjak</span></div>
+						<div class="about-row"><span class="about-label">Repository</span><span class="about-value"><a href="https://github.com/abort-retry-ignore/joplock" target="_blank" rel="noopener" class="about-link">github.com/abort-retry-ignore/joplock</a></span></div>
+					</div>
 				</section>
 			</div>
 

@@ -3,6 +3,7 @@
 const { generateSeed, otpauthUri, qrCodeDataUrl, verifyWithSeed } = require('../auth/mfaService');
 const { redirect, parseBody } = require('./_helpers');
 const templates = require('../templates');
+const { requestJoplin } = require('../adminService');
 
 const summarizeCompressionUsage = rows => {
 	const usageRows = Array.isArray(rows) ? rows.map(row => ({
@@ -19,7 +20,7 @@ const summarizeCompressionUsage = rows => {
 };
 
 const handle = async (url, request, response, ctx) => {
-	const { sendHtml, authenticatedUser, settingsService, adminService, database, isJoplockAdmin, backupService, maintenance, itemService, debug } = ctx;
+	const { sendHtml, authenticatedUser, settingsService, adminService, database, isJoplockAdmin, backupService, maintenance, itemService, debug, joplockVersion, joplinServerOrigin, joplinServerPublicUrl } = ctx;
 
 	// GET /settings
 	if (url.pathname === '/settings' && request.method === 'GET') {
@@ -95,6 +96,13 @@ const handle = async (url, request, response, ctx) => {
 				orphanedResources = await itemService.countOrphanedResources(auth.user.id);
 			} catch {}
 		}
+		let joplinServerVersion = null;
+		try {
+			const res = await requestJoplin(joplinServerOrigin, 'GET', '/api/ping', null, null, joplinServerPublicUrl);
+			if (res.statusCode >= 200 && res.statusCode < 300 && res.body && res.body.message) {
+				joplinServerVersion = res.body.message;
+			}
+		} catch {}
 		const userTotpSeed = await settingsService.getTotpSeed(auth.user.id);
 		const userTotpEnabled = !!userTotpSeed;
 		const setupSeed = url.searchParams.get('mfaSetup') || '';
@@ -119,6 +127,8 @@ const handle = async (url, request, response, ctx) => {
 			dbCompression,
 			orphanedResources,
 			appSettings,
+			joplockVersion,
+			joplinServerVersion,
 			flash: savedParam === '1' ? 'Settings saved.' : (savedParam || (url.searchParams.get('mfaEnabled') === '1' ? 'MFA enabled successfully.' : '')),
 			flashError: url.searchParams.get('error') || '',
 			activeTab: url.searchParams.get('tab') || 'appearance',

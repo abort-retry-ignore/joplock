@@ -51,6 +51,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Compute version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")+$(git rev-parse --short HEAD)
+          echo "value=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -60,3 +66,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            JOPLOCK_VERSION=${{ steps.version.outputs.value }}

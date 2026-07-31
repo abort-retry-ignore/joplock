@@ -49,6 +49,7 @@ const createServer = options => {
 		rateLimitService = createRateLimitService(),
 		sessionCookieMaxAge = 31536000,
 		debug = false,
+		joplockVersion = '',
 	} = options;
 
 	const isJoplockAdmin = user => !!(
@@ -363,6 +364,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 			ignoreAdminMfa,
 			adminEmail,
 			sessionCookieMaxAge,
+			joplockVersion,
 			debug: effectiveDebug,
 			isDebug,
 			refreshDebugLogging,
@@ -507,10 +509,11 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 					navContent: templates.navigationFragment(folders, counts, selectedFolderId, selectedNoteId, '', selectedNoteContextFolderId),
 					editorContent,
 					joplinBasePath: joplinPublicBasePath,
+					joplockVersion,
 				}));
 } catch (err) {
 			process.stderr.write(`[joplock] GET / SSR error: ${err && err.stack ? err.stack : err}\n`);
-			sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug, user: null, joplinBasePath: joplinPublicBasePath }));
+			sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug, user: null, joplinBasePath: joplinPublicBasePath, joplockVersion }));
 		}
 		return;
 	}
@@ -536,6 +539,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 				settings,
 				navContent: templates.navigationFragment(folders, counts, '', ''),
 				joplinBasePath: joplinPublicBasePath,
+				joplockVersion,
 			}));
 		} catch {
 			redirect(response, '/login');

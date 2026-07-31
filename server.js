@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const { createPoolFromEnv, createSessionService } = require('./app/auth/sessionService');
 
 const { createItemService, ensureIndexes } = require('./app/items/itemService');
@@ -32,6 +33,22 @@ const backupCompression = process.env.JOPLOCK_BACKUP_COMPRESSION || 'zstd:19';
 const backupCompressionLevel = Number(process.env.JOPLOCK_BACKUP_COMPRESSION_LEVEL || '9');
 const sessionCookieMaxAge = Number(process.env.JOPLOCK_SESSION_COOKIE_MAX_AGE_SECONDS || '31536000');
 const loginRateLimitService = createRateLimitService();
+
+// Joplock version: env var → version.txt (Docker build) → package.json
+let joplockVersion = '';
+if (process.env.JOPLOCK_VERSION) {
+	joplockVersion = process.env.JOPLOCK_VERSION;
+} else {
+	try {
+		const vPath = path.join(__dirname, 'version.txt');
+		if (fs.existsSync(vPath)) {
+			joplockVersion = fs.readFileSync(vPath, 'utf8').trim();
+		}
+	} catch {}
+}
+if (!joplockVersion) {
+	try { joplockVersion = require('./package.json').version; } catch {}
+}
 
 const databasePool = createPoolFromEnv(process.env);
 const sessionService = createSessionService(databasePool);
@@ -102,6 +119,7 @@ const server = createServer({
 	rateLimitService: loginRateLimitService,
 	sessionCookieMaxAge,
 	debug: process.env.DEBUG === 'true' || process.env.DEBUG === '1',
+	joplockVersion,
 });
 
 server.listen(port, host, () => {

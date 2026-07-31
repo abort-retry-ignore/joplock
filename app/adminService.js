@@ -256,6 +256,16 @@ const createAdminService = ({ database, joplinServerOrigin, joplinServerPublicUr
 		}
 	};
 
+	const fetchServerVersion = async () => {
+		try {
+			const res = await requestJoplin(joplinServerOrigin, 'GET', '/api/ping', null, null, joplinServerPublicUrl);
+			if (res.statusCode < 200 || res.statusCode >= 300) return null;
+			return res.body && res.body.message ? res.body.message : null;
+		} catch {
+			return null;
+		}
+	};
+
 	return {
 		ensureAdminUser,
 		getAdminToken,
@@ -267,8 +277,9 @@ const createAdminService = ({ database, joplinServerOrigin, joplinServerPublicUr
 		updateProfile,
 		verifyPassword,
 		changePassword,
+		fetchServerVersion,
 		adminEmail,
 	};
 };
 
-module.exports = { createAdminService, isStrongPassword };
+module.exports = { createAdminService, isStrongPassword, requestJoplin };

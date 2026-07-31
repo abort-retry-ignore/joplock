@@ -106,6 +106,7 @@ function makeSandbox({ initialTaValue = '', initialHtml = '<p>hello</p>', dbg = 
 		_dbg: !!dbg,
 		_saveScheduled: 0,
 		_editedMarked: 0,
+		_autoTitleCalled: 0,
 		_logs: [],
 	});
 
@@ -119,6 +120,7 @@ function makeSandbox({ initialTaValue = '', initialHtml = '<p>hello</p>', dbg = 
 		function snapshotHash(){}
 		function _log(){_logs.push(Array.from(arguments).join(' '))}
 		function _dbgline(){_logs.push('[dbg] '+Array.from(arguments).join(' '))}
+		function autoTitleFromTinyMCE(){_autoTitleCalled++}
 	`, ctx);
 
 	vm.runInContext(extractFn('_lazyTinyMCESyncBeforeSave'), ctx);
@@ -131,6 +133,7 @@ function makeSandbox({ initialTaValue = '', initialHtml = '<p>hello</p>', dbg = 
 function taValue(ctx) { return vm.runInContext('document.getElementById("note-body").value', ctx); }
 function saveCount(ctx) { return vm.runInContext('_saveScheduled', ctx); }
 function editedCount(ctx) { return vm.runInContext('_editedMarked', ctx); }
+function autoTitleCount(ctx) { return vm.runInContext('_autoTitleCalled', ctx); }
 
 // ---------------------------------------------------------------------------
 // Fast path (production): schedules save, does NOT eagerly sync
@@ -170,6 +173,44 @@ test('fast path: _lazyTinyMCESyncBeforeSave() returns false when content matches
 	const { ctx } = makeSandbox({ initialTaValue: 'hello', initialHtml: '<p>hello</p>', dbg: false });
 	const changed = vm.runInContext('_lazyTinyMCESyncBeforeSave()', ctx);
 	assert.equal(changed, false);
+});
+
+// ---------------------------------------------------------------------------
+// Regression: commit ffb7bd0 ("Fix TinyMCE autosave sync + shell-mode
+// readonly + FormatBlock partial split") optimised onEdit() to skip the
+// per-event tinymceToMarkdown() conversion (moved to the debounced
+// scheduleSave timer instead). The OLD onEdit() used to dispatch an 'input'
+// event on #note-body on every change, which is what triggered autoTitle()
+// (wired via ta.addEventListener('input', autoTitle) in initEditorPanel).
+// Removing that per-edit dispatch silently broke title auto-fill for
+// rendered/TinyMCE mode (it kept working in markdown mode, where CM6's
+// onUpdate calls autoTitle() directly). Fixed by calling a cheap, DOM-only
+// autoTitleFromTinyMCE(editor) directly from onEdit's fast path, instead of
+// relying on a synthetic textarea 'input' event.
+// ---------------------------------------------------------------------------
+
+test('fast path: onEdit calls autoTitleFromTinyMCE on every real edit', () => {
+	const { ctx, editor } = makeSandbox({ initialTaValue: 'hello', initialHtml: '<p>hello</p>', dbg: false });
+	editor.getContent = () => '<p>hello world</p>';
+	editor.fire('input');
+	assert.equal(autoTitleCount(ctx), 1, 'onEdit must call autoTitleFromTinyMCE so rendered-mode titles auto-fill');
+	editor.fire('change');
+	assert.equal(autoTitleCount(ctx), 2, 'autoTitleFromTinyMCE must be called on every qualifying onEdit invocation');
+});
+
+test('fast path: autoTitleFromTinyMCE is NOT called during the post-load suppression window', () => {
+	const { ctx, editor } = makeSandbox({ initialTaValue: 'hello', initialHtml: '<p>hello</p>', dbg: false });
+	vm.runInContext('_tinymcePostLoad = true; _tinymcePostLoadUntil = Date.now() + 10000;', ctx);
+	editor.getContent = () => '<p>hello world</p>';
+	editor.fire('input');
+	assert.equal(autoTitleCount(ctx), 0, 'post-load noise must not trigger title auto-fill');
+});
+
+test('debug path: onEdit also calls autoTitleFromTinyMCE', () => {
+	const { ctx, editor } = makeSandbox({ initialTaValue: 'hello', initialHtml: '<p>hello</p>', dbg: true });
+	editor.getContent = () => '<p>hello world</p>';
+	editor.fire('input');
+	assert.equal(autoTitleCount(ctx), 1, 'autoTitleFromTinyMCE must fire in debug mode too');
 });
 
 // ---------------------------------------------------------------------------
@@ -318,5 +359,26 @@ test('app.js: _setTinyMCEContent still wraps setContent in _tinymceSuppressEdits
 	assert.ok(setTrue !== -1 && setContent !== -1 && setFalse !== -1);
 	assert.ok(setTrue < setContent, 'suppress=true must run BEFORE setContent()');
 	assert.ok(setFalse > setContent, 'suppress=false must run AFTER setContent()');
+});
+
+test('app.js: onEdit calls autoTitleFromTinyMCE (rendered-mode title auto-fill regression guard)', () => {
+	// Guards against silently re-breaking rendered-mode auto-title the way
+	// commit ffb7bd0 did when it removed the per-edit textarea 'input' sync.
+	const src = extractOnEditBody();
+	assert.ok(src.includes('autoTitleFromTinyMCE('),
+		'onEdit must call autoTitleFromTinyMCE — otherwise typing in TinyMCE (rendered mode) never auto-fills the note title');
+});
+
+test('app.js: _tinymceFirstBlockText / autoTitleFromTinyMCE exist and are DOM-only (no tinymceToMarkdown call)', () => {
+	// autoTitleFromTinyMCE must stay cheap (read only the first block's text)
+	// rather than reintroducing a full HTML->markdown conversion per
+	// keystroke, which is exactly the cost onEdit's fast path was written to
+	// avoid.
+	const firstBlockSrc = extractFn('_tinymceFirstBlockText');
+	assert.ok(!firstBlockSrc.includes('tinymceToMarkdown'),
+		'_tinymceFirstBlockText must not call tinymceToMarkdown — it should stay a cheap DOM-only read');
+	const autoTitleSrc = extractFn('autoTitleFromTinyMCE');
+	assert.ok(autoTitleSrc.includes('_tinymceFirstBlockText'),
+		'autoTitleFromTinyMCE must read via _tinymceFirstBlockText');
 });
 

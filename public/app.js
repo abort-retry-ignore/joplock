@@ -1243,11 +1243,19 @@ function initPersistentTinyMCE(){
 						editor.selection.setCursorLocation(p,0);
 						return;
 					}
+					// Enter at the end of a non-empty checkbox ALWAYS inserts a new
+					// checkbox item immediately after this one, regardless of what
+					// follows (another checkbox, a paragraph, or nothing). This keeps
+					// mid-list editing consistent: going back to an existing checklist
+					// that is followed by other text and pressing Enter still extends
+					// the list. Exiting the list is done by pressing Enter on an EMPTY
+					// checkbox item (handled above — it converts to a paragraph).
+					var immediateNext=cb.nextSibling;
 					var neo=doc.createElement('div');
 					neo.className='md-checkbox';
 					var tn=doc.createTextNode('\u00a0');
 					neo.appendChild(tn);
-					if(cb.nextSibling)cb.parentNode.insertBefore(neo,cb.nextSibling);
+					if(immediateNext)cb.parentNode.insertBefore(neo,immediateNext);
 					else cb.parentNode.appendChild(neo);
 					var range=doc.createRange();
 					range.setStart(tn,1);
@@ -1452,6 +1460,12 @@ function initPersistentTinyMCE(){
 			_dbgline('onEdit -> markEdited+scheduleSave (postLoad was false, window elapsed)');
 			markEdited();
 			scheduleSave();
+			// Cheap (DOM-only, first-block-only) title auto-fill for rendered
+			// mode. Must NOT be gated behind the debug-only full markdown sync
+			// above — that sync is deferred to the debounced scheduleSave timer
+			// in production, so without this call the title would never
+			// auto-populate while typing in TinyMCE.
+			autoTitleFromTinyMCE(editor);
 			}
 			editor.on('input',function(){onEdit('input')});
 			editor.on('change',function(){onEdit('change')});
@@ -3325,7 +3339,59 @@ function _enforcePlainTitle(el){
 function initAutoTitle(){_titleManual=false;var ti=queryActiveEditor('.editor-title');if(ti&&ti.style.display!=='none'){_enforcePlainTitle(ti);ti.addEventListener('input',function(){_titleManual=true;syncTitle()})}var mt=document.getElementById('mobile-editor-title');if(mt)_enforcePlainTitle(mt)}
 function _autoTitleCandidate(line){var trimmed=(line||'').trim();if(!trimmed)return '';if(/^!\[[^\]]*\]\([^\)]+\)$/.test(trimmed))return '';if(/^<img\b[^>]*\/?>(?:<\/img>)?$/i.test(trimmed))return '';return stripMdForTitle(trimmed.replace(/^#+\s*/,''));}
 function autoTitle(){if(_titleManual)return;var ta=getTA();var hi=queryActiveEditor('.editor-title-hidden');var ti=queryActiveEditor('.editor-title');var mobileTitle=document.getElementById('mobile-editor-title');if(!ta||!hi)return;var val=ta.value;var lines=val.split('\n');var firstPlain='';for(var i=0;i<lines.length;i++){var candidate=_autoTitleCandidate(lines[i]);if(candidate){firstPlain=candidate;break}}if(firstPlain&&firstPlain!==hi.value){if(ti)ti.textContent=firstPlain;// Don't clobber #mobile-editor-title while user is editing it
-if(mobileTitle&&document.activeElement!==mobileTitle)mobileTitle.textContent=firstPlain;hi.value=firstPlain;hi.dispatchEvent(new Event('input',{bubbles:true}))}}function pad2(value){return String(value).padStart(2,'0')}
+if(mobileTitle&&document.activeElement!==mobileTitle)mobileTitle.textContent=firstPlain;hi.value=firstPlain;hi.dispatchEvent(new Event('input',{bubbles:true}))}}
+// Cheap, DOM-only first-line extraction for TinyMCE (rendered) mode. Reads
+// only the FIRST block element's plain text — NOT a full HTML->markdown
+// conversion of the whole note — so it is safe to call on every keystroke
+// without reintroducing the per-edit tinymceToMarkdown() cost that
+// onEdit()'s fast path was written to avoid (see onEdit's "sync strategy"
+// comment). Image-only blocks and blank-line placeholders are skipped so
+// the first line of actual text is used, mirroring _autoTitleCandidate.
+// Stops at the first <br> (soft break) so a multi-line paragraph created by
+// newline_behavior:'linebreak' only contributes its FIRST line, matching
+// markdown-mode autoTitle()'s per-\n line splitting (ta.value.split('\n')) —
+// otherwise the title would swallow every soft-break line in the paragraph.
+function _tinymceFirstLineText(el){
+	var out='';
+	var walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT,null,false);
+	var node;
+	while((node=walker.nextNode())){
+		if(node.nodeType===1){
+			if(node.nodeName==='BR')break;
+			continue;
+		}
+		out+=node.textContent;
+	}
+	return out;
+}
+function _tinymceFirstBlockText(editor){
+	var body=editor&&editor.getBody?editor.getBody():null;
+	if(!body)return '';
+	var el=body.firstElementChild;
+	while(el){
+		var imgOnly=!!(el.children&&el.children.length===1&&el.children[0].nodeName==='IMG'&&!(el.textContent||'').replace(/[\u00a0\u200b]/g,'').trim());
+		if(!imgOnly){
+			var raw=_tinymceFirstLineText(el).replace(/\u00a0/g,' ').trim();
+			if(raw)return raw;
+		}
+		el=el.nextElementSibling;
+	}
+	return '';
+}
+function autoTitleFromTinyMCE(editor){
+	if(_titleManual)return;
+	var hi=queryActiveEditor('.editor-title-hidden');
+	var ti=queryActiveEditor('.editor-title');
+	var mobileTitle=document.getElementById('mobile-editor-title');
+	if(!hi)return;
+	var firstPlain=stripMdForTitle(_tinymceFirstBlockText(editor));
+	if(firstPlain&&firstPlain!==hi.value){
+		if(ti)ti.textContent=firstPlain;
+		if(mobileTitle&&document.activeElement!==mobileTitle)mobileTitle.textContent=firstPlain;
+		hi.value=firstPlain;
+		hi.dispatchEvent(new Event('input',{bubbles:true}));
+	}
+}function pad2(value){return String(value).padStart(2,'0')}
 var _dateFmt=_cfg.dateFormat||'MMM-DD-YY';
 var _datetimeFmt=_cfg.datetimeFormat||'YYYY-MM-DD HH:mm';
 function formatStamp(kind){var d=new Date();var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var fmt=kind==='datetime'?_datetimeFmt:_dateFmt;var YYYY=String(d.getFullYear());var YY=YYYY.slice(-2);var MM=pad2(d.getMonth()+1);var MMM=months[d.getMonth()];var DD=pad2(d.getDate());var h24=d.getHours();var HH=pad2(h24);var h12=h24%12||12;var hh=pad2(h12);var A=h24<12?'AM':'PM';var mn=pad2(d.getMinutes());var ss=pad2(d.getSeconds());return fmt.replace('YYYY',YYYY).replace('YY',YY).replace('MMM',MMM).replace('MM',MM).replace('DD',DD).replace('HH',HH).replace('hh',hh).replace('mm',mn).replace('ss',ss).replace('A',A).replace('a',A.toLowerCase())}

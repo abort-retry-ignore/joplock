@@ -2450,6 +2450,40 @@ select.login-input option {
 	box-shadow: 0 18px 40px var(--shadow);
 }
 
+.about-info {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-top: 16px;
+}
+
+.about-row {
+	display: flex;
+	align-items: baseline;
+	gap: 12px;
+}
+
+.about-label {
+	font-size: 13px;
+	color: var(--text-dim);
+	min-width: 120px;
+	flex-shrink: 0;
+}
+
+.about-value {
+	font-size: 14px;
+	color: var(--text);
+}
+
+.about-link {
+	color: var(--accent);
+	text-decoration: none;
+}
+
+.about-link:hover {
+	text-decoration: underline;
+}
+
 .settings-header {
 	display: flex;
 	justify-content: space-between;
@@ -2918,7 +2952,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 		display: flex;
 		position: fixed;
 		inset: 0;
-		inset-top: env(safe-area-inset-top, 0px);
+		top: env(safe-area-inset-top, 0px);
 		overflow: hidden;
 		background: var(--bg);
 	}

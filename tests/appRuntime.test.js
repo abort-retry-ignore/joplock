@@ -155,6 +155,35 @@ test('tinymceToMarkdown preserves a blank line INSIDE a code block (C #include i
 		`blank line inside code block must be preserved, got: ${JSON.stringify(result)}`);
 });
 
+test('tinymceToMarkdown widens fence for a bare <pre> containing a backtick run', () => {
+	// A bare <pre> (no <code> child, no language-* class) can arrive from pasted
+	// external HTML. It must still be emitted as a fenced code block whose fence
+	// is WIDER than any backtick run inside it — otherwise the markdown re-parses
+	// wrong. Before widening the fencedCodeLanguage filter, a bare <pre> fell
+	// through to Turndown's default rule, which escapes backticks inline instead.
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const html = '<pre>const x = ```` here</pre>';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	// Fence must be at least 5 backticks (one longer than the 4-backtick run),
+	// and the backtick run must survive verbatim (not be backslash-escaped).
+	assert.ok(/`{5,}\n?const x = ```` here\n?`{5,}/.test(result),
+		`bare <pre> must produce a widened fence, got: ${JSON.stringify(result)}`);
+	assert.ok(!/\\`/.test(result),
+		`backticks must not be inline-escaped, got: ${JSON.stringify(result)}`);
+});
+
+test('tinymceToMarkdown still fences a normal <pre><code> block with language', () => {
+	// Regression guard: widening the filter to all <pre> must not break the
+	// common <pre class="language-x"><code>…</code></pre> path.
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const html = '<pre class="language-js"><code>const y = 1;</code></pre>';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	assert.ok(/```js\nconst y = 1;\n```/.test(result),
+		`language-tagged fenced block must round-trip, got: ${JSON.stringify(result)}`);
+});
+
 test('tinymceToMarkdown still collapses a blank line after a real ATX heading', () => {
 	const ctx = makeTurndownCtx();
 	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');

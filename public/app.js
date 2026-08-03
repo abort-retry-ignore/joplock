@@ -3802,7 +3802,12 @@ function getTurndown(){
 	if(_tdService)return _tdService;
 	var td=new TurndownService({headingStyle:'atx',hr:'---',codeBlockStyle:'fenced',bulletListMarker:'-',emDelimiter:'*',strongDelimiter:'**',br:''});
 	// Preserve fenced code language from TinyMCE codesample blocks.
-	td.addRule('fencedCodeLanguage',{filter:function(n){return n.nodeName==='PRE'&&(!!n.querySelector('code')||/(?:^|\s)language-/.test(n.getAttribute('class')||''))},replacement:function(_c,n){
+	// Match ALL <pre> (not only <pre><code> or language-* blocks): a bare <pre>
+	// from pasted external HTML would otherwise fall through to Turndown's default
+	// fenced-code rule, which does NOT widen the fence when the content contains a
+	// backtick run — producing broken markdown. The replacement below reads
+	// textContent when there is no <code> child, so bare <pre> is handled safely.
+	td.addRule('fencedCodeLanguage',{filter:function(n){return n.nodeName==='PRE'},replacement:function(_c,n){
 		var codeEl=n.querySelector('code');
 		var cls=((codeEl&&codeEl.getAttribute('class'))||n.getAttribute('class')||'');
 		var m=cls.match(/(?:^|\s)language-([\w-]+)/);

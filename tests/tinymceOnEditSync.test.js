@@ -382,3 +382,107 @@ test('app.js: _tinymceFirstBlockText / autoTitleFromTinyMCE exist and are DOM-on
 		'autoTitleFromTinyMCE must read via _tinymceFirstBlockText');
 });
 
+
+// ---------------------------------------------------------------------------
+// Post-load reconcile: load normalisation must NOT be mistaken for a user edit
+// ---------------------------------------------------------------------------
+
+// Build a context that runs _setTinyMCEContent's reconcile with controllable timers.
+function makeReconcileCtx({ userTyped, normalisedDiffers }) {
+	const dom = new JSDOM('<!DOCTYPE html><body><form id="note-editor-form">'
+		+ '<input name="body" value="stored" /></form></body>');
+	const timers = [];
+	const editor = {
+		setContent() {},
+		undoManager: { clear() {} },
+		getBody: () => dom.window.document.body,
+	};
+	const ctx = vm.createContext({
+		document: dom.window.document,
+		window: dom.window,
+		Date,
+		_tinymceEditor: editor,
+		_tinymceSuppressEdits: false,
+		_tinymceReadonly: false,
+		_tinymcePostLoad: false,
+		_tinymcePostLoadUntil: 0,
+		_tinymceUserTypedSinceLoad: false,
+		_pendingSearchHighlight: false,
+		_savedHash: 111,
+		_edited: 0,
+		_saved: 0,
+		_snapshots: 0,
+		_logs: [],
+		setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+	});
+	vm.runInContext(`
+		function activeEditorForm(){return document.getElementById('note-editor-form')}
+		function _dbgline(){_logs.push(Array.from(arguments).join(' '))}
+		function _log(){}
+		function markEdited(){_edited++}
+		function scheduleSave(){_saved++}
+		function snapshotHash(){_snapshots++; _savedHash=formHash()}
+		function formHash(){return ${normalisedDiffers ? 222 : 111}}
+		function _lazyTinyMCESyncBeforeSave(){return true}
+		function ensureTinyMCEEditableAfterPre(){}
+		function initTinyMCECodeCopyButtons(){}
+		function _applyTinyMCESpellcheck(){}
+		function activeSearchTerm(){return ''}
+		function applySearchHighlight(){}
+	`, ctx);
+	vm.runInContext(extractFn('_setTinyMCEContent'), ctx);
+	vm.runInContext('_setTinyMCEContent("<p>x</p>")', ctx);
+	if (userTyped) vm.runInContext('_tinymceUserTypedSinceLoad=true', ctx);
+	// Run the 820ms reconcile callback (the last scheduled timer).
+	const reconcile = timers.find(t => t.ms === 820);
+	assert.ok(reconcile, 'expected a 820ms reconcile timer to be scheduled');
+	reconcile.fn();
+	return {
+		edited: vm.runInContext('_edited', ctx),
+		saved: vm.runInContext('_saved', ctx),
+		snapshots: vm.runInContext('_snapshots', ctx),
+		logs: vm.runInContext('_logs.join("|")', ctx),
+	};
+}
+
+test('post-load reconcile: pure load normalisation re-baselines instead of flashing Edited', () => {
+	// Reported bug: opening a note whose markdown is not round-trip identical
+	// (indented ``` fence loses its indent, blank line after an ATX heading is
+	// collapsed) flashed "Edited" and fired a useless autosave EVERY open.
+	const r = makeReconcileCtx({ userTyped: false, normalisedDiffers: true });
+	assert.equal(r.edited, 0, 'markEdited must not fire for load normalisation');
+	assert.equal(r.saved, 0, 'no autosave may be scheduled for load normalisation');
+	assert.equal(r.snapshots, 1, 'the normalised content must become the new clean baseline');
+});
+
+test('post-load reconcile: a real edit during the quiet window still saves', () => {
+	// The reconcile exists so an edit absorbed by the 800ms post-load window is
+	// not silently lost. That safety net must survive the fix above.
+	const r = makeReconcileCtx({ userTyped: true, normalisedDiffers: true });
+	assert.equal(r.edited, 1, 'a genuine edit must still mark the note edited');
+	assert.equal(r.saved, 1, 'a genuine edit must still schedule a save');
+});
+
+test('post-load reconcile: identical content does nothing at all', () => {
+	const r = makeReconcileCtx({ userTyped: false, normalisedDiffers: false });
+	assert.equal(r.edited, 0);
+	assert.equal(r.saved, 0);
+	assert.equal(r.snapshots, 0);
+});
+
+test('app.js: user-typed flag is wired to keydown/paste/cut/drop, never to input/SetContent', () => {
+	// editor.setContent() fires 'input' and 'SetContent', so those events cannot
+	// be used to detect real user interaction — using them would reintroduce the
+	// phantom "Edited" on open.
+	const idx = appSrc.indexOf('_tinymceUserTypedSinceLoad=true');
+	assert.ok(idx !== -1, '_tinymceUserTypedSinceLoad must be set somewhere');
+	for (const evt of ['keydown', 'paste', 'cut', 'drop']) {
+		assert.ok(new RegExp(`editor\\.on\\('${evt}'`).test(appSrc),
+			`expected an editor.on('${evt}') handler to exist`);
+	}
+	const setLine = appSrc.slice(appSrc.lastIndexOf('\n', idx - 200), idx + 40);
+	assert.ok(!/editor\.on\('(?:input|SetContent)'[^)]*\)\s*\{[^}]*_tinymceUserTypedSinceLoad=true/.test(setLine),
+		'_tinymceUserTypedSinceLoad must not be set from input/SetContent handlers');
+	assert.ok(extractFn('_setTinyMCEContent').includes('_tinymceUserTypedSinceLoad=false'),
+		'_setTinyMCEContent must reset the user-typed flag on every programmatic load');
+});

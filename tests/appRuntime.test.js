@@ -59,6 +59,14 @@ function runWithDeps(ctx, ...fns) {
 		fns = [...fns];
 		fns.splice(fns.indexOf('getTurndown') >= 0 ? fns.indexOf('getTurndown') + 1 : 0, 0, '_applyHeadingSpacing');
 	}
+	if (fns.includes('tinymceToMarkdown') && !fns.includes('_protectInlineLeadingSpace')) {
+		fns = [...fns];
+		// _protectInlineLeadingSpace needs the shared inline-tag list plus the
+		// encode/restore pair that round-trips the exact whitespace characters.
+		vm.runInContext("var _INLINE_TAGS_RE_SRC='a|abbr|b|bdi|bdo|cite|code|del|em|i|ins|kbd|label|mark|q|s|small|span|strong|sub|sup|time|u|var';", ctx);
+		const at = fns.indexOf('getTurndown') >= 0 ? fns.indexOf('getTurndown') + 1 : 0;
+		fns.splice(at, 0, '_encodeProtectedSpace', '_protectInlineLeadingSpace', '_restoreProtectedSpace');
+	}
 	for (const fn of fns) vm.runInContext(extractFn(fn), ctx);
 }
 
@@ -141,6 +149,181 @@ test('tinymceToMarkdown returns empty string for empty input', () => {
 	const result = vm.runInContext('tinymceToMarkdown("")', ctx);
 	assert.equal(typeof result, 'string');
 	assert.equal(result.trim(), '');
+});
+
+test('tinymceToMarkdown does not duplicate space after inline image in link', () => {
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const nbsp = '\u00a0'.repeat(12);
+	const imageId = 'a'.repeat(32);
+	const html = '<p>++' + nbsp + '<a href="https://e.com"><img src="/resources/' + imageId + '" alt="ic" /> Label</a>++</p>';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	assert.equal(result, '++' + nbsp + '[![ic](:/' + imageId + ') Label](https://e.com)++');
+	const whitespace = result.match(/^\+\+([^\[]*)\[/);
+	assert.ok(whitespace, `expected link after opening markers, got: ${JSON.stringify(result)}`);
+	assert.equal(whitespace[1].length, 12);
+});
+
+test('tinymceToMarkdown is idempotent for rendered inline image link', () => {
+	const { renderMarkdown } = require('../app/templates');
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const md = '++' + '\u00a0'.repeat(12) + '[![xlsx icon](:/20b2d03aaad113c6181386805ae8c6c4) Hybrid Savings commercials.xlsx](https://example.com/x.xlsx)++';
+	const results = [];
+	let current = md;
+	for (let i = 0; i < 5; i += 1) {
+		const html = renderMarkdown(current);
+		current = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+		results.push(current);
+	}
+	assert.equal(results[0], md);
+	assert.equal(results[4], md);
+	for (const result of results) {
+		const whitespace = result.match(/^\+\+([^\[]*)\[/);
+		assert.ok(whitespace, `expected link after opening markers, got: ${JSON.stringify(result)}`);
+		assert.equal(whitespace[1].length, 12);
+	}
+});
+
+test('tinymceToMarkdown keeps genuine leading link whitespace outside brackets', () => {
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const html = '<a href="https://e.com"> Label</a>';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	assert.equal(result, '[Label](https://e.com)');
+});
+
+test('tinymceToMarkdown restores an NBSP (not a plain space) after an inline image', () => {
+	// The real-world shape (Outlook-pasted link with an inline xlsx icon) separates
+	// the image from the label with a NON-BREAKING space, not an ASCII space.
+	// Turndown's edgeWhitespace uses \s, which matches NBSP, so the NBSP was expelled
+	// and duplicated. Restoring the sentinel as a generic ' ' would also change the
+	// body (NBSP -> space) and keep the phantom-edit loop alive, so the exact
+	// character must come back.
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const imageId = 'b'.repeat(32);
+	const html = '<p><a href="https://e.com"><img src="/resources/' + imageId + '" alt="ic" />\u00a0Label</a></p>';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	assert.equal(result, '[![ic](:/' + imageId + ')\u00a0Label](https://e.com)');
+	assert.ok(result.indexOf('\u00a0') !== -1, 'NBSP must survive as NBSP');
+});
+
+test('tinymceToMarkdown is idempotent for the real NBSP-separated icon link over 5 opens', () => {
+	// Regression for the reported bug: opening the note flashed "Edited" and fired a
+	// useless autosave because the whitespace run grew by one character per open
+	// (12 -> 13 -> 14 ...). Mirrors the stored body of the affected note.
+	const { renderMarkdown } = require('../app/templates');
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const md = '++' + '\u00a0'.repeat(12)
+		+ '[![xlsx icon](:/20b2d03aaad113c6181386805ae8c6c4)\u00a0Hybrid Savings commercials.xlsx](https://example.com/x.xlsx)++';
+	let current = md;
+	for (let i = 0; i < 5; i += 1) {
+		current = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(renderMarkdown(current)) + ')', ctx);
+		assert.equal(current, md, `round-trip ${i + 1} must be byte-identical, got: ${JSON.stringify(current)}`);
+	}
+});
+
+test('tinymceToMarkdown keeps text typed INTO a blank-line marker (data-loss regression)', () => {
+	// A <p class="md-blank-line"> is a real, focusable paragraph in the TinyMCE
+	// iframe, so clicking the empty space between two blocks puts the caret inside
+	// it and typing puts the new text there. The blank-line normalisation used to
+	// rewrite the paragraph's content unconditionally, which silently DESTROYED
+	// that text: type a line after a checklist, leave the note, come back, gone.
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const shapes = [
+		'<p class="md-blank-line">hello there</p>',            // typed over the <br>
+		'<p class="md-blank-line">hello there<br></p>',         // typed, TinyMCE re-added <br>
+		'<p class="md-blank-line">hello <strong>there</strong></p>', // with inline markup
+	];
+	for (const p of shapes) {
+		const html = '<div class="md-checkbox">&nbsp;GPU</div>\n' + p + '\n<h2>April</h2>';
+		const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+		assert.ok(result.indexOf('hello') !== -1,
+			`text typed into a blank-line marker must survive, lost with ${p} -> ${JSON.stringify(result)}`);
+		assert.ok(result.indexOf('- [ ] GPU') !== -1, 'the checklist item must still convert');
+	}
+});
+
+test('tinymceToMarkdown still collapses a genuinely blank blank-line marker', () => {
+	// The counterpart guard: an untouched marker (or one whose <br> TinyMCE stripped)
+	// must still become a real blank line, otherwise spacing collapses.
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	for (const p of ['<p class="md-blank-line"><br></p>', '<p class="md-blank-line"></p>', '<p class="md-blank-line">&nbsp;</p>']) {
+		const html = '<div class="md-checkbox">&nbsp;GPU</div>\n' + p + '\n<h2>April</h2>';
+		const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+		assert.equal(result, '- [ ] GPU\n\n\n## April',
+			`blank marker ${p} must still produce a blank line, got: ${JSON.stringify(result)}`);
+	}
+});
+
+test('typing after a checklist survives a full render -> edit -> markdown -> reopen cycle', () => {
+	// End-to-end shape of the reported bug, including stability on reopen.
+	const { renderMarkdown } = require('../app/templates');
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const body = '- [ ] GPU\n- [ ] Do not include AI\n\n\n## April\n';
+	let html = renderMarkdown(body);
+	const marker = '<p class="md-blank-line"><br></p>';
+	const at = html.indexOf(marker);
+	assert.ok(at !== -1, 'expected a blank-line marker between the checklist and the heading');
+	html = html.slice(0, at) + '<p class="md-blank-line">hello there</p>' + html.slice(at + marker.length);
+	const saved = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	assert.ok(saved.indexOf('hello there') !== -1, `typed text must be saved, got: ${JSON.stringify(saved)}`);
+	assert.ok(/- \[ \] Do not include AI/.test(saved), 'checklist must be intact');
+	// Reopening must not change it again (no phantom edit, no further loss).
+	const reopened = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(renderMarkdown(saved)) + ')', ctx);
+	assert.equal(reopened, saved, 'the saved body must be stable on reopen');
+});
+
+test('tinymceToMarkdown does not add a trailing space to a bare > blockquote line', () => {
+	// Turndown prefixes every blockquote line with '> ', so the empty line between
+	// two quoted paragraphs came back as '> ' where the source had a bare '>'.
+	// Trailing whitespace there is insignificant in CommonMark, and leaving it in
+	// made the note look dirty on every open.
+	const { renderMarkdown } = require('../app/templates');
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const md = '> quote\n>\n> more';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(renderMarkdown(md)) + ')', ctx);
+	assert.equal(result, md);
+	assert.ok(!/>[ \t]+$/m.test(result), `no quote line may end in whitespace, got: ${JSON.stringify(result)}`);
+});
+
+test('tinymceToMarkdown keeps the > prefix on soft-wrapped blockquote lines', () => {
+	// '> b\n> c' is ONE quoted paragraph with a soft break, so the renderer emits
+	// '<blockquote><p>b<br>c</p></blockquote>'. The <br> sentinel is restored to a
+	// newline AFTER Turndown has prefixed its own lines, so without carrying the
+	// quote prefix across the break the second line came back as bare 'c' —
+	// escaping the blockquote entirely on the next render.
+	const { renderMarkdown } = require('../app/templates');
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	for (const md of ['> b\n> c', '> a\n>\n> b\n> c']) {
+		const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(renderMarkdown(md)) + ')', ctx);
+		assert.equal(result, md, `blockquote must round-trip, got: ${JSON.stringify(result)}`);
+	}
+});
+
+test('tinymceToMarkdown still turns a plain paragraph soft break into a bare newline', () => {
+	// Guard: the quote-prefix carry must not leak into non-quoted paragraphs.
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const result = vm.runInContext('tinymceToMarkdown("<p>a<br>b</p>")', ctx);
+	assert.equal(result, 'a\nb');
+});
+
+test('tinymceToMarkdown does not duplicate whitespace before a trailing inline image', () => {
+	// Symmetric case: whitespace immediately before an <img> that closes the link.
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const imageId = 'c'.repeat(32);
+	const html = '<p><a href="https://e.com">Label\u00a0<img src="/resources/' + imageId + '" alt="ic" /></a></p>';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	assert.equal(result, '[Label\u00a0![ic](:/' + imageId + ')](https://e.com)');
 });
 
 test('tinymceToMarkdown preserves a blank line INSIDE a code block (C #include is not a heading)', () => {

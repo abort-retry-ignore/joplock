@@ -766,12 +766,22 @@ var _tinymcePostLoad=false;
 // "Edited" → real save of the round-tripped markdown. See "Edited flash after
 // restore" investigation.
 var _tinymcePostLoadUntil=0;
+// Set by genuine user interaction inside the TinyMCE iframe (keystroke, paste,
+// cut, drop). Reset on every programmatic content load. The post-load reconcile
+// uses it to tell a REAL edit made during the quiet window apart from the
+// editor merely normalising the note on load: markdown->HTML->markdown is not
+// always the identity (e.g. an indented ``` fence loses its indent, a blank line
+// after an ATX heading is collapsed), and adopting those cosmetic rewrites as
+// "the user edited the note" produced an "Edited" flash plus a useless autosave
+// every single time such a note was opened.
+var _tinymceUserTypedSinceLoad=false;
 var _pendingSearchHighlight=false;
 var _tinymceShowRequested=false;
 function _setTinyMCEContent(html){
 	if(!_tinymceEditor)return;
 	_dbgline('_setTinyMCEContent begin len='+((html||'').length));
 	_tinymceSuppressEdits=true;
+	_tinymceUserTypedSinceLoad=false;
 	try{
 		_tinymceEditor.setContent(html||'');
 		if(_tinymceEditor.undoManager)_tinymceEditor.undoManager.clear();
@@ -808,9 +818,23 @@ function _setTinyMCEContent(html){
 				if(_tinymceReadonly)return;
 				if(typeof _lazyTinyMCESyncBeforeSave==='function')_lazyTinyMCESyncBeforeSave();
 				if(typeof formHash==='function'&&formHash(form)!==_savedHash){
-					_dbgline('post-load reconcile: form dirty, marking edited');
-					if(typeof markEdited==='function')markEdited();
-					if(typeof scheduleSave==='function')scheduleSave();
+					// The form differs from the snapshot taken before the editor
+					// loaded. Two very different reasons are possible:
+					//   1. the user really typed during the 800ms quiet window — that
+					//      edit was absorbed (no markEdited fired) and must be saved;
+					//   2. nobody touched the note and the difference is purely
+					//      TinyMCE/Turndown load normalisation (indented fence indent
+					//      dropped, blank line after a heading collapsed, ...).
+					// Only (1) is an edit. Treating (2) as an edit flashed "Edited"
+					// and wrote a useless save every time such a note was opened.
+					if(_tinymceUserTypedSinceLoad){
+						_dbgline('post-load reconcile: user typed during window, marking edited');
+						if(typeof markEdited==='function')markEdited();
+						if(typeof scheduleSave==='function')scheduleSave();
+					}else{
+						_dbgline('post-load reconcile: load normalisation only, re-baselining hash');
+						if(typeof snapshotHash==='function')snapshotHash();
+					}
 				}else{
 					_dbgline('post-load reconcile: form clean, nothing to do');
 				}
@@ -1467,6 +1491,22 @@ function initPersistentTinyMCE(){
 			// auto-populate while typing in TinyMCE.
 			autoTitleFromTinyMCE(editor);
 			}
+			// Record GENUINE user interaction so the post-load reconcile can tell a
+			// real edit apart from load normalisation. Deliberately uses keydown /
+			// paste / cut / drop: those are never fired by editor.setContent(),
+			// whereas 'input' and 'SetContent' are, so they cannot be used here.
+			// Navigation-only keys are filtered out — pressing an arrow key is not
+			// an edit and must not promote a cosmetic rewrite into a saved change.
+			editor.on('keydown',function(e){
+				if(!e)return;
+				if(e.ctrlKey||e.metaKey)return; // shortcuts; paste/cut fire their own events
+				var k=e.key;
+				if(typeof k==='string'&&(k.length===1||k==='Enter'||k==='Backspace'||k==='Delete'||k==='Tab'))
+					_tinymceUserTypedSinceLoad=true;
+			});
+			editor.on('paste',function(){_tinymceUserTypedSinceLoad=true});
+			editor.on('cut',function(){_tinymceUserTypedSinceLoad=true});
+			editor.on('drop',function(){_tinymceUserTypedSinceLoad=true});
 			editor.on('input',function(){onEdit('input')});
 			editor.on('change',function(){onEdit('change')});
 			// TinyMCE's built-in commands (blocks dropdown -> FormatBlock, lists,
@@ -3923,18 +3963,64 @@ function htmlToMarkdown(el){
 	}
 	return out
 }
+// Turndown computes an element's flanking whitespace from node.textContent, which
+// skips atomic children like <img> (they contribute no text). For
+// <a><img/>&nbsp;Label</a> it therefore reports a LEADING whitespace run even though
+// that whitespace is interior to the produced markdown (which starts with
+// "![alt](:/id)"). replacementForNode() then does content.trim() — which cannot
+// remove an interior space — and still prepends the expelled whitespace, so the
+// space is DUPLICATED. That grows by one character on every
+// markdown->render->markdown cycle, i.e. every time the note is opened in rendered
+// mode, which makes the post-load reconcile in _setTinyMCEContent see a phantom
+// edit ("Edited" flash + useless autosave) and slowly corrupts the stored body.
+//
+// Hide such interior whitespace behind a sentinel so Turndown does not see a
+// flanking edge, then restore the EXACT original characters afterwards. The
+// character code is encoded in the sentinel because the run is frequently NBSP
+// (\u00a0) rather than a plain space — restoring a generic ' ' would itself change
+// the note body and keep the phantom-edit loop alive.
+var _INLINE_TAGS_RE_SRC='a|abbr|b|bdi|bdo|cite|code|del|em|i|ins|kbd|label|mark|q|s|small|span|strong|sub|sup|time|u|var';
+function _encodeProtectedSpace(ws){
+	return ws.replace(/[^\S\r\n]/g,function(c){return '\u2764S'+c.charCodeAt(0)+'\u2764'});
+}
+function _protectInlineLeadingSpace(html){
+	// Whitespace AFTER atomic children that open an inline element.
+	html=html.replace(new RegExp('(<(?:'+_INLINE_TAGS_RE_SRC+')\\b[^>]*>(?:<(?:img|br)\\b[^>]*>)+)([^\\S\\r\\n]+)(?=\\S)','gi'),
+		function(_m,open,ws){return open+_encodeProtectedSpace(ws)});
+	// Symmetric case: whitespace BEFORE atomic children that close an inline element.
+	html=html.replace(new RegExp('([^\\S\\r\\n]+)((?:<(?:img|br)\\b[^>]*>)+</(?:'+_INLINE_TAGS_RE_SRC+')>)','gi'),
+		function(_m,ws,tail){return _encodeProtectedSpace(ws)+tail});
+	return html;
+}
+function _restoreProtectedSpace(md){
+	return md.replace(/\u2764S(\d+)\u2764/g,function(_m,code){return String.fromCharCode(parseInt(code,10))});
+}
 function tinymceToMarkdown(html){
 	if(!html)return '';
 	html=html.replace(/\u200b/g,'');
 	// Normalise blank-line markers. TinyMCE strips the <br> from
 	// <p class="md-blank-line"><br></p> on setContent, leaving an empty
 	// <p class="md-blank-line"></p> — which Turndown drops entirely (empty block
-	// = no output), swallowing the blank line. Rewrite any md-blank-line paragraph
-	// (empty or not) to the sentinel shape the blankLine rule reliably matches.
-	html=html.replace(/<p([^>]*\bclass="[^"]*\bmd-blank-line\b[^"]*"[^>]*)>[\s\S]*?<\/p>/gi,'<p$1>\u2764BR\u2764</p>');
+	// = no output), swallowing the blank line. Rewrite the marker to the sentinel
+	// shape the blankLine rule reliably matches.
+	//
+	// ONLY rewrite markers that are still genuinely blank. A blank-line marker is a
+	// real, focusable paragraph in the iframe, so the caret lands in it whenever the
+	// user clicks on the empty space between two blocks — typing there puts the new
+	// text INSIDE the marker. Rewriting unconditionally replaced that text with the
+	// sentinel and silently destroyed it (typed a line, left the note, came back,
+	// gone). When the marker holds real content, leave the paragraph verbatim: with
+	// text present neither the blankLine nor the emptyP rule matches it, so Turndown
+	// converts it as an ordinary paragraph and the text survives.
+	html=html.replace(/<p([^>]*\bclass="[^"]*\bmd-blank-line\b[^"]*"[^>]*)>([\s\S]*?)<\/p>/gi,function(whole,attrs,inner){
+		var plain=String(inner||'').replace(/<[^>]*>/g,'').replace(/&nbsp;|&#160;|&#xa0;/gi,'');
+		if(plain.replace(/[\s\u00a0\u200b]+/g,''))return whole;
+		return '<p'+attrs+'>\u2764BR\u2764</p>';
+	});
 	// tinyMCE appends a trailing <br> to every non-empty <p> block. Strip before conversion
 	// so it doesn't become a spurious newline. Do NOT strip from <p><br></p> (blank lines).
 	html=html.replace(/<p>((?:[^<]|<(?!\/p>))+?)<br\s*\/?>\s*<\/p>/gi,'<p>$1</p>');
+	html=_protectInlineLeadingSpace(html);
 	// Convert <br> (line breaks within paragraphs and blank-line divs) to a
 	// sentinel Turndown won't touch. Restore as \n after conversion.
 	// For md-blank-line divs the blankLine rule matches the sentinel text.
@@ -3950,8 +4036,23 @@ function tinymceToMarkdown(html){
 	md=_applyHeadingSpacing(md);
 	// Normalise blank-line sentinels (md-blank-line divs + empty paragraphs)
 	md=md.replace(/\n*(?:\x00BL\x00\n*)+/g,function(m){var count=(m.match(/\x00BL\x00/g)||[]).length;return nl+nl+Array(count+1).join(nl)});
-	// Restore line-break sentinels as \n (soft breaks within paragraphs)
-	md=md.split('\u2764BR\u2764').join(nl);
+	// Restore line-break sentinels as \n (soft breaks within paragraphs).
+	// Inside a blockquote the sentinel must also re-apply the quote prefix:
+	// Turndown prefixes the lines it emits, but these newlines are injected
+	// afterwards, so '> b<br>c' would come back as '> b\nc' — the second line
+	// escaping the blockquote entirely (real content corruption, and a permanent
+	// dirty-on-open diff). Carry the leading '>' run of the line across the break.
+	md=md.split(nl).map(function(lineText){
+		if(lineText.indexOf('\u2764BR\u2764')<0)return lineText;
+		var qm=lineText.match(/^((?:[ \t]*>)+[ \t]?)/);
+		return lineText.split('\u2764BR\u2764').join(nl+(qm?qm[1]:''));
+	}).join(nl);
+	md=_restoreProtectedSpace(md);
+	// Turndown prefixes every line of a blockquote with '> ', including the empty
+	// lines between paragraphs, yielding '> ' where the source had a bare '>'.
+	// Trailing whitespace on a quote-only line is insignificant in CommonMark, so
+	// strip it — otherwise the note is reported dirty on every open.
+	md=md.replace(/^([ \t]*>+)[ \t]+$/gm,'$1');
 	var out='';
 	for(var i=0;i<md.length;i++){
 		var ch=md.charAt(i),nx=md.charAt(i+1);

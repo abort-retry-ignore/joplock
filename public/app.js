@@ -4615,8 +4615,8 @@ function _activeEditorBaseUpdatedTime(){var form=activeEditorForm();if(!form)ret
 //   - title contenteditable: text differs from hidden input
 //   - formHash != _savedHash: textarea/folder/title fields differ from last save
 function _activeEditorIsDirty(){var form=activeEditorForm();if(!form)return false;if(_previewDirty)return true;if(typeof _pvSyncTimer!=='undefined'&&_pvSyncTimer)return true;var ti=form.querySelector('.editor-title');var hi=form.querySelector('.editor-title-hidden');if(ti&&hi){var raw=ti.textContent||'';if(typeof stripMdForTitle==='function'){if(stripMdForTitle(raw)!==(hi.value||''))return true}else if(raw!==(hi.value||''))return true}_lazyTinyMCESyncBeforeSave();return formHash(form)!==_savedHash}
-function dismissRemoteUpdateBanner(){var bar=document.getElementById('remote-update-bar');if(bar)bar.hidden=true}
-function showRemoteUpdateBanner(kind){var bar=document.getElementById('remote-update-bar');if(!bar)return;var text=document.getElementById('remote-update-text');var useBtn=document.getElementById('remote-update-use-server-btn');var owBtn=document.getElementById('remote-update-overwrite-btn');if(kind==='deleted'){if(text)text.textContent='This note was deleted in another window.';if(useBtn)useBtn.hidden=true;if(owBtn)owBtn.hidden=true}else{if(text)text.textContent='A newer version of this note exists on the server.';if(useBtn)useBtn.hidden=false;if(owBtn)owBtn.hidden=false}bar.hidden=false}
+function dismissRemoteUpdateBanner(){var bar=queryActiveEditor('#remote-update-bar')||document.getElementById('remote-update-bar');if(bar)bar.hidden=true}
+function showRemoteUpdateBanner(kind){var bar=queryActiveEditor('#remote-update-bar')||document.getElementById('remote-update-bar');if(!bar)return;var scope=bar;var text=scope.querySelector('#remote-update-text');var useBtn=scope.querySelector('#remote-update-use-server-btn');var owBtn=scope.querySelector('#remote-update-overwrite-btn');if(kind==='deleted'){if(text)text.textContent='This note was deleted in another window.';if(useBtn)useBtn.hidden=true;if(owBtn)owBtn.hidden=true}else{if(text)text.textContent='A newer version of this note exists on the server.';if(useBtn)useBtn.hidden=false;if(owBtn)owBtn.hidden=false}bar.hidden=false}
 function reloadCurrentNoteFromServer(){var noteId=_activeEditorNoteId();if(!noteId)return;var folderId=_activeEditorCurrentFolderId();var targetSel=inMobileEditor()?'#mobile-editor-body':'#editor-panel';var target=document.querySelector(targetSel);if(!target)return;dismissRemoteUpdateBanner();var url='/fragments/editor/'+encodeURIComponent(noteId)+(folderId?'?currentFolderId='+encodeURIComponent(folderId):'');_log('reloadCurrentNoteFromServer',url);htmx.ajax('GET',url,{target:targetSel,swap:'innerHTML'}).catch(function(){})}
 function overwriteWithLocalEdits(){var form=activeEditorForm();if(!form)return;dismissRemoteUpdateBanner();// Sync preview/CM into the textarea so the body in the form is current
 var pv=getPV();if(pv)syncPV();else if(_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA();syncTitleToHidden({silent:true});// Set forceSave=1 so the server skips the optimistic-concurrency guard
@@ -4683,10 +4683,34 @@ document.addEventListener('keydown',function(e){var mac=navigator.platform&&navi
 				if(!req){finish(true);return}
 				restoreReq=req.restore||restoreReq;
 				_log('flushSave',req.url);
-				return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(html){
+				return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){
+					if(!r.ok)throw new Error('HTTP '+r.status);
+					// The response carries OOB fragments (notably #editor-sync-state with
+					// the new baseUpdatedTime) that htmx would apply for autosave PUTs —
+					// but this raw fetch() discards the body, so apply the essential
+					// piece by hand. Without it, a flushSave save advances the server
+					// clock while the form keeps the stale base, and the NEXT autosave
+					// trips the conflict guard ("A newer version of this note exists on
+					// the server") even though this flush was the only writer.
+					var conflict=r.headers&&r.headers.get&&r.headers.get('X-Note-Conflict')==='1';
+					var newBase=Number((r.headers&&r.headers.get&&r.headers.get('X-Note-Updated-Time'))||0);
+					return r.text().then(function(html){return {conflict:conflict,newBase:newBase,html:html}});
+				}).then(function(res){
 					if(settled)return;
 					restoreReq();
-					_log('flushSave ok',html.slice(0,80));
+					if(res.conflict){
+						// Server rejected the flush (row moved underneath us). Surface the
+						// conflict UI exactly like the autosave path does: swap the conflict
+						// fragment into this form's #autosave-status, show the banner, and
+						// do NOT snapshotHash (edits are still pending, hash would lie).
+						_log('flushSave conflict detected');
+						var st=form.querySelector('#autosave-status');if(st)st.innerHTML=res.html;
+						if(activeEditorForm()===form)showRemoteUpdateBanner('changed');
+						finish(false);
+						return;
+					}
+					_log('flushSave ok',res.html.slice(0,80));
+					if(res.newBase){var se=form.querySelector('#editor-sync-state');if(se){var bi=se.querySelector('[name="baseUpdatedTime"]');if(bi)bi.value=String(res.newBase)}}
 					// Stale-save guard: if the user switched notes while this PUT was
 					// in flight, do not hash the NEW note's form — that would mark its
 					// pending edits as "Saved" without saving them.

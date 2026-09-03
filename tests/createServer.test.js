@@ -397,6 +397,10 @@ test('PUT /fragments/editor/:id autosaves and returns status', async () => {
 		assert.ok(res.body.includes('id="nav-panel" hx-swap-oob="innerHTML"'), 'should refresh nav panel');
 		assert.ok(res.body.includes('id="editor-sync-state" hx-swap-oob="outerHTML"'));
 		assert.ok(res.body.includes('name="baseUpdatedTime" value="2000"'));
+		// Header mirror of the OOB sync-state: lets flushSave's raw fetch keep the
+		// form's baseUpdatedTime current so the next autosave doesn't spuriously
+		// conflict ("A newer version of this note exists on the server").
+		assert.equal(res.headers['x-note-updated-time'], '2000');
 		// Nav now lazy-loads notes; folder rows are present but note items are fetched on demand
 		assert.ok(res.body.includes('Folder 1'));
 		assert.equal(savedUpdates.title, 'Updated Title');

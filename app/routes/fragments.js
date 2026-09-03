@@ -549,6 +549,12 @@ const handle = async (url, request, response, ctx) => {
 				historyService.saveSnapshot(auth.user.id, noteId, existing.title, existing.body).catch(() => {});
 			}
 			const refreshed = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
+			// Advertise the post-save updated_time in a header so non-htmx save paths
+			// (flushSave's raw fetch) can keep the form's baseUpdatedTime in sync.
+			// Without this, a flushSave save advances the server clock while the form
+			// keeps the old base — the NEXT autosave then trips the conflict guard and
+			// shows "A newer version of this note exists on the server" spuriously.
+			response.setHeader('X-Note-Updated-Time', String((refreshed && refreshed.updatedTime) || 0));
 			await saveLastNoteState(auth.user.id, currentSettings, noteId, currentFolderId || (refreshed && refreshed.parentId) || body.parentId || existing.parentId);
 			const titleChanged = plainNoteTitle(body.title) !== `${existing.title || ''}`;
 			const folderChanged = `${body.parentId || ''}` !== `${existing.parentId || ''}`;

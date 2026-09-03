@@ -162,3 +162,29 @@ test('editor swap clears the displayed-content stamps', () => {
 test('initEditorPanel stamps the displayed note before its early return', () => {
 	assert.ok(/function initEditorPanel\(\)\{var form=activeEditorForm\(\);if\(form\)_displayedNoteId=_formNoteId\(form\);if\(!form\|\|form.dataset.editorInit\)return;/.test(appSrc), 'initEditorPanel provenance stamp missing');
 });
+test('flushSave keeps baseUpdatedTime in sync (raw fetch would otherwise desync it)', () => {
+	// flushSave() saves via a raw fetch() whose OOB-carrying body is discarded.
+	// It must read X-Note-Updated-Time from the response and refresh the
+	// form's hidden baseUpdatedTime; otherwise the next autosave PUT carries a
+	// stale base, trips the server conflict guard, and the user sees
+	// "A newer version of this note exists on the server" after merely
+	// switching views/tabs (visibilitychange -> flushSave).
+	const idx = appSrc.indexOf("return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body})");
+	assert.ok(idx !== -1, 'flushSave fetch not found');
+	const block = appSrc.slice(idx, idx + 2200);
+	assert.ok(block.includes("X-Note-Updated-Time"), 'flushSave must read the X-Note-Updated-Time response header');
+	assert.ok(block.includes("X-Note-Conflict") , 'flushSave must detect the X-Note-Conflict header');
+	assert.ok(block.includes("bi.value=String(res.newBase)"), 'flushSave must update the hidden baseUpdatedTime input');
+	assert.ok(block.includes('flushSave conflict detected'), 'flushSave must surface conflicts instead of marking them Saved');
+	assert.ok(!/finish\(true\)[\s\S]{0,200}finish\(true\)/.test(block.slice(block.indexOf('if(res.conflict)'))), 'conflict path must not report success');
+});
+
+test('remote-update banner targets the ACTIVE shell (mobile, not the hidden desktop bar)', () => {
+	// Both shells render #remote-update-bar; getElementById returns the desktop
+	// one, which is display:none in the mobile shell — the banner would be
+	// invisible exactly when mobile users need it.
+	assert.ok(/function showRemoteUpdateBanner\(kind\)\{var bar=queryActiveEditor\('#remote-update-bar'\)\|\|document\.getElementById\('remote-update-bar'\)/.test(appSrc),
+		'showRemoteUpdateBanner must resolve the bar inside the active shell first');
+	assert.ok(/function dismissRemoteUpdateBanner\(\)\{var bar=queryActiveEditor\('#remote-update-bar'\)\|\|document\.getElementById\('remote-update-bar'\)/.test(appSrc),
+		'dismissRemoteUpdateBanner must resolve the active shell bar');
+});

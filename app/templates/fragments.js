@@ -397,7 +397,11 @@ const mobileEditorFragment = (note, folders, currentFolderId = '', viewerUserId 
 		const hiddenSelect = folderSelectMatch ? folderSelectMatch[0].replace('class="editor-folder-select"', 'class="editor-folder-select mobile-hidden-folder-select"') : '';
 		// Keep title fields hidden so autoTitle + save work; hide visual titlebar.
 		// Also keep #autosave-status and #autosave-indicator (hidden) because form hx-target and hx-indicator point to them — removing them causes htmx:targetError and hx-indicator selector warnings on save.
-		return `${hiddenSelect}<input type="hidden" name="currentFolderId" value="${escapeHtml(currentFolderId || '')}" /><input type="hidden" name="title" class="editor-title-hidden" value="${escapeHtml(stripMarkdownForTitle(note.title || ''))}" /><div class="editor-title" style="display:none" data-placeholder="Note title">${escapeHtml(stripMarkdownForTitle(note.title || ''))}</div><span id="autosave-status" style="display:none"></span><span id="autosave-indicator" class="htmx-indicator" style="display:none">Saving...</span><div class="editor-toolbar"`;
+		// Keep #editor-sync-state (baseUpdatedTime) so mobile autosaves participate
+		// in the optimistic-concurrency conflict guard and the freshness check has
+		// a baseline. Without it, mobile saves silently last-write-wins and the
+		// desktop<->mobile switch never detects concurrent changes.
+		return `${hiddenSelect}${noteSyncStateFragment(note)}<input type="hidden" name="currentFolderId" value="${escapeHtml(currentFolderId || '')}" /><input type="hidden" name="title" class="editor-title-hidden" value="${escapeHtml(stripMarkdownForTitle(note.title || ''))}" /><div class="editor-title" style="display:none" data-placeholder="Note title">${escapeHtml(stripMarkdownForTitle(note.title || ''))}</div><span id="autosave-status" style="display:none"></span><span id="autosave-indicator" class="htmx-indicator" style="display:none">Saving...</span><div class="editor-toolbar"`;
 	})
 	.replace(/\s*<div class="search-nav-bar" id="search-nav-bar" hidden>[\s\S]*?<\/div>\s*/,'')
 	.replace(' hx-swap-oob="outerHTML"', '');

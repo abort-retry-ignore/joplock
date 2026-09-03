@@ -210,6 +210,17 @@ test('mobileEditorFragment hides plaintext preview for vault-protected notes', (
 	assert.ok(!html.includes('>Top secret</div>'));
 });
 
+test('mobileEditorFragment keeps #editor-sync-state (baseUpdatedTime) for conflict + freshness checks', () => {
+	// The titlebar-stripping transform used to drop the sync-state span, which
+	// removed baseUpdatedTime from the mobile form: mobile saves then skipped
+	// the server conflict guard (silent last-write-wins) and checkNoteFreshness
+	// early-returned (base = 0), so the desktop<->mobile switch never detected
+	// concurrent changes.
+	const html = mobileEditorFragment({ id: 'n1'.padEnd(32, '2'), title: 'T', body: 'b', parentId: 'f1'.padEnd(32, '3'), deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1'.padEnd(32, '3'), title: 'F' }]);
+	assert.ok(html.includes('id="editor-sync-state"'), 'mobile fragment must keep #editor-sync-state');
+	assert.ok(html.includes('name="baseUpdatedTime" value="2000"'), 'mobile fragment must carry baseUpdatedTime');
+});
+
 test('app script enforces single-screen mobile invariant via state machine', () => {
 	const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 	// State machine + reducer

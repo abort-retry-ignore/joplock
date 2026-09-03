@@ -50,19 +50,20 @@ const mobileFoldersFragment = (folders, countsOrNotes) => {
 
 // Renders a single mobile note row button.
 //   onclickJs — the onclick JS expression string (varies between notes list and search)
-const mobileNoteRow = (n, onclickJs) => {
+const mobileNoteRow = (n, onclickJs, viewerUserId = '') => {
 	const protectedByVault = !!(n.isEncrypted || n.inVault);
+	const isOwner = !n.ownerId || n.ownerId === viewerUserId;
 	const lockIcon = protectedByVault ? '<span class="note-lock-icon" data-note-id="' + escapeHtml(n.id) + '">' + svgLockClosed + '</span>' : '';
-	return `<button class="mobile-note-row" data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}"${n.isEncrypted ? ' data-encrypted="1"' : ''}${protectedByVault && n.parentId ? ` data-vault-id="${escapeHtml(n.parentId)}"` : ''} onclick="${onclickJs}">
+	return `<button class="mobile-note-row" data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}" data-is-owner="${isOwner ? '1' : '0'}"${n.isEncrypted ? ' data-encrypted="1"' : ''}${protectedByVault && n.parentId ? ` data-vault-id="${escapeHtml(n.parentId)}"` : ''} onclick="${onclickJs}">
 		${lockIcon}<span class="mobile-note-title">${escapeHtml(stripMarkdownForTitle(n.title || 'Untitled') || 'Untitled')}</span>
 		<span class="mobile-note-arrow">&#8250;</span>
 	</button>`;
 };
 
-const mobileNotesFragment = (notes, folderId, folderTitle, hasMore = false, nextOffset = 0) => {
+const mobileNotesFragment = (notes, folderId, folderTitle, hasMore = false, nextOffset = 0, viewerUserId = '') => {
 	if (!notes.length) return '<div class="empty-hint" style="padding:24px 16px;text-align:center"><div style="font-size:40px;margin-bottom:8px">&#128221;</div><div>No notes yet</div><div style="font-size:12px;color:var(--text-muted);margin-top:4px">Tap + to create one</div></div>';
 	const items = notes.map(n =>
-		mobileNoteRow(n, `mobilePushEditor(${escapeHtml(JSON.stringify(n.id))},${escapeHtml(JSON.stringify(folderId))})`)
+		mobileNoteRow(n, `mobilePushEditor(${escapeHtml(JSON.stringify(n.id))},${escapeHtml(JSON.stringify(folderId))})`, viewerUserId)
 	).join('');
 	if (!hasMore) return items;
 	const loadMore = `<button class="notelist-load-more"
@@ -73,10 +74,10 @@ const mobileNotesFragment = (notes, folderId, folderTitle, hasMore = false, next
 	return items + loadMore;
 };
 
-const mobileSearchFragment = (notes, hasMore = false, nextOffset = 0, query = '') => {
+const mobileSearchFragment = (notes, hasMore = false, nextOffset = 0, query = '', viewerUserId = '') => {
 	if (!notes.length) return '<div class="empty-hint" style="padding:24px 16px;text-align:center"><div style="font-size:40px;margin-bottom:8px">&#128269;</div><div>No results found</div></div>';
 	const items = notes.map(n =>
-		mobileNoteRow(n, `window._pendingNoteSearchTerm=((document.getElementById('mobile-search-input')||{}).value||'').trim();mobilePushEditor(${escapeHtml(JSON.stringify(n.id))},${escapeHtml(JSON.stringify(n.parentId || ''))})`)
+		mobileNoteRow(n, `window._pendingNoteSearchTerm=((document.getElementById('mobile-search-input')||{}).value||'').trim();mobilePushEditor(${escapeHtml(JSON.stringify(n.id))},${escapeHtml(JSON.stringify(n.parentId || ''))})`, viewerUserId)
 	).join('');
 	if (!hasMore) return items;
 	const loadMore = `<button class="notelist-load-more" style="padding:12px 16px"

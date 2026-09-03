@@ -424,7 +424,28 @@ test('PUT /fragments/editor/:id returns conflict status fragment when note chang
 	});
 });
 
-test('PUT /fragments/editor/:id can create copy on conflict', async () => {
+test('PUT /fragments/editor/:id conflict hides Create copy for vault notes', async () => {
+	await withServer({
+		itemService: {
+			noteByUserIdAndJopId: async () => ({ id: 'n1', title: 'Remote', body: 'Encrypted body', parentId: 'vault-1', createdTime: 1000, updatedTime: 2000 }),
+		},
+		vaultService: {
+			getVaultByFolderId: async (_uid, folderId) => folderId === 'vault-1' ? { folderId: 'vault-1' } : null,
+		},
+	}, async port => {
+		const res = await request(port, {
+			path: '/fragments/editor/n1',
+			method: 'PUT',
+			headers: { Cookie: 'sessionId=test-session', 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'title=Updated+Title&body=Encrypted+body&baseUpdatedTime=1000',
+		});
+		assert.equal(res.statusCode, 200);
+		assert.ok(res.body.includes('Overwrite'));
+		assert.ok(!res.body.includes('Create copy'));
+	});
+});
+
+test('PUT /fragments/editor/:id can create copy on conflict for a plain note', async () => {
 	let createdArgs = null;
 	await withServer({
 		itemService: {
@@ -457,7 +478,7 @@ test('PUT /fragments/editor/:id can create copy on conflict', async () => {
 	});
 });
 
-test('PUT /fragments/editor/:id rejects plaintext create copy inside vault', async () => {
+test('PUT /fragments/editor/:id never creates a copy of a vault note', async () => {
 	let createdArgs = null;
 	await withServer({
 		itemService: {
@@ -481,7 +502,7 @@ test('PUT /fragments/editor/:id rejects plaintext create copy inside vault', asy
 		});
 		assert.equal(res.statusCode, 400);
 		assert.equal(createdArgs, null);
-		assert.ok(res.body.includes('Vault notes must be saved encrypted'));
+		assert.ok(res.body.includes('Cannot create a copy of a vault note'));
 	});
 });
 

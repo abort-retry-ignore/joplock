@@ -6,7 +6,7 @@
  *      exist and are wired up (they were previously referenced but undefined, causing
  *      ReferenceError: getCM is not defined).
  *   2. The editor fragment renders a #cm-host mount element.
- *   3. The page loads codemirror.min.js before app.js.
+ *   3. The page loads CodeMirror and Prism before TinyMCE/app.js.
  *   4. setEditorMode wires CM<->textarea sync in both directions.
  *   5. The TinyMCE init config enables inline image/file uploads (paste + picker).
  *
@@ -193,15 +193,30 @@ test('editorFragment renders a #cm-host mount element', () => {
 	assert.ok(html.includes('id="cm-host"'), '#cm-host must be present for CM6 to mount into');
 });
 
-test('page loads codemirror.min.js before app.js', () => {
+test('page loads CodeMirror and Prism before TinyMCE/app.js', () => {
 	const { layoutPage } = require('../app/templates');
 	const html = layoutPage({ user: { email: 'u@e.com', fullName: 'U' }, navContent: '' });
 	const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1]);
 	const cmIdx = scripts.findIndex(s => s.includes('codemirror'));
+	const prismIdx = scripts.findIndex(s => s.includes('prism.min.js'));
+	const tinyIdx = scripts.findIndex(s => s.includes('tinymce.min.js'));
 	const appIdx = scripts.findIndex(s => s.includes('app.js'));
 	assert.ok(cmIdx !== -1, 'codemirror.min.js script tag must exist');
+	assert.ok(prismIdx !== -1, 'prism.min.js script tag must exist');
+	assert.ok(tinyIdx !== -1, 'tinymce.min.js script tag must exist');
 	assert.ok(appIdx !== -1, 'app.js script tag must exist');
 	assert.ok(cmIdx < appIdx, 'codemirror.min.js must load before app.js');
+	assert.ok(prismIdx < tinyIdx, 'prism.min.js must load before TinyMCE');
+	assert.ok(tinyIdx < appIdx, 'TinyMCE must load before app.js');
+});
+
+// ---------------------------------------------------------------------------
+// TinyMCE code-block highlighting config
+// ---------------------------------------------------------------------------
+
+test('TinyMCE rendered mode uses global Prism and labels code blocks correctly', () => {
+	assert.ok(appSrc.includes('codesample_global_prismjs:true'), 'TinyMCE codesample must use the full global Prism bundle');
+	assert.ok(appSrc.includes("tooltip:'Code block'"), 'TinyMCE code button should say Code block');
 });
 
 // ---------------------------------------------------------------------------
@@ -277,6 +292,38 @@ test('codemirror.min.js loads and exposes the window.CM API initCM depends on', 
 	];
 	const missing = required.filter(k => typeof CM[k] === 'undefined');
 	assert.deepEqual(missing, [], `window.CM is missing symbols: ${missing.join(', ')}`);
+});
+
+test('prism.min.js exposes every code-block language offered by the modal', () => {
+	const bundle = fs.readFileSync(path.join(__dirname, '../public/prism.min.js'), 'utf8');
+	const dom = new JSDOM('<!DOCTYPE html><body></body>', { runScripts: 'outside-only', url: 'https://joplock.test' });
+	dom.window.eval(bundle);
+	const Prism = dom.window.Prism;
+	assert.equal(typeof Prism, 'object', 'window.Prism must be defined after the bundle loads');
+	const samples = {
+		bash: 'echo "$HOME"',
+		basic: 'PRINT "hello"',
+		c: 'int main(void) { return 0; }',
+		cpp: 'std::vector<int> v;',
+		css: 'body { color: red; }',
+		go: 'func main() { fmt.Println("hi") }',
+		html: '<div class="x">Hi</div>',
+		javascript: 'const answer = 42;',
+		json: '{"answer": 42}',
+		python: 'def f(x):\\n    return x + 1',
+		sql: 'SELECT * FROM notes WHERE id = 1;',
+		typescript: 'const answer: number = 42;',
+		xml: '<note id="1"/>',
+		yaml: 'name: joplock',
+	};
+	for (const [language, source] of Object.entries(samples)) {
+		assert.ok(Prism.languages[language], `Prism grammar missing for ${language}`);
+		const pre = dom.window.document.createElement('pre');
+		pre.className = `language-${language}`;
+		pre.textContent = source;
+		Prism.highlightElement(pre);
+		assert.ok(pre.querySelector('.token'), `${language} sample was not tokenized`);
+	}
 });
 
 // ---------------------------------------------------------------------------

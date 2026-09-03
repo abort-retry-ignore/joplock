@@ -465,7 +465,7 @@ function cmSetVal(v){if(!_cmView)return;var cur=_cmView.state.doc.toString();if(
 function getTinyMCE(){return _tinymceEditor}
 function tinyMCEContent(){return _tinymceEditor?_tinymceEditor.getContent():''}
 function tinyMCESetContent(html){if(_tinymceEditor)_tinymceEditor.setContent(html)}
-function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
+function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var _synNoteId=_formNoteId(activeEditorForm());if(_tinymceContentNoteId&&_synNoteId&&_tinymceContentNoteId!==_synNoteId){_log('tinyMCESyncToTA skipped: TinyMCE content belongs to another note',_tinymceContentNoteId,_synNoteId);return false}var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
 function _isMarkdownModeActive(){return _editorMode==='markdown'||_editorMode==='md'}
 
 /* ---------------- Note export (rendered mode only): MD / HTML / DOCX / PDF ---------------- */
@@ -777,8 +777,13 @@ var _tinymcePostLoadUntil=0;
 var _tinymceUserTypedSinceLoad=false;
 var _pendingSearchHighlight=false;
 var _tinymceShowRequested=false;
-function _setTinyMCEContent(html){
+function _setTinyMCEContent(html,noteId){
 	if(!_tinymceEditor)return;
+	// Provenance stamp: record which note this content belongs to. Save and
+	// sync paths refuse to write when the visible content is for another note
+	// (see _plaintextSaveIdentityOk / tinyMCESyncToTA).
+	_tinymceContentNoteId=noteId||_formNoteId(activeEditorForm())||'';
+	_displayedNoteId=_tinymceContentNoteId;
 	_dbgline('_setTinyMCEContent begin len='+((html||'').length));
 	_tinymceSuppressEdits=true;
 	_tinymceUserTypedSinceLoad=false;
@@ -1031,6 +1036,12 @@ function initPersistentTinyMCE(){
 		skin:'oxide-dark',
 		highlight_on_focus:false,
 		plugins:'autolink advlist lists link image code codesample table',
+		// Use the full window.Prism bundle (/prism.min.js) instead of the small
+		// Prism bundled inside the codesample plugin, so the note view highlights
+		// the same languages the CM6 code modal offers (bash, go, json, sql,
+		// typescript, yaml, ...). Without this the plugin's Prism silently falls
+		// back to plain text for those languages.
+		codesample_global_prismjs:true,
 		link_default_target:'_blank',
 		// Native browser spellcheck. Toggled at runtime via the jop_spellcheck
 		// toolbar button; browser_spellcheck must be true so TinyMCE does not
@@ -1149,7 +1160,7 @@ function initPersistentTinyMCE(){
 			// codesample dialog. Uses a distinct name so it doesn't depend on
 			// button-registration ordering vs the codesample plugin.
 			editor.ui.registry.addButton('jop_code',{
-				tooltip:'Code sample',
+				tooltip:'Code block',
 				icon:'code-sample',
 				onAction:function(){openCodeModal();}
 			});
@@ -1477,6 +1488,20 @@ function initPersistentTinyMCE(){
 			}
 			if(_tinymcePostLoad||inPostLoadWindow){
 				_tinymcePostLoad=false;
+				// Genuine user keystrokes during the quiet window are real edits,
+				// not load normalisation. Recapturing the baseline over them
+				// poisoned _savedHash: every later hash check short-circuited to a
+				// bogus "Saved" and the text never reached the server (it lived
+				// only in the iframe and was silently lost on navigation). Save
+				// it like any other edit — scheduleSave's timer lazily syncs the
+				// TinyMCE content into #note-body before hashing. Phantom-only
+				// load-normalisation bursts keep the consume-and-rebaseline path.
+				if(_tinymceUserTypedSinceLoad){
+					_dbgline('onEdit user-typed during post-load window -> markEdited+scheduleSave');
+					markEdited();
+					scheduleSave();
+					return;
+				}
 				snapshotHash();
 				_dbgline('onEdit consumed post-load window; snapshotHash recaptured');
 				return;
@@ -2089,6 +2114,7 @@ function refreshTinyMCEForActiveNote(){
 	if(!_tinymceEditor)return;
 	var form=activeEditorForm();
 	if(!form){hideTinyMCEHost();return}
+	var _rfNoteId=_formNoteId(form);
 	// Locked encrypted note: keep TinyMCE hidden, do not populate content.
 	if(form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1'){
 		hideTinyMCEHost();
@@ -2108,7 +2134,7 @@ function refreshTinyMCEForActiveNote(){
 	var mdVal=ta?ta.value:'';
 	var renderedFromServer=slot.dataset.renderedBody||'';
 	if(renderedFromServer&&!(form.dataset.encrypted==='1')){
-		_setTinyMCEContent(renderedFromServer);
+		_setTinyMCEContent(renderedFromServer,_rfNoteId);
 		showTinyMCEHost();
 		_applyTinyMCEReadonly(_tinymceEditor);
 		return;
@@ -2116,7 +2142,13 @@ function refreshTinyMCEForActiveNote(){
 	// Encrypted-and-now-unlocked: server sent no useful HTML. Re-render from plaintext.
 	fetch('/fragments/preview',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'body='+encodeURIComponent(mdVal)}).then(function(r){return r.text()}).then(function(h){
 		if(!_tinymceEditor)return;
-		_setTinyMCEContent(h);
+		// Identity guard: if the user switched notes while this preview fetch was
+		// in flight, the rendered HTML belongs to the OLD note. Loading it into
+		// the persistent TinyMCE would make the next autosave write the old
+		// note's content into the new note. Discard instead.
+		var cur=activeEditorForm();
+		if(!cur||!cur.isConnected||_formNoteId(cur)!==_rfNoteId){_log('refreshTinyMCE: preview response discarded, note changed mid-flight',_rfNoteId);return}
+		_setTinyMCEContent(h,_rfNoteId);
 		showTinyMCEHost();
 		_applyTinyMCEReadonly(_tinymceEditor);
 	});
@@ -2133,7 +2165,7 @@ function initTinyMCE(_textarea,content){
 		return;
 	}
 	if(typeof content==='string'){
-		_setTinyMCEContent(content);
+		_setTinyMCEContent(content,_formNoteId(activeEditorForm()));
 		showTinyMCEHost();
 	}
 }
@@ -4064,6 +4096,7 @@ function tinymceToMarkdown(html){
 function setEditorMode(mode){
 	var ta=getTA();
 	var form=activeEditorForm();
+	var _swNoteId=form?_formNoteId(form):'';
 	if(form)form.dataset.editorMode=mode;
 	// View/mode switches are transient: looking at one note in markdown does
 	// not mean you want markdown for every note. The persisted note-open
@@ -4097,7 +4130,15 @@ function setEditorMode(mode){
 	if(_searchSessionActive())_pendingSearchHighlight=true;
 	fetch('/fragments/preview',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'body='+encodeURIComponent(mdVal)}).then(function(r){return r.text()}).then(function(h){
 		if(!_tinymceEditor)return;
-		_setTinyMCEContent(h);
+		// Identity guard: if the user switched notes (or toggled back to
+		// markdown) while this preview fetch was in flight, the rendered HTML
+		// belongs to the OLD note. Loading it into the persistent TinyMCE would
+		// make the next autosave write the old note's content into the new
+		// note. Discard instead.
+		var cur=activeEditorForm();
+		if(!cur||!cur.isConnected||_formNoteId(cur)!==_swNoteId){_log('setEditorMode: preview response discarded, note changed mid-flight',_swNoteId);return}
+		if(_editorMode!=='rich'){_log('setEditorMode: mode changed mid-flight, discarding preview response');return}
+		_setTinyMCEContent(h,_swNoteId);
 		showTinyMCEHost();
 		_applyTinyMCEReadonly(_tinymceEditor);
 		if(!_tinymceReadonly)_tinymceEditor.focus();
@@ -4359,6 +4400,13 @@ function djb2(str){var h=5381;for(var i=0;i<str.length;i++)h=((h<<5)+h+str.charC
 var _formHashExclude={baseUpdatedTime:true,forceSave:true,createCopy:true};function formHash(form){if(!form)return 0;var parts=[];var els=form.elements;for(var i=0;i<els.length;i++){var el=els[i];if(el.name&&!_formHashExclude[el.name])parts.push(el.name+'='+el.value)}return djb2(parts.join('&'))}
 var _savedHash=0;
 var _saveTimer=null;
+// Displayed-content provenance: the note whose content we last displayed to
+// the user (_displayedNoteId) and the note whose content is currently loaded
+// in the persistent TinyMCE (_tinymceContentNoteId). Save paths verify these
+// (see _plaintextSaveIdentityOk) so a raced async render can never put one
+// note's content into another note's autosave PUT.
+var _displayedNoteId='';
+var _tinymceContentNoteId='';
 var _saveTitleTimer=null;
 function _anyModalOpen(){var ids=['code-modal','link-modal','folder-modal','history-modal','empty-trash-modal','upload-modal','vault-modal','new-folder-modal','resource-viewer'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&!el.hidden)return true}return false}
 // Lazy sync from live TinyMCE into #note-body, called once per save cycle
@@ -4378,29 +4426,34 @@ function _lazyTinyMCESyncBeforeSave(){
 	if(!host||!host.classList.contains('tinymce-host-visible'))return false;
 	var ta=getTA();
 	if(!ta)return false;
+	var _lzNoteId=_formNoteId(activeEditorForm());
+	if(_tinymceContentNoteId&&_lzNoteId&&_tinymceContentNoteId!==_lzNoteId){_log('_lazyTinyMCESyncBeforeSave skipped: TinyMCE content provenance mismatch',_tinymceContentNoteId,_lzNoteId);return false}
 	try{
 		var md=tinymceToMarkdown(_tinymceEditor.getContent());
 		if(ta.value!==md){ta.value=md;return true}
 	}catch(e){_log('_lazyTinyMCESyncBeforeSave error',e&&e.message||e)}
 	return false;
 }
-function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
+function scheduleSave(){if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=setTimeout(function(){_saveTimer=null;if(_syncPVInFlight||_pvSyncTimer){_log('scheduleSave deferred, syncPV in flight');scheduleSave();return}if(_anyModalOpen()){_log('scheduleSave deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;if(!_plaintextSaveIdentityOk(form)){_log('scheduleSave aborted: save identity check failed (displayed=',_displayedNoteId,', form=',_formNoteId(form),')');return}_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSave skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}_log('scheduleSave firing, hash',_savedHash,'->',h);htmx.trigger(form,'joplock:save')},2000)}
 function scheduleSaveTitle(){var mobileTitle=document.getElementById('mobile-editor-title');if(mobileTitle&&document.activeElement===mobileTitle)return;// Don't save while user is still editing title
-if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}/* For encrypted vault notes we MUST go through scheduleSave() so the encrypted-save override wraps the PUT (swaps ciphertext into #note-body via _setOneShotEncryptedBody). Firing htmx directly here would send the plaintext body and the server would reject with "Vault notes must be saved encrypted". */if(form.dataset.encrypted==='1'&&form.dataset.vaultId){_log('scheduleSaveTitle routing through encrypted scheduleSave');scheduleSave();return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
+if(_saveTitleTimer)clearTimeout(_saveTitleTimer);if(_saveTimer)clearTimeout(_saveTimer);_saveTimer=null;_saveTitleTimer=setTimeout(function(){_saveTitleTimer=null;if(_anyModalOpen()){_log('scheduleSaveTitle deferred, modal open');scheduleSave();return}var form=activeEditorForm();if(!form)return;if(!_plaintextSaveIdentityOk(form)){_log('scheduleSaveTitle aborted: save identity check failed (displayed=',_displayedNoteId,', form=',_formNoteId(form),')');return}_lazyTinyMCESyncBeforeSave();var h=formHash(form);if(h===_savedHash){_log('scheduleSaveTitle skip, hash unchanged',h);setSaveState('<span class="autosave-ok">Saved</span>','Saved');return}/* For encrypted vault notes we MUST go through scheduleSave() so the encrypted-save override wraps the PUT (swaps ciphertext into #note-body via _setOneShotEncryptedBody). Firing htmx directly here would send the plaintext body and the server would reject with "Vault notes must be saved encrypted". */if(form.dataset.encrypted==='1'&&form.dataset.vaultId){_log('scheduleSaveTitle routing through encrypted scheduleSave');scheduleSave();return}_log('scheduleSaveTitle firing');htmx.trigger(form,'joplock:save')},2000)}
 function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_dbgline('snapshotHash',_savedHash,'stack',new Error().stack&&new Error().stack.split('\n').slice(1,5).join(' | '))}
 function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
-function initEditorPanel(){var form=activeEditorForm();if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';if(form.dataset.shareReadonly==='1'){_applyFormReadonly(true);}_resetRingBuffer('note-switch');_dbgline('initEditorPanel begin',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form input',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form change',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
+function initEditorPanel(){var form=activeEditorForm();if(form)_displayedNoteId=_formNoteId(form);if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';if(form.dataset.shareReadonly==='1'){_applyFormReadonly(true);}_resetRingBuffer('note-switch');_dbgline('initEditorPanel begin',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form input',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form change',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
 e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+1;ta.dispatchEvent(new Event('input',{bubbles:true}))}else{// Enter = new paragraph (\n\n)
 e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+2;ta.dispatchEvent(new Event('input',{bubbles:true}))}})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';/* Persistent TinyMCE: refresh content for this note (skip locked encrypted notes) */if(form.dataset.encrypted!=='1'){var _mobileRO=_tinymceReadonlyDefault();_editorMode=(_mobileRO?false:_defaultNoteOpenMode==='markdown')?'markdown':'rich';_tinymceReadonly=_mobileRO;syncEditorModeButtons();if(_editorMode==='markdown'){hideTinyMCEHost();applyEditorModeVisibility('markdown');var mdta=getTA();mountMarkdownEditor(mdta?mdta.value:'');initPersistentTinyMCE()}else{initPersistentTinyMCE();refreshTinyMCEForActiveNote()}if(pendingSearch){var _pendTerm=pendingSearch;if(_editorMode==='markdown'){setTimeout(function(){var si=activeSearchInput();if(si&&!si.value)si.value=_pendTerm;applySearchHighlight()},0)}else{/* rich: highlight is (re)applied by _setTinyMCEContent once the body is painted (covers sync + async render) */var si2=activeSearchInput();if(si2&&!si2.value)si2.value=_pendTerm;_log('initEditorPanel: setting pendingSearchHighlight, rich mode, term='+(_pendTerm||''));_pendingSearchHighlight=true;/* Fallback: if no setContent fires (e.g. same-note reopen with body already loaded), apply once the body has text. */var _tries=0;var _fb=setInterval(function(){_tries++;if(!_pendingSearchHighlight||_tries>20){clearInterval(_fb);return}var _b=_tinymceEditor&&_tinymceEditor.getBody&&_tinymceEditor.getBody();if(_b&&(_b.textContent||'').trim()&&activeSearchTerm()&&activeSearchTerm().trim()){_pendingSearchHighlight=false;clearInterval(_fb);applySearchHighlight()}},50)}}}else{hideTinyMCEHost()}}
-function applySearchHighlight(){var term=activeSearchTerm();_log('applySearchHighlight mode='+_editorMode+' term='+(term||''));var bar=document.getElementById('search-nav-bar');if(bar)bar.hidden=true;_searchMarks=[];_searchMarkIdx=0;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);clearTinyMCESearchMarks();if(!term||!term.trim()){clearCodeMirrorSearch();return}term=term.trim();if(_editorMode==='markdown'||_editorMode==='md'){_log('applySearchHighlight: markdown/CM6 branch');if(_cmView&&window.CM&&window.CM.SearchQuery&&window.CM.setSearchQuery){window.CM.openSearchPanel(_cmView);var q=new window.CM.SearchQuery({search:term,caseSensitive:false});_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)});_cmSearchMatches=collectCodeMirrorSearchMatches(q);if(_cmSearchMatches.length)setCodeMirrorSearchActive(0);else searchNavShow(0,0)}}else if(_editorMode==='preview'&&pv){clearCodeMirrorSearch();var savedHandler=pv.oninput;pv.oninput=null;highlightInPreview(pv,term);pv.oninput=savedHandler}else{_log('applySearchHighlight: rich/TinyMCE branch');clearCodeMirrorSearch();highlightInTinyMCE(term)}}
+function applySearchHighlight(){var term=activeSearchTerm();_log('applySearchHighlight mode='+_editorMode+' term='+(term||''));var bar=document.getElementById('search-nav-bar');if(bar)bar.hidden=true;_searchMarks=[];_searchMarkIdx=0;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);clearTinyMCESearchMarks();if(!term||!term.trim()){clearCodeMirrorSearch();return}term=term.trim();if(_editorMode==='markdown'||_editorMode==='md'){_log('applySearchHighlight: markdown/CM6 branch');if(_cmView&&window.CM&&window.CM.SearchQuery&&window.CM.setSearchQuery){window.CM.openSearchPanel(_cmView);var _qParts=term.split(/\s+/).filter(Boolean);var q=_qParts.length>1?new window.CM.SearchQuery({search:_qParts.map(function(t){return escapeRegex(t)}).join('|'),caseSensitive:false,regexp:true}):new window.CM.SearchQuery({search:term,caseSensitive:false});_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)});_cmSearchMatches=collectCodeMirrorSearchMatches(q);if(_cmSearchMatches.length)setCodeMirrorSearchActive(0);else searchNavShow(0,0)}}else if(_editorMode==='preview'&&pv){clearCodeMirrorSearch();var savedHandler=pv.oninput;pv.oninput=null;highlightInPreview(pv,term);pv.oninput=savedHandler}else{_log('applySearchHighlight: rich/TinyMCE branch');clearCodeMirrorSearch();highlightInTinyMCE(term)}}
 function escapeRegex(s){var specials=['.','+','*','?','^','$','(',')','{','}','[',']','|','\\'];return s.split('').map(function(c){return specials.indexOf(c)>=0?'\\'+c:c}).join('')}
+// Multi-term searches match each word independently, so highlight every term
+// (regex alternation) instead of the raw whole-query substring.
+function searchHighlightPattern(term){var parts=(term||'').trim().split(/\s+/).filter(Boolean);return parts.map(function(t){return escapeRegex(t)}).join('|')}
 var _searchMarks=[];var _searchMarkIdx=0;
 function _searchSessionActive(){var term=activeSearchTerm();if(!term||!term.trim())return false;var bar=document.getElementById('search-nav-bar');if(bar&&!bar.hidden)return true;var mc=document.getElementById('mobile-search-nav-counter');if(mc&&!mc.hidden)return true;return _searchMarks.length>0||(_cmSearchMatches&&_cmSearchMatches.length>0)}
 function searchNavShow(total,idx){var bar=document.getElementById('search-nav-bar');var counter=document.getElementById('search-nav-counter');if(bar){if(total===0){bar.hidden=true}else{bar.hidden=false;if(counter)counter.textContent=(idx+1)+' / '+total}}var mobileCounter=document.getElementById('mobile-search-nav-counter');var mobilePrev=document.getElementById('mobile-search-prev-btn');var mobileNext=document.getElementById('mobile-search-next-btn');if(mobileCounter){mobileCounter.hidden=total===0;if(total>0)mobileCounter.textContent=(idx+1)+' / '+total}if(mobilePrev)mobilePrev.hidden=total===0;if(mobileNext)mobileNext.hidden=total===0}
 function searchNavSetActive(idx){_searchMarks.forEach(function(m,i){m.classList.toggle('search-highlight-active',i===idx)});var m=_searchMarks[idx];if(m)m.scrollIntoView({block:'center',behavior:'smooth'})}
 function searchNavStep(dir){if(_editorMode==='markdown'&&_cmSearchMatches.length){setCodeMirrorSearchActive(_searchMarkIdx+dir);return}if(!_searchMarks.length)return;_searchMarkIdx=(_searchMarkIdx+dir+_searchMarks.length)%_searchMarks.length;searchNavSetActive(_searchMarkIdx);searchNavShow(_searchMarks.length,_searchMarkIdx)}
 function searchNavDismiss(){_log('searchNavDismiss: clearing marks='+_searchMarks.length+' cmMatches='+(_cmSearchMatches?_cmSearchMatches.length:0));var bar=document.getElementById('search-nav-bar');var mobileCounter=document.getElementById('mobile-search-nav-counter');var mobilePrev=document.getElementById('mobile-search-prev-btn');var mobileNext=document.getElementById('mobile-search-next-btn');if(bar)bar.hidden=true;if(mobileCounter)mobileCounter.hidden=true;if(mobilePrev)mobilePrev.hidden=true;if(mobileNext)mobileNext.hidden=true;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);clearTinyMCESearchMarks();_searchMarks=[];_searchMarkIdx=0;clearCodeMirrorSearch()}
-function highlightInPreview(pv,term){if(!pv||!term)return;_searchMarks=[];_searchMarkIdx=0;var doc=pv.ownerDocument||document;var walker=doc.createTreeWalker(pv,NodeFilter.SHOW_TEXT,{acceptNode:function(n){return n.parentElement&&n.parentElement.closest('script,style,mark')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}},false);var nodes=[];var node;while((node=walker.nextNode()))nodes.push(node);var re=new RegExp(escapeRegex(term),'gi');nodes.forEach(function(n){var matches=[];var m;re.lastIndex=0;while((m=re.exec(n.textContent))!==null)matches.push({start:m.index,end:m.index+m[0].length});if(!matches.length)return;var frag=doc.createDocumentFragment();var last=0;matches.forEach(function(r){if(r.start>last)frag.appendChild(doc.createTextNode(n.textContent.slice(last,r.start)));var mark=doc.createElement('mark');mark.className='search-highlight';mark.textContent=n.textContent.slice(r.start,r.end);_searchMarks.push(mark);frag.appendChild(mark);last=r.end});if(last<n.textContent.length)frag.appendChild(doc.createTextNode(n.textContent.slice(last)));n.parentNode.replaceChild(frag,n)});if(_searchMarks.length){searchNavSetActive(0);searchNavShow(_searchMarks.length,0)}else{searchNavShow(0,0)}}
+function highlightInPreview(pv,term){if(!pv||!term)return;_searchMarks=[];_searchMarkIdx=0;var doc=pv.ownerDocument||document;var walker=doc.createTreeWalker(pv,NodeFilter.SHOW_TEXT,{acceptNode:function(n){return n.parentElement&&n.parentElement.closest('script,style,mark')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}},false);var nodes=[];var node;while((node=walker.nextNode()))nodes.push(node);var re=new RegExp(searchHighlightPattern(term),'gi');nodes.forEach(function(n){var matches=[];var m;re.lastIndex=0;while((m=re.exec(n.textContent))!==null)matches.push({start:m.index,end:m.index+m[0].length});if(!matches.length)return;var frag=doc.createDocumentFragment();var last=0;matches.forEach(function(r){if(r.start>last)frag.appendChild(doc.createTextNode(n.textContent.slice(last,r.start)));var mark=doc.createElement('mark');mark.className='search-highlight';mark.textContent=n.textContent.slice(r.start,r.end);_searchMarks.push(mark);frag.appendChild(mark);last=r.end});if(last<n.textContent.length)frag.appendChild(doc.createTextNode(n.textContent.slice(last)));n.parentNode.replaceChild(frag,n)});if(_searchMarks.length){searchNavSetActive(0);searchNavShow(_searchMarks.length,0)}else{searchNavShow(0,0)}}
 // Rendered mode (TinyMCE): highlight the search term inside the iframe body.
 // Marks are inserted with edits suppressed so autosave/markdown-sync never fire
 // mid-highlight, and are always stripped again by clearTinyMCESearchMarks().
@@ -4413,7 +4466,7 @@ function initNavPanel(){_log('initNavPanel');var state=navFolderState();var sele
 	if(open){var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');if(notesDiv&&!notesDiv.getAttribute('data-loaded')){notesDiv.setAttribute('data-loaded','1');var folderId=notesDiv.getAttribute('data-folder-id');htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'})}}})}
 var _folderSelectValue=null;var _folderSelectNoteId=null;
 var _lastSwapWasEditor=false;var _searchHlTerm='';
-document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');if(sel){_folderSelectValue=sel.value;_folderSelectNoteId=form?form.getAttribute('hx-put'):''}var target=e.detail&&e.detail.target;_lastSwapWasEditor=!!(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body'));if(_lastSwapWasEditor){/* An editor swap changes which note is active. Cancel any pending debounced autosave timers so they can't fire against a stale captured form after the swap. The encrypted-save path already has an identity guard, but cancelling here is defence-in-depth (and stops the plaintext path from firing wrongly too). */if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}/* Capture any pending in-note search term now: initEditorPanel clears it, and it may not re-run on same-note reopen. */var pt=(window._pendingNoteSearchTerm||'').trim();var navTerm=(currentListSearchInput()&&currentListSearchInput().value||'').trim();_searchHlTerm=pt||navTerm||'';hideTinyMCEHost()}});
+document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');if(sel){_folderSelectValue=sel.value;_folderSelectNoteId=form?form.getAttribute('hx-put'):''}var target=e.detail&&e.detail.target;_lastSwapWasEditor=!!(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body'));if(_lastSwapWasEditor){/* An editor swap changes which note is active. Cancel any pending debounced autosave timers so they can't fire against a stale captured form after the swap. The encrypted-save path already has an identity guard, but cancelling here is defence-in-depth (and stops the plaintext path from firing wrongly too). */if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}/* Capture any pending in-note search term now: initEditorPanel clears it, and it may not re-run on same-note reopen. */var pt=(window._pendingNoteSearchTerm||'').trim();var navTerm=(currentListSearchInput()&&currentListSearchInput().value||'').trim();_searchHlTerm=pt||navTerm||'';hideTinyMCEHost();_displayedNoteId='';_tinymceContentNoteId=''}});
 document.body.addEventListener('htmx:afterSettle',function(){initNavPanel();initEditorPanel();refreshAllVaultIcons();positionTinyMCEHost();
 	if(_lastSwapWasEditor){_lastSwapWasEditor=false;maybeHighlightOpenedNote(_searchHlTerm);_searchHlTerm=''}
 	if(_folderSelectValue){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');var currentNoteId=form?form.getAttribute('hx-put'):'';if(sel&&currentNoteId&&currentNoteId===_folderSelectNoteId){sel.value=_folderSelectValue}_folderSelectValue=null;_folderSelectNoteId=null}});
@@ -4429,11 +4482,11 @@ function showNoteOverlay(){var o=document.getElementById('note-loading-overlay')
 function hideNoteOverlay(){var o=document.getElementById('note-loading-overlay');if(o)o.classList.remove('active')}
 document.body.addEventListener('click',function(e){var btn=e.target.closest('.notelist-item');if(btn&&!e.defaultPrevented)showNoteOverlay()},true);
 document.body.addEventListener('htmx:beforeRequest',function(e){var elt=e.detail&&e.detail.elt;_log('htmx:beforeRequest',elt&&elt.id,elt&&elt.getAttribute&&elt.getAttribute('hx-get'),elt&&elt.getAttribute&&elt.getAttribute('hx-put'));});
-document.body.addEventListener('htmx:afterRequest',function(e){var xhr=e.detail&&e.detail.xhr;_log('htmx:afterRequest',e.detail&&e.detail.successful,xhr&&xhr.status,xhr&&typeof xhr.responseText==='string'?xhr.responseText.slice(0,120):'');var elt=e.detail&&e.detail.elt;if(e.detail&&e.detail.successful){invalidateNotesCache()}if(elt&&elt.classList&&elt.classList.contains('notelist-item')&&!e.detail.successful)hideNoteOverlay();if(elt&&elt.id==='note-editor-form'&&e.detail.successful){var conflict=xhr&&xhr.getResponseHeader&&xhr.getResponseHeader('X-Note-Conflict')==='1';if(conflict){// Server rejected the save because the row moved underneath us. Do NOT
+document.body.addEventListener('htmx:afterRequest',function(e){var xhr=e.detail&&e.detail.xhr;_log('htmx:afterRequest',e.detail&&e.detail.successful,xhr&&xhr.status,xhr&&typeof xhr.responseText==='string'?xhr.responseText.slice(0,120):'');var elt=e.detail&&e.detail.elt;if(e.detail&&e.detail.successful){invalidateNotesCache()}if(elt&&elt.classList&&elt.classList.contains('notelist-item')&&!e.detail.successful)hideNoteOverlay();if(elt&&elt.id==='note-editor-form'&&e.detail.successful){/* Stale-save guard: this response may belong to the PREVIOUS note if the user switched notes while the autosave PUT was in flight (the old form is detached then). snapshotHash()/pushSnapshot() would otherwise hash the NEW note's form and mark its pending edits as "Saved" without saving them. */if(!elt.isConnected||elt!==activeEditorForm()){_log('afterRequest: ignoring stale editor save response (form replaced)')}else{var conflict=xhr&&xhr.getResponseHeader&&xhr.getResponseHeader('X-Note-Conflict')==='1';if(conflict){// Server rejected the save because the row moved underneath us. Do NOT
 // snapshotHash (edits are still pending), do NOT overwrite the conflict UI
 // that just got swapped into #autosave-status, and surface the prominent
 // banner so the user can't miss it.
-_log('afterRequest detected save conflict');showRemoteUpdateBanner('changed')}else{snapshotHash();pushSnapshot();setSaveState('<span class="autosave-ok">Saved</span>','Saved');dismissRemoteUpdateBanner();_log('afterRequest snapshotHash after save')}}if(e.detail&&e.detail.successful&&document.body.classList.contains('is-offline')){clearOffline()}});
+_log('afterRequest detected save conflict');showRemoteUpdateBanner('changed')}else{snapshotHash();pushSnapshot();setSaveState('<span class="autosave-ok">Saved</span>','Saved');dismissRemoteUpdateBanner();_log('afterRequest snapshotHash after save')}}}if(e.detail&&e.detail.successful&&document.body.classList.contains('is-offline')){clearOffline()}});
 document.body.addEventListener('htmx:afterSwap',function(e){var target=e.detail&&e.detail.target;_log('htmx:afterSwap',target&&target.id);if(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body')){hideNoteOverlay();dismissRemoteUpdateBanner();if(_cmView){_cmView.destroy();_cmView=null}_searchMarks=[];_searchMarkIdx=0;/* Persistent TinyMCE: no destroy; reposition + refresh on next tick */setTimeout(positionTinyMCEHost,0)}});
 function showOffline(){setSaveState('<span class="autosave-offline">Offline</span>','Offline');document.body.classList.add('is-offline');_log('offline indicator shown');showDisconnected()}
 function clearOffline(){document.body.classList.remove('is-offline');_log('offline indicator cleared')}
@@ -4634,9 +4687,11 @@ document.addEventListener('keydown',function(e){var mac=navigator.platform&&navi
 					if(settled)return;
 					restoreReq();
 					_log('flushSave ok',html.slice(0,80));
-					snapshotHash();
+					// Stale-save guard: if the user switched notes while this PUT was
+					// in flight, do not hash the NEW note's form — that would mark its
+					// pending edits as "Saved" without saving them.
+					if(activeEditorForm()===form){snapshotHash();setSaveState('<span class="autosave-ok">Saved</span>','Saved')}
 					window._mobileNewNoteId=null;
-					setSaveState('<span class="autosave-ok">Saved</span>','Saved');
 					finish(true);
 				});
 			}).catch(function(err){
@@ -4863,7 +4918,7 @@ function confirmLogout(event){
 			}
 		}
 		if(moveBtn)moveBtn.onclick=function(){mobileCtxMove()};
-		if(delBtn)delBtn.onclick=function(){mobileCtxDelete()};
+		if(delBtn){delBtn.style.display=(opts.isOwner===false)?'none':'';delBtn.onclick=function(){mobileCtxDelete()}};
 		if(backdrop)backdrop.style.display='';
 		if(sheet)sheet.style.display='';
 	}
@@ -4923,7 +4978,7 @@ function confirmLogout(event){
 		var form=activeEditorForm();
 		if(!form)return;
 		var titleInput=form.querySelector('.editor-title');
-		mobileCtxOpen(form.dataset.noteId||_state.noteId,(titleInput&&titleInput.textContent)||document.getElementById('mobile-editor-title')&&document.getElementById('mobile-editor-title').textContent||'Untitled',{isEditorContext:true});
+		mobileCtxOpen(form.dataset.noteId||_state.noteId,(titleInput&&titleInput.textContent)||document.getElementById('mobile-editor-title')&&document.getElementById('mobile-editor-title').textContent||'Untitled',{isEditorContext:true,isOwner:form.dataset.isOwner!=='0'});
 	};
 	window.mobileCtxExport=function(){
 		mobileCtxClose();
@@ -4941,7 +4996,7 @@ function confirmLogout(event){
 				var id=row.dataset.noteId,title=row.dataset.noteTitle;
 				_ctxLongPressTimer=setTimeout(function(){
 					e.preventDefault();
-					mobileCtxOpen(id,title);
+					mobileCtxOpen(id,title,{isOwner:row.dataset.isOwner!=='0'});
 				},500);
 			},{passive:true});
 			row.addEventListener('touchend',function(){if(_ctxLongPressTimer){clearTimeout(_ctxLongPressTimer);_ctxLongPressTimer=null}});
@@ -5595,6 +5650,13 @@ async function unlockNote(noteId){
 function _completeUnlock(noteId,plaintext,vaultId){
 	if(vaultId)touchVaultActivity(vaultId);
 
+	// Identity guard: decryption is async (password prompt, key derivation).
+	// If the user switched notes while it ran, getTA() now points at the NEW
+	// note's textarea — writing the old note's plaintext there and autosaving
+	// would replace the new note's body. Abort instead.
+	var _ucForm=activeEditorForm();
+	if(!_ucForm||!_ucForm.isConnected||_formNoteId(_ucForm)!==noteId){_log('_completeUnlock aborted: active note changed during unlock',{expectedNoteId:noteId,activeNoteId:_activeEditorNoteId()});return}
+
 	var ta=getTA();
 	var lockedDiv=document.getElementById('editor-locked');
 	var tb=queryActiveEditor('#editor-toolbar');
@@ -5703,8 +5765,22 @@ function _updateNoteLockIcon(noteId,unlocked){
 }
 
 // --- Autosave interceptor for encrypted notes ---
+// Choke point for editor PUTs: before htmx serializes the request, verify the
+// form still belongs to the note whose content we last displayed. Covers the
+// debounced autosave (joplock:save on the form) and in-form save buttons
+// (conflict Overwrite / Create copy). Encrypted saves are excluded here —
+// _encryptedSaveIdentityOk already guards them with vault-aware checks.
 document.body.addEventListener('htmx:configRequest',function(e){
-	// no-op: encryption is handled in scheduleSave override
+	var elt=e.detail&&e.detail.elt;
+	if(!elt||!elt.getAttribute)return;
+	if(!(elt.getAttribute('hx-put')||'').match(/\/fragments\/editor\//))return;
+	var form=(elt.id==='note-editor-form')?elt:(elt.closest?elt.closest('form#note-editor-form'):null);
+	if(!form)return;
+	if(form.dataset.encrypted==='1')return;
+	if(!_plaintextSaveIdentityOk(form)){
+		_log('editor save blocked at configRequest: displayed-note identity mismatch',{displayed:_displayedNoteId,form:_formNoteId(form)});
+		e.preventDefault();
+	}
 });
 
 var _origScheduleSave=scheduleSave;
@@ -5745,6 +5821,26 @@ function _formNoteId(form){
 	var hx=form.getAttribute&&form.getAttribute('hx-put')||'';
 	var m=hx.match(/\/fragments\/editor\/([0-9a-zA-Z]{32})/);
 	return m?m[1]:'';
+}
+// Save-time identity guard for PLAINTEXT note saves: the form must be the
+// connected active editor form, its note id must be the note whose content we
+// last displayed (_displayedNoteId), and in rendered mode the content loaded
+// into TinyMCE must belong to the same note (the displayed content signature).
+// Encrypted saves use _encryptedSaveIdentityOk instead. Empty stamps are
+// permissive (defence-in-depth only) so unexpected UI states can't block saves.
+function _plaintextSaveIdentityOk(form){
+	if(!form||!form.isConnected)return false;
+	var noteId=_formNoteId(form);
+	if(!noteId)return false;
+	if(form.dataset.noteId&&form.dataset.noteId!==noteId)return false;
+	if(_displayedNoteId&&_displayedNoteId!==noteId)return false;
+	var active=activeEditorForm();
+	if(active&&active!==form)return false;
+	if((_editorMode!=='markdown'&&_editorMode!=='md')&&_tinymceEditor){
+		var host=document.getElementById('tinymce-host');
+		if(host&&host.classList.contains('tinymce-host-visible')&&_tinymceContentNoteId&&_tinymceContentNoteId!==noteId)return false;
+	}
+	return true;
 }
 // Identity guard: the encrypted save path MUST target the exact note it was
 // scheduled for. If the editor was swapped mid-debounce (user switched notes),
@@ -5814,6 +5910,10 @@ function buildFlushRequest(form){
 	if(!form)return Promise.resolve(null);
 	var url=form.getAttribute('hx-put');
 	if(!url)return Promise.resolve(null);
+	// Identity guard: only flush when the captured form is still the active
+	// editor for the note we last displayed. Otherwise the PUT would send
+	// whatever content raced into this stale form.
+	if(!_plaintextSaveIdentityOk(form)){_log('buildFlushRequest aborted: save identity check failed (displayed=',_displayedNoteId,', form=',_formNoteId(form),')');return Promise.resolve(null)}
 	var pv=getPV();
 	if(pv)syncPV();else if(_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA();
 	syncTitle();

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { decodeItemContent, mapFolderRow, mapNoteHeaderRow, mapNoteRow } = require('../app/items/itemService');
+const { decodeItemContent, mapFolderRow, mapNoteHeaderRow, mapNoteRow, buildNoteSearchConditions } = require('../app/items/itemService');
 
 test('decodeItemContent should parse buffer JSON', () => {
 	const output = decodeItemContent(Buffer.from('{"title":"Folder A"}', 'utf8'));
@@ -73,4 +73,34 @@ test('mapNoteHeaderRow should use projected note fields', () => {
 		shareId: '',
 		isShared: false,
 	});
+});
+
+test('buildNoteSearchConditions should build single-term ILIKE clause', () => {
+	const { terms, params, sql } = buildNoteSearchConditions('hello', 3);
+	assert.deepEqual(terms, ['hello']);
+	assert.deepEqual(params, ['%hello%']);
+	assert.ok(sql.includes('ILIKE $3'));
+	// Single term keeps title OR body matching
+	assert.match(sql, /parsed->>'title' ILIKE \$3 OR/);
+	assert.ok(sql.includes("NOT LIKE '%<!--joplock-encrypted-start-->%'"));
+});
+
+test('buildNoteSearchConditions should AND terms regardless of order', () => {
+	const { terms, params, sql } = buildNoteSearchConditions('  alpha   beta\tgamma ', 3);
+	assert.deepEqual(terms, ['alpha', 'beta', 'gamma']);
+	assert.deepEqual(params, ['%alpha%', '%beta%', '%gamma%']);
+	// One clause per term, joined with AND
+	assert.equal(sql.split(' AND ').length, 3);
+	assert.ok(sql.includes('ILIKE $3'), 'first term uses $3');
+	assert.ok(sql.includes('ILIKE $4'), 'second term uses $4');
+	assert.ok(sql.includes('ILIKE $5'), 'third term uses $5');
+});
+
+test('buildNoteSearchConditions should return empty sql for blank queries', () => {
+	for (const q of ['', '   ', '\n\t', undefined, null]) {
+		const { terms, params, sql } = buildNoteSearchConditions(q, 3);
+		assert.deepEqual(terms, []);
+		assert.deepEqual(params, []);
+		assert.equal(sql, '');
+	}
 });

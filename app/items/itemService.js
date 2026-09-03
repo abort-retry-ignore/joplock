@@ -32,6 +32,28 @@ const ENCRYPTED_MARKER = '<!--joplock-encrypted-start-->';
 
 const isEncryptedBody = body => typeof body === 'string' && body.indexOf(ENCRYPTED_MARKER) >= 0;
 
+// Split a raw search query into whitespace-separated terms and build the WHERE
+// fragment for them. Each term matches case-insensitively (ILIKE substring) in
+// the note title OR the cleaned body (body stripped of encrypted blobs,
+// resource links and inline base64 data). Clauses are ANDed, so every term must
+// appear somewhere in the note, but terms may appear in any order or spread
+// across title and body.
+const buildNoteSearchConditions = (query, firstParamIndex) => {
+	const terms = `${query || ''}`.trim().split(/\s+/).filter(Boolean);
+	const params = terms.map(term => `%${term}%`);
+	const clauses = terms.map((term, i) => {
+		const p = firstParamIndex + i;
+		return `(parsed->>'title' ILIKE $${p} OR (
+					COALESCE(parsed->>'body', '') NOT LIKE '%${ENCRYPTED_MARKER}%'
+					AND regexp_replace(
+						regexp_replace(parsed->>'body', '!?\[[^\]]*\]\(:/[a-f0-9]+\)', '', 'g'),
+						'data:image/[^;]+;base64,[A-Za-z0-9+/=]+', '', 'g'
+					) ILIKE $${p}
+				))`;
+	});
+	return { terms, params, sql: clauses.join(' AND ') };
+};
+
 const mapNoteRow = row => {
 	const content = decodeItemContent(row.content);
 	const body = content.body || '';
@@ -258,7 +280,9 @@ const createItemService = database => {
 
 		async searchNotes(userId, query, limit = 50, offset = 0) {
 			if (!query || !query.trim()) return [];
-			const pattern = `%${query.trim()}%`;
+			const { sql: termSql, params: termParams } = buildNoteSearchConditions(query, 3);
+			if (!termSql) return [];
+			const limitIdx = 2 + termParams.length + 1;
 			const result = await database.query(`
 				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
 				FROM (
@@ -268,19 +292,10 @@ const createItemService = database => {
 					WHERE jop_type = $2 AND ${itemAccessExpression()}
 				) sub
 				WHERE COALESCE((parsed->>'deleted_time')::bigint, 0) = 0
-					AND (
-						parsed->>'title' ILIKE $3
-						OR (
-							COALESCE(parsed->>'body', '') NOT LIKE '%<!--joplock-encrypted-start-->%'
-							AND regexp_replace(
-								regexp_replace(parsed->>'body', '!?\[[^\]]*\]\(:/[a-f0-9]+\)', '', 'g'),
-								'data:image/[^;]+;base64,[A-Za-z0-9+/=]+', '', 'g'
-							) ILIKE $3
-						)
-					)
+					AND (${termSql})
 				ORDER BY jop_updated_time DESC, created_time DESC
-				LIMIT $4 OFFSET $5
-			`, [userId, MODEL_TYPE_NOTE, pattern, limit, offset]);
+				LIMIT $${limitIdx} OFFSET $${limitIdx + 1}
+			`, [userId, MODEL_TYPE_NOTE, ...termParams, limit, offset]);
 
 			return result.rows.map(mapNoteRow);
 		},
@@ -436,6 +451,7 @@ module.exports = {
 	ensureIndexes,
 	decodeItemContent,
 	isEncryptedBody,
+	buildNoteSearchConditions,
 	mapFolderRow,
 	mapNoteHeaderRow,
 	mapNoteRow,

@@ -10,7 +10,7 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20260805blanklinetext1';
+const ASSET_VERSION = '20260903saveidentity1';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';
@@ -106,6 +106,7 @@ const layoutPage = (options = {}) => {
 	<script src="/htmx.min.js"></script>
 	<script src="/turndown.min.js"></script>
 	<script src="/codemirror.min.js?v=${ASSET_VERSION}"></script>
+	<script src="/prism.min.js"></script>
 	<script src="/tinymce/tinymce.min.js"></script>
 	<script src="/hljs.min.js"></script>
 	<script src="/html-docx.js"></script>

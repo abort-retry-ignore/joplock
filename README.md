@@ -33,6 +33,26 @@ Joplock:
 
 That keeps desktop, mobile, CLI, and Joplock compatible with the same account and data.
 
+### Vault Safety With Sync Clients
+
+Vault enforcement for desktop, mobile, and CLI writes only runs when their sync
+traffic goes through Joplock's Joplin proxy. A direct public Joplin Server URL
+bypasses that guard. Do not expose a direct Joplin Server endpoint to clients
+that can access vault notebooks.
+
+Use one public Joplock URL and proxy sync under a prefix, for example:
+
+```text
+JOPLOCK_PUBLIC_BASE_URL=https://notes.example.com
+JOPLIN_PUBLIC_BASE_PATH=/joplin
+JOPLIN_SERVER_PUBLIC_URL=https://notes.example.com/joplin
+```
+
+Set Joplin Server's `APP_BASE_URL` to that same public `/joplin` URL, route
+clients to `https://notes.example.com/joplin`, and keep Joplin Server internal.
+Joplock then rejects sync writes that would move a vault note, replace it with
+plaintext, or put its ciphertext in a different note/vault.
+
 ## Requirements
 
 - docker

@@ -65,7 +65,7 @@ function extractFn(name) {
 function makeSandbox({ initialTaValue = '', initialHtml = '<p>hello</p>', dbg = false, editorMode = 'rich' } = {}) {
 	const dom = new JSDOM(`<!DOCTYPE html>
 		<body>
-			<form id="note-editor-form">
+			<form id="note-editor-form" hx-put="/fragments/editor/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">
 				<textarea name="body" id="note-body">${initialTaValue}</textarea>
 			</form>
 			<div id="tinymce-host" class="tinymce-host tinymce-host-visible"></div>
@@ -102,7 +102,9 @@ function makeSandbox({ initialTaValue = '', initialHtml = '<p>hello</p>', dbg = 
 		_tinymceReadonly: false,
 		_tinymcePostLoad: false,
 		_tinymcePostLoadUntil: 0,
+		_tinymceUserTypedSinceLoad: false,
 		_editorMode: editorMode,
+		_tinymceContentNoteId: '',
 		_dbg: !!dbg,
 		_saveScheduled: 0,
 		_editedMarked: 0,
@@ -112,6 +114,7 @@ function makeSandbox({ initialTaValue = '', initialHtml = '<p>hello</p>', dbg = 
 
 	vm.runInContext(`
 		function activeEditorForm(){return document.getElementById('note-editor-form')}
+		function _formNoteId(form){var hx=(form&&form.getAttribute&&form.getAttribute('hx-put'))||'';var m=hx.match(new RegExp("/fragments/editor/([0-9a-zA-Z]{32})"));return m?m[1]:''}
 		function queryActiveEditor(sel){var f=activeEditorForm();return f?f.querySelector(sel):null}
 		function getTA(){return queryActiveEditor('#note-body')}
 		function tinymceToMarkdown(html){return String(html||'').replace(/<[^>]+>/g,'')}
@@ -204,6 +207,37 @@ test('fast path: autoTitleFromTinyMCE is NOT called during the post-load suppres
 	editor.getContent = () => '<p>hello world</p>';
 	editor.fire('input');
 	assert.equal(autoTitleCount(ctx), 0, 'post-load noise must not trigger title auto-fill');
+});
+
+test('fast path: phantom input during post-load window is consumed + rebaselined (no save)', () => {
+	const { ctx, editor } = makeSandbox({ initialTaValue: 'hello', initialHtml: '<p>hello</p>', dbg: false });
+	vm.runInContext('_tinymcePostLoad = true; _tinymcePostLoadUntil = Date.now() + 10000;', ctx);
+	editor.getContent = () => '<p>hello world</p>';
+	editor.fire('input');
+	assert.equal(saveCount(ctx), 0, 'load-normalisation noise must not schedule a save');
+	assert.equal(editedCount(ctx), 0, 'load-normalisation noise must not mark edited');
+});
+
+test('fast path: real user keystrokes during post-load window ARE saved (no silent loss)', () => {
+	// Regression: text typed within ~800ms of opening a note used to be
+	// swallowed by the quiet window; the recaptured baseline then included the
+	// typed text so every later hash check short-circuited to a bogus "Saved"
+	// and the text never reached the server (search-esc e2e caught it).
+	const { ctx, editor } = makeSandbox({ initialTaValue: 'hello', initialHtml: '<p>hello</p>', dbg: false });
+	vm.runInContext('_tinymcePostLoad = true; _tinymcePostLoadUntil = Date.now() + 10000; _tinymceUserTypedSinceLoad = true;', ctx);
+	editor.getContent = () => '<p>hello world</p>';
+	editor.fire('input');
+	assert.equal(saveCount(ctx), 1, 'user keystroke during quiet window must schedule a save');
+	assert.equal(editedCount(ctx), 1, 'user keystroke during quiet window must mark edited');
+	assert.equal(taValue(ctx), 'hello', 'window path must not eagerly sync (lazy sync runs in scheduleSave timer)');
+});
+
+test('fast path: post-load window does not save for phantom events after real typing was reset by a new load', () => {
+	const { ctx, editor } = makeSandbox({ initialTaValue: 'hello', initialHtml: '<p>hello</p>', dbg: false });
+	vm.runInContext('_tinymcePostLoad = true; _tinymcePostLoadUntil = Date.now() + 10000; _tinymceUserTypedSinceLoad = true; _tinymcePostLoad = false; _tinymceUserTypedSinceLoad = false;', ctx);
+	editor.getContent = () => '<p>hello world</p>';
+	editor.fire('input');
+	assert.equal(saveCount(ctx), 0, 'a fresh content load resets the user-typed flag; phantom input stays swallowed');
 });
 
 test('debug path: onEdit also calls autoTitleFromTinyMCE', () => {
@@ -408,6 +442,8 @@ function makeReconcileCtx({ userTyped, normalisedDiffers }) {
 		_tinymcePostLoadUntil: 0,
 		_tinymceUserTypedSinceLoad: false,
 		_pendingSearchHighlight: false,
+		_tinymceContentNoteId: '',
+		_displayedNoteId: '',
 		_savedHash: 111,
 		_edited: 0,
 		_saved: 0,
@@ -417,6 +453,7 @@ function makeReconcileCtx({ userTyped, normalisedDiffers }) {
 	});
 	vm.runInContext(`
 		function activeEditorForm(){return document.getElementById('note-editor-form')}
+		function _formNoteId(form){var hx=(form&&form.getAttribute&&form.getAttribute('hx-put'))||'';var m=hx.match(new RegExp("/fragments/editor/([0-9a-zA-Z]{32})"));return m?m[1]:''}
 		function _dbgline(){_logs.push(Array.from(arguments).join(' '))}
 		function _log(){}
 		function markEdited(){_edited++}
@@ -485,4 +522,14 @@ test('app.js: user-typed flag is wired to keydown/paste/cut/drop, never to input
 		'_tinymceUserTypedSinceLoad must not be set from input/SetContent handlers');
 	assert.ok(extractFn('_setTinyMCEContent').includes('_tinymceUserTypedSinceLoad=false'),
 		'_setTinyMCEContent must reset the user-typed flag on every programmatic load');
+});
+
+test('provenance: _lazyTinyMCESyncBeforeSave refuses to sync foreign TinyMCE content into the active note', () => {
+	const { ctx, editor } = makeSandbox({ initialTaValue: 'own note', initialHtml: '<p>x</p>', dbg: false });
+	// TinyMCE was last loaded with ANOTHER note's content (late preview response landed after a switch).
+	vm.runInContext('_tinymceContentNoteId=' + JSON.stringify('b'.repeat(32)), ctx);
+	editor.getContent = () => '<p>foreign content</p>';
+	const changed = vm.runInContext('_lazyTinyMCESyncBeforeSave()', ctx);
+	assert.equal(changed, false, 'sync must refuse when TinyMCE provenance != active note');
+	assert.equal(taValue(ctx), 'own note', 'foreign content must NOT reach the textarea');
 });

@@ -58,7 +58,7 @@ function loadFns(ctx, ...fns) {
 
 // The highlighter calls searchNavShow()/searchNavSetActive(); load real ones so
 // counter/scroll wiring is covered end to end.
-const HIGHLIGHT_DEPS = ['escapeRegex', 'searchNavShow', 'searchNavSetActive', 'highlightInPreview'];
+const HIGHLIGHT_DEPS = ['escapeRegex', 'searchHighlightPattern', 'searchNavShow', 'searchNavSetActive', 'highlightInPreview'];
 
 test('highlightInPreview wraps every case-insensitive match in a mark.search-highlight', () => {
 	const { ctx, dom } = makeCtx();

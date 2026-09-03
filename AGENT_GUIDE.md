@@ -36,7 +36,7 @@ Use this guide when working in this repository.
 - **Server**: Node.js HTTP server, no framework
 - **Client**: SSR HTML + htmx fragment swaps + shared browser logic in `public/app.js`
 - **Editor**: Dual-mode. Markdown mode = CodeMirror 6 (mounted into `#cm-host`); rendered mode = TinyMCE 8. The `#note-body` textarea is the hidden form/sync target for both.
-- **Code blocks**: Full-screen code modal with a CM6 editor and language picker. Highlighting differs by mode: preview/markdown modes use highlight.js (`hljs`); rendered mode (TinyMCE) uses the native `codesample` plugin (PrismJS `.token` spans). Prism token colors are injected into the TinyMCE iframe via `content_style` in `_tinyMCEContentFontStyle()` (the oxide dark content skin ships no `.token` CSS). `codemirror.min.js` is loaded on the page (before `app.js`), so `window.CM` is available for both the markdown editor and the code modal.
+- **Code blocks**: Full-screen code modal with a CM6 editor and language picker. Highlighting differs by mode: preview/markdown modes use highlight.js (`hljs`); rendered mode (TinyMCE) uses the native `codesample` plugin (PrismJS `.token` spans). Rendered mode points TinyMCE's codesample plugin at full `window.Prism` bundle (`public/prism.min.js`) so every language offered by modal has grammar support. Prism token colors are injected into the TinyMCE iframe via `content_style` in `_tinyMCEContentFontStyle()` (the oxide dark content skin ships no `.token` CSS). `codemirror.min.js` and `prism.min.js` are loaded on page before TinyMCE/app.js.
 - **Autosave**: htmx delayed PUT after typing pause (deferred while modals are open)
 - **Markdown**: server-side `renderMarkdown()`, client-side Turndown `htmlToMarkdown()`
 - **Auth**: reuses Joplin Server `sessionId` cookie
@@ -142,7 +142,7 @@ Server (`app/routes/_helpers.js`) rules:
 
 - `assertVaultNoteBodyEncrypted(vaultService, userId, existingParentId, targetParentId, body, noteId, opts)` parses the ciphertext blob and rejects the write when `meta.vault` mismatches the target folder's vault, or `meta.noteId` (if present) mismatches the target note.
 - **Vault boundary enforcement** (three layers):
-  1. **ParentId immutability**: if a note currently lives in a vault folder, the server rejects any PUT that changes its `parentId` (400: `Vault notes cannot be moved to a different folder`). Vault notes cannot change folder — the folder select is disabled client-side and the server enforces this on every write path. The same guard applies to `createCopy` on conflict (copying a vault note to a different folder is blocked).
+  1. **ParentId immutability / no conflict copies**: if a note currently lives in a vault folder, the server rejects any PUT that changes its `parentId` (400: `Vault notes cannot be moved to a different folder`). Vault notes cannot change folder — the folder select is disabled client-side and the server enforces this on every write path. Conflict `createCopy` is also rejected for vault notes: ciphertext is bound to source note id, while copying unlocked DOM content would make a plaintext duplicate.
   2. **Ciphertext required inside vaults**: saving to a vault folder always requires an encrypted body. Same-folder saves and sync-proxy writes are both covered. `enforceExistingVault=true` (sync-proxy only) extends this to prevent external Joplin clients from stripping ciphertext by re-parenting.
   3. **Metadata integrity**: encrypted blobs carry `vault` (folder id) and `noteId` (bound target); both are validated against the destination to prevent cross-vault or cross-note ciphertext smuggling.
 - **Client-side**: the folder select (`#editor-folder-select`) is rendered `disabled` for vault-protected notes and stays disabled after unlock — vault notes cannot change parent folder through the UI. The only reachable folder-change path is plain→vault (encrypt on move).
@@ -150,6 +150,19 @@ Server (`app/routes/_helpers.js`) rules:
 - Legacy blobs without `noteId` still pass (backwards compatible); new writes are note-id-bound.
 
 Tests must not regress this: an encrypted note's ciphertext blob's `noteId` field must equal the note id it is stored under; a write with a mismatched blob must be rejected with 400 (or 403 via the proxy guard).
+
+### Plaintext save identity guard (do not remove)
+
+Plaintext (non-encrypted) autosave has its own cross-note contamination race, fixed after a user report of "note B's body replaced by note A's content". Root cause: the persistent TinyMCE singleton is shared by all rich-mode notes, and several async `/fragments/preview` fetches wrote their result into it with no check that the active note was still the one the fetch was started for. A late preview response for note A landed while note B's form was active; the next TinyMCE→textarea sync copied A's markdown into B's `#note-body`, and the 2s autosave PUT it to `/fragments/editor/B`.
+
+Client (`public/app.js`) rules:
+
+- **Provenance stamps**: `_displayedNoteId` (note whose content the user last saw) and `_tinymceContentNoteId` (note whose rendered HTML TinyMCE last loaded) are stamped by `initEditorPanel` and `_setTinyMCEContent(html, noteId)`; `htmx:beforeSwap` for the editor containers clears both. Empty stamps are permissive (defence-in-depth only), non-empty mismatching stamps are hard blocks.
+- **Guard**: `_plaintextSaveIdentityOk(form)` must pass before any plaintext body PUT: form connected, `hx-put` note id === `data-note-id` === `_displayedNoteId`, form is `activeEditorForm()`, and — in rich mode with the TinyMCE host visible — `_tinymceContentNoteId` matches too. It is enforced in `scheduleSave`, `scheduleSaveTitle`, `buildFlushRequest`, and an `htmx:configRequest` choke point that blocks *any* `hx-put=/fragments/editor/…` request (manual, conflict-button, or `joplock:save`-triggered) fired from a non-active form. The choke point skips `dataset.encrypted==='1'` forms (those are covered by the encrypted guard above).
+- **Async fetch discipline**: every `/fragments/preview` fetch that writes into the shared editor (`setEditorMode('rich')`, `refreshTinyMCEForActiveNote`) captures the note id before the request and discards the response if the note, mode, or active form changed mid-flight. `tinyMCESyncToTA` and `_lazyTinyMCESyncBeforeSave` refuse to copy TinyMCE content into a textarea whose note doesn't match `_tinymceContentNoteId`.
+- **Other guarded paths**: `_completeUnlock` aborts if the unlocked note is no longer the active note; late `htmx:afterRequest` save responses from detached/replaced forms don't stamp `snapshotHash` (would mark a switched-to note as "Saved" while dropping its pending edits); `flushSave` success only updates save state when the flushed form is still active.
+
+Tests: `tests/saveIdentityGuard.test.js` locks the guard wiring; `tests/tinymceOnEditSync.test.js` has a provenance test for the sync refusal.
 
 ### Note-history restore
 
@@ -237,6 +250,7 @@ Important subareas:
 - `public/tinymce/` — TinyMCE 8 (npm dep, see root `package.json`), loaded as `/tinymce/tinymce.min.js`; this is the live rendered-mode editor
 - `public/turndown.min.js` — HTML→Markdown conversion, used by `tinymceToMarkdown()`
 - `public/hljs.min.js` — highlight.js bundle for preview mode code highlighting (built from `hljs-build/`)
+- `public/prism.min.js` — Prism bundle for rendered-mode TinyMCE code-block highlighting (built from `prism-build/`)
 - `public/styles.css`
 - `public/service-worker.js`
 - `public/manifest.webmanifest`
@@ -244,6 +258,7 @@ Important subareas:
 ### Bundle Build Sources
 - `cm-build/` — CM6 bundle source → `public/codemirror.min.js`. Build from repo root with `npm run build:cm` (or `cd cm-build && npm install && npm run build`).
 - `hljs-build/` — highlight.js bundle source → `public/hljs.min.js`. Build with `npm run build:hljs` (or `cd hljs-build && npm install && npm run build`).
+- `prism-build/` — Prism bundle source → `public/prism.min.js`. Build with `npm run build:prism` (or `cd prism-build && npm install && npm run build`).
 
 ### Tests
 - `tests/*.test.js`
@@ -708,10 +723,11 @@ Recommended inner loop:
 
 ## Recently Completed Work
 
-- **Vault simplification — notes cannot leave vaults**: removed `confirmMoveOutOfVault` mechanism. Vault notes now have immutable `parentId` — the server rejects any PUT that changes a vault note's folder. The folder select is `disabled` for vault notes and stays disabled after unlock. The folder-change handler reduces to a single branch: plain→vault (encrypt on move). Copy-on-conflict from a vault note to a different folder is blocked. All vault→plain and vault→vault move paths are removed (previously guarded by confirm dialogs and the now-deleted `confirmMoveOutOfVault` flag).
+- **Vault simplification — notes cannot leave vaults or create conflict copies**: removed `confirmMoveOutOfVault` mechanism. Vault notes now have immutable `parentId` — the server rejects any PUT that changes a vault note's folder. The folder select is `disabled` for vault notes and stays disabled after unlock. The folder-change handler reduces to a single branch: plain→vault (encrypt on move). Conflict copies of vault notes are blocked entirely because ciphertext is note-id-bound. All vault→plain and vault→vault move paths are removed (previously guarded by confirm dialogs and the now-deleted `confirmMoveOutOfVault` flag).
 - **Vault chrome refresh on folder change**: `_syncEditorVaultChrome(noteId, inVault, unlocked)` in `public/app.js` injects/removes the lock-toggle button in `.editor-titlebar` when moving into/out of a vault. Called from `_doEncryptNoteInVault` (plain → vault).
 - **/ask user-visible reason in vault notes**: typing `/ask …` and pressing Enter in a vault note previously fell through silently to a newline, which looked broken. Now `_notifyAskDisabledInVault()` fires a one-shot alert per note explaining that `/ask` is disabled to protect vault plaintext from third-party AI providers. Guard logic (`askDisabledForActiveNote()`) unchanged; only the UX around the "disabled" case changed.
 
+- **Plaintext save identity guard (cross-note contamination)**: fixed the reported "note B's body replaced by note A's content" bug. Unguarded async `/fragments/preview` fetches (`setEditorMode('rich')`, `refreshTinyMCEForActiveNote`) could land after a note switch and load note A's rendered HTML into the persistent TinyMCE over note B's form; the next TinyMCE→textarea sync + 2s autosave PUT A's content to note B's URL. Fix: `_displayedNoteId`/`_tinymceContentNoteId` provenance stamps, `_plaintextSaveIdentityOk(form)` enforced in `scheduleSave`/`scheduleSaveTitle`/`buildFlushRequest` + an `htmx:configRequest` choke point blocking any editor PUT from a non-active form, fetch-response discard on note/mode change, provenance checks in `tinyMCESyncToTA`/`_lazyTinyMCESyncBeforeSave`, `_completeUnlock` active-note check, and stale-response `snapshotHash` guards. See "Plaintext save identity guard" section above.
 - **Vault encrypted-save identity guard**: fixed a race where a debounced 2s encrypted autosave for note A could fire after the user switched to note B, encrypting B's plaintext with A's vault key and writing it to A. Fix: read plaintext from the captured form (not `getTA()`), verify form/note/vault identity before every encrypt/PUT step, bind ciphertext to a specific `noteId` in the blob, and server-side verify `meta.vault` + `meta.noteId` in `assertVaultNoteBodyEncrypted`. Timers are also cancelled on editor-panel `htmx:beforeSwap` as defence-in-depth. See "Encrypted-save identity guard" section above.
 - **Immediate history-restore refresh**: `POST /fragments/history/:noteId/restore/:snapshotId` now returns `editorFragment` inline (target = editor container) with autosave-status + nav as OOB swaps. The client cancels pending autosave and clears `_savedHash` before firing, so the restored body appears immediately without a page refresh and can't be clobbered by a stale timer.
 

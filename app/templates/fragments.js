@@ -102,7 +102,7 @@ const noteMetaText = note => {
 
 const noteMetaFragment = (note, id = 'note-meta') => `<span id="${escapeHtml(id)}" class="note-meta" data-created-time="${escapeHtml(note.createdTime || 0)}" data-updated-time="${escapeHtml(note.updatedTime || 0)}">${escapeHtml(noteMetaText(note))}</span>`;
 
-const autosaveConflictFragment = noteId => `<span class="autosave-conflict"><span class="autosave-error">Conflict</span><button type="button" class="btn btn-sm" hx-put="/fragments/editor/${encodeURIComponent(noteId)}" hx-include="#note-editor-form" hx-target="#autosave-status" hx-swap="innerHTML" hx-vals='{"forceSave":"1"}' hx-on:click="if(getPV())syncPV()">Overwrite</button><button type="button" class="btn btn-sm" hx-put="/fragments/editor/${encodeURIComponent(noteId)}" hx-include="#note-editor-form" hx-target="#autosave-status" hx-swap="innerHTML" hx-vals='{"createCopy":"1"}' hx-on:click="if(getPV())syncPV()">Create copy</button></span>`;
+const autosaveConflictFragment = (noteId, canCreateCopy = true) => `<span class="autosave-conflict"><span class="autosave-error">Conflict</span><button type="button" class="btn btn-sm" hx-put="/fragments/editor/${encodeURIComponent(noteId)}" hx-include="#note-editor-form" hx-target="#autosave-status" hx-swap="innerHTML" hx-vals='{"forceSave":"1"}' hx-on:click="if(getPV())syncPV()">Overwrite</button>${canCreateCopy ? `<button type="button" class="btn btn-sm" hx-put="/fragments/editor/${encodeURIComponent(noteId)}" hx-include="#note-editor-form" hx-target="#autosave-status" hx-swap="innerHTML" hx-vals='{"createCopy":"1"}' hx-on:click="if(getPV())syncPV()">Create copy</button>` : ''}</span>`;
 
 const fmtHistoryTime = ts => {
 	const d = new Date(Number(ts));
@@ -281,6 +281,7 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 	if (!note) {
 		return '<div class="editor-empty">Select a note</div>';
 	}
+	const isOwner = !note.ownerId || note.ownerId === viewerUserId;
 	const readOnly = !!(note.ownerId && viewerUserId && note.ownerId !== viewerUserId && !canWrite);
 	const folderOptions = realNotebookOptions(folders).map(f =>
 		`<option value="${escapeHtml(f.id)}"${f.id === note.parentId ? ' selected' : ''}${f.isVault ? ' data-is-vault="1"' : ''}>${escapeHtml(f.title || 'Untitled')}</option>`,
@@ -310,6 +311,7 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 		${vaultProtected ? 'data-encrypted="1"' : ''}
 		${vaultId ? `data-vault-id="${escapeHtml(vaultId)}"` : ''}
 		${readOnly ? 'data-share-readonly="1"' : ''}
+		data-is-owner="${isOwner ? '1' : '0'}"
 		data-note-id="${escapeHtml(note.id)}">${shareReadonlyBanner}
 		<div class="editor-titlebar">
 			<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="${vaultProtected ? 'Unlock the note to move it' : (readOnly ? 'Shared items are read-only' : 'Move to folder')}"${(vaultProtected || readOnly) ? ' disabled' : ''}>${folderOptions}</select>
@@ -325,12 +327,12 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 			<span id="autosave-indicator" class="htmx-indicator">Saving...</span>
 			<button type="button" class="btn btn-sm" id="markdown-toggle" title="Markdown source" onclick="setEditorMode('markdown')">MD</button>
 			<button type="button" class="btn btn-icon active" id="preview-toggle" title="Rendered view" onclick="setEditorMode('rich')">&#128065;</button>
-			${note.deletedTime ? `<button type="button" class="btn btn-sm" title="Restore from trash"
+			${note.deletedTime && isOwner ? `<button type="button" class="btn btn-sm" title="Restore from trash"
 				hx-post="/fragments/notes/${encodeURIComponent(note.id)}/restore"
 				hx-target="#nav-panel"
 				hx-swap="innerHTML">Restore</button>` : ''}
 			${vaultProtected ? `<button type="button" class="btn btn-icon" title="Unlock note" id="lock-toggle-btn" onclick="toggleNoteLock('${escapeHtml(note.id)}')">${svgLockClosed}</button>` : ''}
-			${!readOnly ? `<button type="button" class="btn btn-icon btn-danger" title="Delete"
+			${isOwner ? `<button type="button" class="btn btn-icon btn-danger" title="Delete"
 				hx-delete="/fragments/notes/${encodeURIComponent(note.id)}"
 				hx-target="#nav-panel"
 				hx-swap="innerHTML"

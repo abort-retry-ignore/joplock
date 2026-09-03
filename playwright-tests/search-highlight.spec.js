@@ -26,8 +26,12 @@ const {
 
 test.describe('rendered-mode in-note search highlight', () => {
 	test.skip(!hasAdminCredentials(), 'requires admin credentials');
+	// Desktop-shell flow: drives #nav-search and the desktop notelist. In the
+	// mobile shell those live in a hidden drawer / different screen (mobile
+	// search is covered by mobile-shell.spec.js instead).
 
-	test('search opens the note and highlights the term inside TinyMCE', async ({ page }) => {
+	test('search opens the note and highlights the term inside TinyMCE', async ({ page }, testInfo) => {
+		test.skip(testInfo.project.name === 'mobile', 'desktop-shell flow');
 		test.setTimeout(90000);
 		acceptDialogs(page);
 		await login(page);

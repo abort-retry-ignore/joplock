@@ -50,7 +50,7 @@ const handle = async (url, request, response, ctx) => {
 			const counts = await itemService.folderNoteCountsByUserId(auth.user.id);
 			const totalCount = counts.get(folderId) || counts.get('__all__') || 0;
 			const hasMore = offset + notes.length < totalCount;
-			sendHtml(response, 200, templates.mobileNotesFragment(enrichedNotes, folderId, '', hasMore, offset + notes.length));
+			sendHtml(response, 200, templates.mobileNotesFragment(enrichedNotes, folderId, '', hasMore, offset + notes.length, auth.user.id));
 		} catch {
 			sendHtml(response, 500, '<div class="empty-hint">Error</div>');
 		}
@@ -85,7 +85,7 @@ const handle = async (url, request, response, ctx) => {
 				'Content-Type': 'text/html; charset=utf-8',
 				'X-Mobile-Note-Id': note.id || '',
 			});
-			response.end(templates.mobileNotesFragment(enrichedNotes, folderId, '', hasMore, notes.length));
+			response.end(templates.mobileNotesFragment(enrichedNotes, folderId, '', hasMore, notes.length, auth.user.id));
 		} catch (error) {
 			console.error('[mobile] notes/new error:', error);
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error && (error.message || `${error}`) || 'creating note')}</div>`);
@@ -103,7 +103,7 @@ const handle = async (url, request, response, ctx) => {
 			const notes = query ? await itemService.searchNotes(auth.user.id, query, 50, offset) : [];
 			const enrichedNotes = await markNotesInVaults(auth.user.id, notes);
 			const hasMore = notes.length === 50;
-			sendHtml(response, 200, templates.mobileSearchFragment(enrichedNotes, hasMore, offset + notes.length, query));
+			sendHtml(response, 200, templates.mobileSearchFragment(enrichedNotes, hasMore, offset + notes.length, query, auth.user.id));
 		} catch {
 			sendHtml(response, 500, '<div class="empty-hint">Search error</div>');
 		}

@@ -24,9 +24,12 @@ services:
       JOPLOCK_PUBLIC_BASE_URL: http://localhost:5444
       # Internal URL Joplock uses to call Joplin Server API
       JOPLIN_SERVER_ORIGIN: http://host.docker.internal:22300
-      # Public URL users already use for Joplin Server (for sync clients)
+      # Public URL users already use for Joplin Server (for sync clients).
+      # For vault safety, point sync clients at Joplock's /joplin proxy instead;
+      # see README "Vault Safety With Sync Clients".
       JOPLIN_SERVER_PUBLIC_URL: http://localhost:22300
-      # Base path prefix if Joplin Server sits behind a reverse proxy subpath
+      # Empty disables Joplock's sync proxy and its vault/share write guards.
+      # Use /joplin when sync clients must access vault notebooks through Joplock.
       JOPLIN_PUBLIC_BASE_PATH: ''
       # Postgres connection — must be the same database used by Joplin Server
       POSTGRES_HOST: host.docker.internal

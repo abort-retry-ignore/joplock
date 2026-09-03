@@ -158,6 +158,7 @@ function makeEncryptedSaveSandbox({ taValue = '', tinymceHtml = '<p></p>', ident
 		_tinymceSuppressEdits: false,
 		_tinymceReadonly: false,
 		_editorMode: 'rich',
+		_tinymceContentNoteId: '',
 		_saveTimer: null,
 		_syncPVInFlight: false,
 		_pvSyncTimer: null,
@@ -168,6 +169,7 @@ function makeEncryptedSaveSandbox({ taValue = '', tinymceHtml = '<p></p>', ident
 
 	vm.runInContext(`
 		function activeEditorForm(){return document.getElementById('note-editor-form')}
+		function _formNoteId(form){var hx=(form&&form.getAttribute&&form.getAttribute('hx-put'))||'';var m=hx.match(new RegExp("/fragments/editor/([0-9a-zA-Z]{32})"));return m?m[1]:''}
 		function _origScheduleSave(){throw new Error('should not fall back to plain path for a vault note')}
 		function _log(){}
 		function _anyModalOpen(){return false}

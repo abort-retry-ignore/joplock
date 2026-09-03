@@ -27,6 +27,36 @@ test('editorFragment shows trash delete prompt for active note', () => {
 	assert.ok(!html.includes('Permanently delete this note?'));
 });
 
+test('editorFragment hides delete + restore for non-owner recipient (canWrite)', () => {
+	const html = editorFragment(
+		{ id: 'n1', title: 'Shared', body: 'Body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000, ownerId: 'owner-1', shareId: 's1' },
+		[{ id: 'f1', title: 'Folder 1' }], 'f1', 'viewer-1', true,
+	);
+	assert.ok(html.includes('data-is-owner="0"'));
+	assert.ok(!html.includes('title="Delete"'));
+	assert.ok(!html.includes('hx-delete="/fragments/notes/n1"'));
+});
+
+test('editorFragment hides delete + restore for non-owner trashed note', () => {
+	const html = editorFragment(
+		{ id: 'n1', title: 'Shared', body: 'Body', parentId: 'f1', deletedTime: 123, createdTime: 1000, updatedTime: 2000, ownerId: 'owner-1', shareId: 's1' },
+		[{ id: 'f1', title: 'Folder 1' }], 'f1', 'viewer-1', true,
+	);
+	assert.ok(html.includes('data-is-owner="0"'));
+	assert.ok(!html.includes('Restore'));
+	assert.ok(!html.includes('Permanently delete this note?'));
+});
+
+test('editorFragment shows delete for owner of shared note', () => {
+	const html = editorFragment(
+		{ id: 'n1', title: 'Shared', body: 'Body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000, ownerId: 'owner-1', shareId: 's1' },
+		[{ id: 'f1', title: 'Folder 1' }], 'f1', 'owner-1', true,
+	);
+	assert.ok(html.includes('data-is-owner="1"'));
+	assert.ok(html.includes('title="Delete"'));
+	assert.ok(html.includes('hx-delete="/fragments/notes/n1"'));
+});
+
 test('editorFragment includes date and datetime toolbar buttons', () => {
 	const html = editorFragment({ id: 'n1', title: 'Active', body: 'Body', parentId: 'f1', deletedTime: 0, createdTime: 1000, updatedTime: 2000 }, [{ id: 'f1', title: 'Folder 1' }]);
 	assert.ok(html.includes('title="Insert date"'));
@@ -1217,4 +1247,22 @@ test('mobileNotesFragment shows Load more when hasMore', () => {
 	const html = mobileNotesFragment(notes, 'f1', 'Work', true, 50);
 	assert.ok(html.includes('Load more'));
 	assert.ok(html.includes('/fragments/mobile/notes?folderId=f1&offset=50'));
+});
+
+test('mobileNotesFragment marks recipient rows non-owner', () => {
+	const notes = [{ id: 'n1', title: 'Shared', ownerId: 'owner-1' }];
+	const html = mobileNotesFragment(notes, 'f1', 'Work', false, 0, 'viewer-1');
+	assert.ok(html.includes('data-is-owner="0"'));
+});
+
+test('mobileNotesFragment marks owner rows owner', () => {
+	const notes = [{ id: 'n1', title: 'Own', ownerId: 'owner-1' }];
+	const html = mobileNotesFragment(notes, 'f1', 'Work', false, 0, 'owner-1');
+	assert.ok(html.includes('data-is-owner="1"'));
+});
+
+test('mobileNotesFragment treats unowned rows as owner', () => {
+	const notes = [{ id: 'n1', title: 'Legacy' }];
+	const html = mobileNotesFragment(notes, 'f1', 'Work', false, 0, 'viewer-1');
+	assert.ok(html.includes('data-is-owner="1"'));
 });

@@ -470,18 +470,14 @@ const handle = async (url, request, response, ctx) => {
 			const currentFolderId = `${body.currentFolderId || body.parentId || existing.parentId || ''}`;
 			if (createCopy) {
 				const parentFolderId = body.parentId || existing.parentId || '';
-				// Block copy if the source note is in a vault and the
-				// destination is different.  A vault note unlocked in the
-				// editor has plaintext in the DOM — copying it to a
-				// non-vault folder would leak plaintext that should be
-				// encrypted.  Copies within the same vault keep the body
-				// as-is (already ciphertext for locked notes, or the
-				// encrypted-save path will encrypt for unlocked notes).
-				const parentChanged = parentFolderId !== `${existing.parentId || ''}`;
-				if (parentChanged && vaultService) {
+				// A copied vault body would be ciphertext bound to the source
+				// note id. Reusing it under a new id defeats that binding; copying
+				// unlocked DOM content would instead create a plaintext duplicate.
+				// Neither is safe, even when the destination is same vault.
+				if (vaultService) {
 					const srcVault = await vaultService.getVaultByFolderId(auth.user.id, existing.parentId).catch(() => null);
 					if (srcVault) {
-						sendHtml(response, 400, '<span class="autosave-error">Cannot copy a vault note to a different folder</span>');
+						sendHtml(response, 400, '<span class="autosave-error">Cannot create a copy of a vault note</span>');
 						return true;
 					}
 				}
@@ -516,11 +512,15 @@ const handle = async (url, request, response, ctx) => {
 			}
 			if (!forceSave && baseUpdatedTime && Number(existing.updatedTime || 0) !== baseUpdatedTime) {
 				// Set a header so the client can distinguish a conflict from a real save success.
-				// The HTTP status stays 200 to keep htmx's swap into #autosave-status working
-				// (so the Overwrite / Create-copy buttons land in the DOM).
+				// The HTTP status stays 200 to keep htmx's swap into #autosave-status working.
+				// Vault bodies are bound to their note id, so they cannot safely use
+				// Create copy (the route also enforces this for crafted requests).
+				const sourceVault = vaultService
+					? await vaultService.getVaultByFolderId(auth.user.id, existing.parentId).catch(() => null)
+					: null;
 				response.setHeader('X-Note-Conflict', '1');
 				response.setHeader('X-Note-Updated-Time', String(existing.updatedTime || 0));
-				sendHtml(response, 200, templates.autosaveConflictFragment(noteId));
+				sendHtml(response, 200, templates.autosaveConflictFragment(noteId, !sourceVault));
 				return true;
 			}
 			const targetParentId = `${body.parentId || existing.parentId || ''}`;

@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild index.js --bundle --minify --outfile=../public/prism.min.js --format=iife"
+  },
+  "dependencies": {
+    "prismjs": "^1.30.0",
+    "esbuild": "^0.20.0"
+  }
+}

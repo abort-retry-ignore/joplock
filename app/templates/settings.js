@@ -230,8 +230,8 @@ const settingsPage = (options = {}) => {
 						<label class="settings-field">
 							<span>Open notes in</span>
 							<select id="settings-note-open-mode" class="login-input" onchange="saveSetting('noteOpenMode',this.value)">
-								<option value="preview"${(settings.noteOpenMode || 'preview') === 'preview' ? ' selected' : ''}>Rendered mode</option>
-								<option value="markdown"${settings.noteOpenMode === 'markdown' ? ' selected' : ''}>Markdown mode</option>
+								<option value="markdown"${settings.noteOpenMode !== 'preview' ? ' selected' : ''}>Markdown mode</option>
+								<option value="preview"${settings.noteOpenMode === 'preview' ? ' selected' : ''}>Rendered mode</option>
 							</select>
 						</label>
 						<label class="settings-field">

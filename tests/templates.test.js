@@ -723,16 +723,20 @@ test('editorFragment uses openUploadModal for upload toolbar action', () => {
 });
 
 test('logged in layout emits inline config script that parses', () => {
-	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '<div></div>' });
-	// The last script before </body> is now just the config object
-	const match = html.match(/<script>\s*(window\._joplockConfig[\s\S]*?)<\/script>\s*<\/body>/);
-	assert.ok(match, 'should have inline config script before </body>');
+	const html = layoutPage({ user: { email: 'user@example.com', fullName: 'User' }, navContent: '<div></div>', settings: { noteOpenMode: 'markdown' } });
+	const match = html.match(/<script>\s*(window\._joplockConfig[\s\S]*?)<\/script>/);
+	assert.ok(match, 'should have inline config script');
 	assert.doesNotThrow(() => new vm.Script(match[1]));
 	assert.ok(match[1].includes('window._joplockConfig'));
 	assert.ok(match[1].includes('noteOpenMode'));
+	assert.ok(match[1].includes('"markdown"'), 'markdown preference must be injected into _joplockConfig');
 	assert.ok(match[1].includes('liveSearch'));
 	assert.ok(!match[1].includes('proseAutocompleteManualTrigger'));
 	assert.ok(!match[1].includes('proseAutocompleteManualTriggerOptions'));
+	// Config MUST precede app.js so `_cfg.noteOpenMode` is set when app.js parses.
+	const cfgIdx = html.indexOf('window._joplockConfig');
+	const appIdx = html.indexOf('/app.js');
+	assert.ok(cfgIdx !== -1 && appIdx !== -1 && cfgIdx < appIdx, '_joplockConfig must be defined before app.js loads');
 	// Functions are in app.js, not inline
 	assert.ok(!html.includes('function openFolderContextMenu(event,id,title)'));
 	assert.ok(html.includes('/app.js'));

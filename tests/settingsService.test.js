@@ -116,6 +116,14 @@ test('settingsService returns defaults when table creation fails', async () => {
 	assert.deepEqual(settings, defaultSettings);
 });
 
+test('normalizeSettings defaults noteOpenMode to markdown', () => {
+	assert.equal(defaultSettings.noteOpenMode, 'markdown');
+	assert.equal(normalizeSettings({ noteOpenMode: 'markdown' }).noteOpenMode, 'markdown');
+	assert.equal(normalizeSettings({ noteOpenMode: 'preview' }).noteOpenMode, 'preview', 'explicit rendered preference must be kept');
+	assert.equal(normalizeSettings({ noteOpenMode: 'nope' }).noteOpenMode, 'markdown');
+	assert.equal(normalizeSettings({}).noteOpenMode, 'markdown');
+});
+
 test('normalizeSettings clamps autoLogoutMinutes', () => {
 	assert.equal(normalizeSettings({ autoLogoutMinutes: 0 }).autoLogoutMinutes, 1);
 	assert.equal(normalizeSettings({ autoLogoutMinutes: 999 }).autoLogoutMinutes, 480);

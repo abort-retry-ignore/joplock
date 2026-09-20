@@ -10,7 +10,7 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20260903flushbase1';
+const ASSET_VERSION = '20260903mddefault';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';
@@ -111,6 +111,25 @@ const layoutPage = (options = {}) => {
 	<script src="/hljs.min.js"></script>
 	<script src="/html-docx.js"></script>
 	<script>window.joplockStripNoteTitle=${stripMarkdownForTitle.toString()};</script>
+	<script>
+	window._joplockConfig={
+		debug:${debug ? 'true' : 'false'},
+		noteOpenMode:${JSON.stringify(settings.noteOpenMode || 'markdown')},
+		mobileStartup:${JSON.stringify(mobileStartup || null)},
+		theme:${JSON.stringify(settings.theme || 'earth')},
+		dateFormat:${JSON.stringify(String(settings.dateFormat || 'MMM-DD-YY'))},
+		datetimeFormat:${JSON.stringify(String(settings.datetimeFormat || 'YYYY-MM-DD HH:mm'))},
+		liveSearch:${settings.liveSearch ? 'true' : 'false'},
+		highlightActiveLine:${settings.highlightActiveLine !== false ? 'true' : 'false'},
+		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'},
+		encryptionAutoLockMinutes:${JSON.stringify(settings.encryptionAutoLockMinutes || 5)},
+		uiMode:${JSON.stringify(settings.uiMode || 'auto')},
+		proseAutocompleteSentenceCount:${JSON.stringify(settings.proseAutocompleteSentenceCount || 1)},
+		maxUploadMb:${JSON.stringify(maxUploadMb)},
+		textExpanders:${JSON.stringify(Array.isArray(settings.textExpanders) ? settings.textExpanders : [])},
+		openRouterEnabled:${(Array.isArray(settings.aiProfiles) ? settings.aiProfiles.some(p => p.apiKey) : !!settings.openRouterApiKey) ? 'true' : 'false'}
+	};
+	</script>
 	<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 	<title>Joplock</title>
 </head>
@@ -318,25 +337,6 @@ const layoutPage = (options = {}) => {
 			</div>
 		</form>
 	</div>
-	<script>
-	window._joplockConfig={
-		debug:${debug ? 'true' : 'false'},
-		noteOpenMode:${JSON.stringify(settings.noteOpenMode || 'preview')},
-		mobileStartup:${JSON.stringify(mobileStartup || null)},
-		theme:${JSON.stringify(settings.theme || 'earth')},
-		dateFormat:${JSON.stringify(String(settings.dateFormat || 'MMM-DD-YY'))},
-		datetimeFormat:${JSON.stringify(String(settings.datetimeFormat || 'YYYY-MM-DD HH:mm'))},
-		liveSearch:${settings.liveSearch ? 'true' : 'false'},
-		highlightActiveLine:${settings.highlightActiveLine !== false ? 'true' : 'false'},
-		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'},
-		encryptionAutoLockMinutes:${JSON.stringify(settings.encryptionAutoLockMinutes || 5)},
-		uiMode:${JSON.stringify(settings.uiMode || 'auto')},
-		proseAutocompleteSentenceCount:${JSON.stringify(settings.proseAutocompleteSentenceCount || 1)},
-		maxUploadMb:${JSON.stringify(maxUploadMb)},
-		textExpanders:${JSON.stringify(Array.isArray(settings.textExpanders) ? settings.textExpanders : [])},
-		openRouterEnabled:${(Array.isArray(settings.aiProfiles) ? settings.aiProfiles.some(p => p.apiKey) : !!settings.openRouterApiKey) ? 'true' : 'false'}
-	};
-	</script>
 </body>
 </html>`;
 };

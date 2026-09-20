@@ -325,8 +325,8 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 			<span id="autosave-status"></span>
 			<button type="button" id="undo-save-btn" class="btn btn-sm btn-secondary undo-save-btn" title="Undo last save (Ctrl+Shift+Z)" onclick="undoSnapshot()" hidden>Undo</button>
 			<span id="autosave-indicator" class="htmx-indicator">Saving...</span>
-			<button type="button" class="btn btn-sm" id="markdown-toggle" title="Markdown source" onclick="setEditorMode('markdown')">MD</button>
-			<button type="button" class="btn btn-icon active" id="preview-toggle" title="Rendered view" onclick="setEditorMode('rich')">&#128065;</button>
+			<button type="button" class="btn btn-sm active" id="markdown-toggle" title="Markdown source" onclick="setEditorMode('markdown')">MD</button>
+			<button type="button" class="btn btn-icon" id="preview-toggle" title="Rendered view" onclick="setEditorMode('rich')">&#128065;</button>
 			${note.deletedTime && isOwner ? `<button type="button" class="btn btn-sm" title="Restore from trash"
 				hx-post="/fragments/notes/${encodeURIComponent(note.id)}/restore"
 				hx-target="#nav-panel"

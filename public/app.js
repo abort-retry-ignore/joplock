@@ -267,7 +267,13 @@ function startAutoLockTimer(){
 // They are session-scoped and are explicitly cleared on logout/login cleanup.
 ;
 
-var _defaultNoteOpenMode=_cfg.noteOpenMode||'preview';
+var _defaultNoteOpenMode=_cfg.noteOpenMode||'markdown';
+// Live read of the Settings preference. `_cfg` is snapshotted at parse time;
+// if `_joplockConfig` was not on the page yet (script order), `_defaultNoteOpenMode`
+// would stick at 'preview' and every note would open rendered. Always prefer the
+// live config object. Mobile read-only must NOT override this — a markdown
+// preference means open in CM6, on desktop and mobile.
+function preferredEditorMode(){var v='';try{v=(window._joplockConfig&&window._joplockConfig.noteOpenMode)||''}catch(_e){}if(!v)v=_defaultNoteOpenMode||'';return v==='markdown'?'markdown':'rich'}
 var _highlightActiveLine=_cfg.highlightActiveLine!==false;
 var _mobileStartup=_cfg.mobileStartup||null;
 var _uiMode=_cfg.uiMode||'auto';
@@ -465,7 +471,7 @@ function cmSetVal(v){if(!_cmView)return;var cur=_cmView.state.doc.toString();if(
 function getTinyMCE(){return _tinymceEditor}
 function tinyMCEContent(){return _tinymceEditor?_tinymceEditor.getContent():''}
 function tinyMCESetContent(html){if(_tinymceEditor)_tinymceEditor.setContent(html)}
-function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var _synNoteId=_formNoteId(activeEditorForm());if(_tinymceContentNoteId&&_synNoteId&&_tinymceContentNoteId!==_synNoteId){_log('tinyMCESyncToTA skipped: TinyMCE content belongs to another note',_tinymceContentNoteId,_synNoteId);return false}var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
+function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var _synNoteId=_formNoteId(activeEditorForm());if(_tinymceContentNoteId&&_synNoteId&&_tinymceContentNoteId!==_synNoteId){_log('tinyMCESyncToTA skipped: TinyMCE content belongs to another note',_tinymceContentNoteId,_synNoteId);return false}var host=document.getElementById('tinymce-host');if(!host||!host.classList.contains('tinymce-host-visible')){_log('tinyMCESyncToTA skipped: TinyMCE host not visible');return false}var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
 function _isMarkdownModeActive(){return _editorMode==='markdown'||_editorMode==='md'}
 
 /* ---------------- Note export (rendered mode only): MD / HTML / DOCX / PDF ---------------- */
@@ -1200,7 +1206,7 @@ function initPersistentTinyMCE(){
 					if(goEditable){
 						// Entering edit mode: honor the saved note-open preference,
 						// which may be markdown (read-only always shows rendered).
-						if(_defaultNoteOpenMode==='markdown'&&_editorMode!=='markdown'){setEditorMode('markdown');}
+						if(preferredEditorMode()==='markdown'&&_editorMode!=='markdown'){setEditorMode('markdown');}
 						else{try{editor.focus()}catch(_e){}}
 					}else{
 						// Leaving edit mode: always drop back to rendered (read-only)
@@ -4441,7 +4447,7 @@ function snapshotHash(){var form=activeEditorForm();_savedHash=formHash(form);_d
 function _isLockedOverlayEventTarget(target){return !!(target&&target.closest&&target.closest('#editor-locked'))}
 function initEditorPanel(){var form=activeEditorForm();if(form)_displayedNoteId=_formNoteId(form);if(!form||form.dataset.editorInit)return;form.dataset.editorInit='1';if(form.dataset.shareReadonly==='1'){_applyFormReadonly(true);}_resetRingBuffer('note-switch');_dbgline('initEditorPanel begin',form.getAttribute('hx-put'));if(isMobileShellMode())closeNav();_previewDirty=false;setSaveState('','');snapshotHash();_snapshots=[];var undoBtn=queryActiveEditor('#undo-save-btn');if(undoBtn)undoBtn.hidden=true;pushSnapshot();form.addEventListener('input',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form input',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});form.addEventListener('change',function(e){if(_isLockedOverlayEventTarget(e.target))return;_dbgline('form change',{tag:e.target&&e.target.tagName,id:e.target&&e.target.id,name:e.target&&e.target.name});markEdited();scheduleSave()});initAutoTitle();applyMobileTitleMode();renderNoteMeta();	var ta=getTA();if(ta){ta.addEventListener('input',function(){autoTitle()});ta.addEventListener('keydown',function(e){if(_editorMode!=='markdown'&&_editorMode!=='md')return;if(e.key!=='Enter')return;var mac=navigator.platform&&navigator.platform.indexOf('Mac')!==-1;var mod=mac?e.metaKey:e.ctrlKey;if(mod){// Ctrl/Cmd+Enter = soft break (\n, same paragraph)
 e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+1;ta.dispatchEvent(new Event('input',{bubbles:true}))}else{// Enter = new paragraph (\n\n)
-e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+2;ta.dispatchEvent(new Event('input',{bubbles:true}))}})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';/* Persistent TinyMCE: refresh content for this note (skip locked encrypted notes) */if(form.dataset.encrypted!=='1'){var _mobileRO=_tinymceReadonlyDefault();_editorMode=(_mobileRO?false:_defaultNoteOpenMode==='markdown')?'markdown':'rich';_tinymceReadonly=_mobileRO;syncEditorModeButtons();if(_editorMode==='markdown'){hideTinyMCEHost();applyEditorModeVisibility('markdown');var mdta=getTA();mountMarkdownEditor(mdta?mdta.value:'');initPersistentTinyMCE()}else{initPersistentTinyMCE();refreshTinyMCEForActiveNote()}if(pendingSearch){var _pendTerm=pendingSearch;if(_editorMode==='markdown'){setTimeout(function(){var si=activeSearchInput();if(si&&!si.value)si.value=_pendTerm;applySearchHighlight()},0)}else{/* rich: highlight is (re)applied by _setTinyMCEContent once the body is painted (covers sync + async render) */var si2=activeSearchInput();if(si2&&!si2.value)si2.value=_pendTerm;_log('initEditorPanel: setting pendingSearchHighlight, rich mode, term='+(_pendTerm||''));_pendingSearchHighlight=true;/* Fallback: if no setContent fires (e.g. same-note reopen with body already loaded), apply once the body has text. */var _tries=0;var _fb=setInterval(function(){_tries++;if(!_pendingSearchHighlight||_tries>20){clearInterval(_fb);return}var _b=_tinymceEditor&&_tinymceEditor.getBody&&_tinymceEditor.getBody();if(_b&&(_b.textContent||'').trim()&&activeSearchTerm()&&activeSearchTerm().trim()){_pendingSearchHighlight=false;clearInterval(_fb);applySearchHighlight()}},50)}}}else{hideTinyMCEHost()}}
+e.preventDefault();var start=ta.selectionStart,end=ta.selectionEnd;ta.value=ta.value.slice(0,start)+'\n\n'+ta.value.slice(end);ta.selectionStart=ta.selectionEnd=start+2;ta.dispatchEvent(new Event('input',{bubbles:true}))}})}var pendingSearch=(window._pendingNoteSearchTerm||'').trim();var mobileEditor=inMobileEditor();if(mobileEditor&&pendingSearch){var header=document.getElementById('mobile-editor-header');var searchHeader=document.getElementById('mobile-editor-search-header');if(header)header.style.display='none';if(searchHeader)searchHeader.style.display=''}var searchInput=activeSearchInput();if(searchInput&&pendingSearch&&!searchInput.value)searchInput.value=pendingSearch;window._pendingNoteSearchTerm='';/* Persistent TinyMCE: refresh content for this note (skip locked encrypted notes) */if(form.dataset.encrypted!=='1'){var _mobileRO=_tinymceReadonlyDefault();_editorMode=preferredEditorMode();_tinymceReadonly=_mobileRO&&_editorMode!=='markdown';syncEditorModeButtons();if(_editorMode==='markdown'){hideTinyMCEHost();applyEditorModeVisibility('markdown');var mdta=getTA();mountMarkdownEditor(mdta?mdta.value:'');initPersistentTinyMCE()}else{initPersistentTinyMCE();refreshTinyMCEForActiveNote()}if(pendingSearch){var _pendTerm=pendingSearch;if(_editorMode==='markdown'){setTimeout(function(){var si=activeSearchInput();if(si&&!si.value)si.value=_pendTerm;applySearchHighlight()},0)}else{/* rich: highlight is (re)applied by _setTinyMCEContent once the body is painted (covers sync + async render) */var si2=activeSearchInput();if(si2&&!si2.value)si2.value=_pendTerm;_log('initEditorPanel: setting pendingSearchHighlight, rich mode, term='+(_pendTerm||''));_pendingSearchHighlight=true;/* Fallback: if no setContent fires (e.g. same-note reopen with body already loaded), apply once the body has text. */var _tries=0;var _fb=setInterval(function(){_tries++;if(!_pendingSearchHighlight||_tries>20){clearInterval(_fb);return}var _b=_tinymceEditor&&_tinymceEditor.getBody&&_tinymceEditor.getBody();if(_b&&(_b.textContent||'').trim()&&activeSearchTerm()&&activeSearchTerm().trim()){_pendingSearchHighlight=false;clearInterval(_fb);applySearchHighlight()}},50)}}}else{hideTinyMCEHost()}}
 function applySearchHighlight(){var term=activeSearchTerm();_log('applySearchHighlight mode='+_editorMode+' term='+(term||''));var bar=document.getElementById('search-nav-bar');if(bar)bar.hidden=true;_searchMarks=[];_searchMarkIdx=0;var pv=queryActiveEditor('#note-preview');if(pv)clearPreviewSearchMarks(pv);clearTinyMCESearchMarks();if(!term||!term.trim()){clearCodeMirrorSearch();return}term=term.trim();if(_editorMode==='markdown'||_editorMode==='md'){_log('applySearchHighlight: markdown/CM6 branch');if(_cmView&&window.CM&&window.CM.SearchQuery&&window.CM.setSearchQuery){window.CM.openSearchPanel(_cmView);var _qParts=term.split(/\s+/).filter(Boolean);var q=_qParts.length>1?new window.CM.SearchQuery({search:_qParts.map(function(t){return escapeRegex(t)}).join('|'),caseSensitive:false,regexp:true}):new window.CM.SearchQuery({search:term,caseSensitive:false});_cmView.dispatch({effects:window.CM.setSearchQuery.of(q)});_cmSearchMatches=collectCodeMirrorSearchMatches(q);if(_cmSearchMatches.length)setCodeMirrorSearchActive(0);else searchNavShow(0,0)}}else if(_editorMode==='preview'&&pv){clearCodeMirrorSearch();var savedHandler=pv.oninput;pv.oninput=null;highlightInPreview(pv,term);pv.oninput=savedHandler}else{_log('applySearchHighlight: rich/TinyMCE branch');clearCodeMirrorSearch();highlightInTinyMCE(term)}}
 function escapeRegex(s){var specials=['.','+','*','?','^','$','(',')','{','}','[',']','|','\\'];return s.split('').map(function(c){return specials.indexOf(c)>=0?'\\'+c:c}).join('')}
 // Multi-term searches match each word independently, so highlight every term
@@ -5714,8 +5720,22 @@ function _completeUnlock(noteId,plaintext,vaultId){
 	if(mdBtn)mdBtn.style.display='';
 	if(pvBtn)pvBtn.style.display='';
 
-	// Open in the user's preferred mode — setEditorMode handles CM6 mount / TinyMCE setContent.
-	setEditorMode(_defaultNoteOpenMode==='markdown'?'markdown':'rich');
+	// Open in the user's preferred mode.
+	// Locked notes skip editor init, so TinyMCE never received this note's
+	// plaintext. setEditorMode('markdown') would tinyMCESyncToTA() leftover
+	// (or empty) iframe content over the just-decrypted body — unlock then
+	// shows a blank editor. Seed markdown from `plaintext` directly. Rich
+	// mode is safe: cmSyncToTA is a no-op when CM isn't mounted, then the
+	// preview fetch uses ta.value (plaintext).
+	if(preferredEditorMode()==='markdown'){
+		applyEditorModeVisibility('markdown');
+		mountMarkdownEditor(plaintext);
+		_editorMode='markdown';
+		syncEditorModeButtons();
+		_reconcileSaveStateAfterModeSwitch();
+	}else{
+		setEditorMode('rich');
+	}
 	snapshotHash();
 
 	_updateLockToggle(noteId,true);

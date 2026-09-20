@@ -124,6 +124,7 @@ Use this guide when working in this repository.
 - Browser crypto stays client-side only; server never receives vault passwords
 - A note inside a vault notebook must be treated as protected even if its stored body is still plaintext during transition states
 - Locked vault notes render the lock overlay plus hidden editor shells; do not remove the hidden editor DOM because unlock logic depends on it
+- Unlocking a vault note with markdown as the preferred open mode must seed CM6 from the decrypted `plaintext` argument. Do not call `setEditorMode('markdown')` on unlock: that path `tinyMCESyncToTA()`s leftover/empty TinyMCE content over the just-decrypted body (locked notes skip editor init, so TinyMCE never held this note). `tinyMCESyncToTA()` must also refuse to write when `#tinymce-host` is not visible.
 - Clicking a vault lock while unlocked should lock immediately and close the open note if it belongs to that vault
 - Startup/refresh must never auto-resume an encrypted note or a note inside a vault notebook
 
@@ -290,7 +291,7 @@ Joplock lives outside Joplin monorepo. Keep standalone build, test, docs, Docker
 Joplock reads same Postgres database as Joplin Server. No data duplication. Writes still go through Joplin Server API for compatibility and validation.
 
 ### Configurable open mode
-Notes can open in rendered mode or markdown mode based on the per-user `noteOpenMode` setting. Desktop and mobile both respect the same setting.
+Notes can open in rendered mode or markdown mode based on the per-user `noteOpenMode` setting (default **markdown**). Explicit `preview` is kept. Desktop and mobile both respect the same setting. `initEditorPanel` / `_completeUnlock` must call `preferredEditorMode()` (live `_joplockConfig.noteOpenMode`). Do not let `_tinymceReadonlyDefault()` / mobile-shell read-only force rendered mode — that override made Settings → "Open notes in: Markdown" a no-op on tablet/narrow windows. Mobile read-only still applies, but only when the note actually opens in rendered mode. `_joplockConfig` is inlined in `<head>` *before* `app.js`.
 
 ### Shared editor fragment
 Desktop and mobile do not have separate editor implementations. Both use the same `editorFragment()` and client editor logic; mobile wraps it in a mobile-specific shell and screen navigation layer.

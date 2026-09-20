@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Joplock sidecar schema</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 960px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 0.4rem;
+    }
+    .lede {
+      font-size: 0.92rem;
+      color: var(--color-muted);
+      margin-bottom: 1.5rem;
+      max-width: 40rem;
+      line-height: 1.45;
+    }
+    svg { width: 100%; min-width: 720px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Database schema · Joplock sidecar</p>
+    <h1>Four tables. Same Postgres. No Joplin FKs.</h1>
+    <p class="lede">Joplock owns these four tables. Joplin users / items / sessions stay Joplin’s. IDs bind in application code, not in DDL.</p>
+
+    <svg viewBox="0 0 960 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="joplock-db-schema-title joplock-db-schema-desc">
+      <title id="joplock-db-schema-title">Joplock sidecar schema</title>
+      <desc id="joplock-db-schema-desc">Physical schema of the four Joplock sidecar tables in public Postgres: sessions, settings, vaults, and history. No SQL foreign keys; user_id, note_id, folder_id, and session_id are application-level pointers into Joplin.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- Callout 1: __app__ sentinel on settings.user_id -->
+      <text x="912" y="28" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">user_id = '__app__' is admin settings</text>
+      <path d="M 780 36 Q 760 56 720 80" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="1" stroke-dasharray="4,3"/>
+      <circle cx="720" cy="80" r="2" fill="#2d3142"/>
+
+      <!-- ========== public.joplock_sessions  x=48 y=40 w=400 h=76 ========== -->
+      <rect x="48" y="40" width="400" height="76" rx="6" fill="#f5f5f5"/>
+      <rect x="48" y="40" width="400" height="76" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="48" y="40" width="400" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="48" y="60" width="400" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="48" y1="68" x2="448" y2="68" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="60" y="58" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.joplock_sessions</text>
+      <rect x="396" y="48" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="416" y="57" fill="#2d3142" opacity="0.8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="48" y="68" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="60" y="84" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">session_id</text>
+      <rect x="268" y="76" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="278" y="85" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <rect x="292" y="76" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="302" y="85" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="436" y="84" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(64)</text>
+
+      <text x="60" y="108" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">last_seen</text>
+      <rect x="268" y="100" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="278" y="109" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="436" y="108" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <!-- ========== public.joplock_settings  x=512 y=40 w=400 h=124 ========== -->
+      <rect x="512" y="40" width="400" height="124" rx="6" fill="#f5f5f5"/>
+      <rect x="512" y="40" width="400" height="124" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="512" y="40" width="400" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="512" y="60" width="400" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="512" y1="68" x2="912" y2="68" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="524" y="58" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.joplock_settings</text>
+      <rect x="860" y="48" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="880" y="57" fill="#2d3142" opacity="0.8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="512" y="68" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="524" y="84" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">user_id</text>
+      <rect x="732" y="76" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="85" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="900" y="84" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(32)</text>
+
+      <text x="524" y="108" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">settings</text>
+      <rect x="732" y="100" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="109" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="900" y="108" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">jsonb</text>
+
+      <rect x="512" y="116" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="524" y="132" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">updated_time</text>
+      <rect x="732" y="124" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="133" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="900" y="132" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <text x="524" y="156" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">totp_seed</text>
+      <text x="900" y="156" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(64)</text>
+
+      <!-- ========== public.joplock_vaults  x=48 y=192 w=400 h=212 ========== -->
+      <rect x="48" y="192" width="400" height="212" rx="6" fill="#f5f5f5"/>
+      <rect x="48" y="192" width="400" height="212" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="48" y="192" width="400" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="48" y="212" width="400" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="48" y1="220" x2="448" y2="220" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="60" y="210" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.joplock_vaults</text>
+      <rect x="396" y="200" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="416" y="209" fill="#2d3142" opacity="0.8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="48" y="220" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="60" y="236" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="268" y="228" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="278" y="237" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="436" y="236" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">serial</text>
+
+      <text x="60" y="260" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">user_id</text>
+      <rect x="268" y="252" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="278" y="261" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="436" y="260" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(64)</text>
+
+      <rect x="48" y="268" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="60" y="284" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">folder_id</text>
+      <rect x="268" y="276" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="278" y="285" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="436" y="284" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(64)</text>
+
+      <text x="60" y="308" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">salt</text>
+      <rect x="268" y="300" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="278" y="309" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="436" y="308" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">text</text>
+
+      <rect x="48" y="316" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="60" y="332" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">verify</text>
+      <rect x="268" y="324" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="278" y="333" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="436" y="332" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">text</text>
+
+      <text x="60" y="356" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">created_at</text>
+      <text x="436" y="356" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">timestamptz</text>
+
+      <line x1="48" y1="364" x2="448" y2="364" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <text x="60" y="380" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">INDEXES</text>
+      <text x="60" y="396" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">UNIQUE (user_id, folder_id)</text>
+
+      <!-- ========== public.joplock_history  x=512 y=192 w=400 h=236 ========== -->
+      <rect x="512" y="192" width="400" height="236" rx="6" fill="#f5f5f5"/>
+      <rect x="512" y="192" width="400" height="236" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="512" y="192" width="400" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="512" y="212" width="400" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="512" y1="220" x2="912" y2="220" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="524" y="210" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.joplock_history</text>
+      <rect x="860" y="200" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="880" y="209" fill="#2d3142" opacity="0.8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="512" y="220" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="524" y="236" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="732" y="228" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="237" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="900" y="236" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigserial</text>
+
+      <text x="524" y="260" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">note_id</text>
+      <rect x="732" y="252" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="261" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="900" y="260" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(32)</text>
+
+      <rect x="512" y="268" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="524" y="284" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">user_id</text>
+      <rect x="732" y="276" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="285" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="900" y="284" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(32)</text>
+
+      <text x="524" y="308" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">title</text>
+      <rect x="732" y="300" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="309" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="900" y="308" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">text</text>
+
+      <rect x="512" y="316" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="524" y="332" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">body</text>
+      <rect x="732" y="324" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="333" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="900" y="332" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">text</text>
+
+      <text x="524" y="356" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">body_hash</text>
+      <rect x="732" y="348" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="357" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="900" y="356" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(16)</text>
+
+      <rect x="512" y="364" width="400" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="524" y="380" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">saved_time</text>
+      <rect x="732" y="372" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="742" y="381" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="900" y="380" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <line x1="512" y1="388" x2="912" y2="388" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <text x="524" y="404" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">INDEXES</text>
+      <text x="524" y="420" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">joplock_history_note_time (note_id, saved_time DESC)</text>
+
+      <!-- Legend -->
+      <line x1="48" y1="452" x2="912" y2="452" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="48" y="468" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+      <rect x="140" y="458" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="160" y="467" fill="#2d3142" opacity="0.8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+      <text x="188" y="468" fill="#4f5d75" font-size="8" font-family="'Geist', sans-serif">sidecar table</text>
+      <rect x="300" y="458" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="310" y="467" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="328" y="468" fill="#4f5d75" font-size="8" font-family="'Geist', sans-serif">primary key</text>
+      <rect x="428" y="458" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="438" y="467" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="456" y="468" fill="#4f5d75" font-size="8" font-family="'Geist', sans-serif">not null</text>
+      <text x="560" y="468" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">INDEXES</text>
+      <text x="628" y="468" fill="#4f5d75" font-size="8" font-family="'Geist', sans-serif">unique / lookup</text>
+    </svg>
+  </div>
+</body>
+</html>

@@ -10,7 +10,7 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20260903mddefault';
+const ASSET_VERSION = '20260921autolink';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';

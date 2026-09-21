@@ -136,6 +136,22 @@ test('tinymceToMarkdown converts italic to markdown *italic*', () => {
 	assert.ok(result.includes('*italic*'), `got: ${result}`);
 });
 
+test('tinymceToMarkdown collapses same-label url to autolink', () => {
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const html = '<p><a href="https://example.com">https://example.com</a></p>';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	assert.equal(result.trim(), '<https://example.com>');
+});
+
+test('tinymceToMarkdown keeps named links as [label](url)', () => {
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const html = '<p><a href="https://example.com">Example</a></p>';
+	const result = vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ')', ctx);
+	assert.equal(result.trim(), '[Example](https://example.com)');
+});
+
 test('tinymceToMarkdown converts h2 to ATX ## heading', () => {
 	const ctx = makeTurndownCtx();
 	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
@@ -367,12 +383,36 @@ test('tinymceToMarkdown still fences a normal <pre><code> block with language', 
 		`language-tagged fenced block must round-trip, got: ${JSON.stringify(result)}`);
 });
 
-test('tinymceToMarkdown still collapses a blank line after a real ATX heading', () => {
+test('tinymceToMarkdown keeps a blank line after a real ATX heading (authored gaps survive)', () => {
+	// The old behaviour collapsed any blank line after a heading by design (to
+	// avoid phantom edits on compact notes). That silently ate blank lines the
+	// user typed around headings. Turndown's natural spacing is now kept; the
+	// authored-gap tiebreak (tinymceToMarkdown(html,prevMd)) prevents the
+	// phantom edit for untouched compact notes instead.
 	const ctx = makeTurndownCtx();
 	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	// Without authored state: Turndown spacing (blank line after heading) is kept.
 	const result = vm.runInContext('tinymceToMarkdown("<h1>Title</h1><p>Body text</p>")', ctx);
-	assert.ok(/^# Title\nBody text/.test(result),
-		`heading collapse must still apply outside code, got: ${JSON.stringify(result)}`);
+	assert.ok(/^# Title\n\nBody text/.test(result),
+		`blank line after heading must be preserved, got: ${JSON.stringify(result)}`);
+	// With authored compact markdown: stays compact (no phantom rewrite).
+	const kept = vm.runInContext('tinymceToMarkdown("<h1>Title</h1><p>Body text</p>", ' + JSON.stringify('# Title\nBody text') + ')', ctx);
+	assert.equal(kept.trim(), '# Title\nBody text',
+		`authored compact heading body must not be re-spaced, got: ${JSON.stringify(kept)}`);
+});
+
+test('tinymceToMarkdown authored-gap tiebreak: real edits always win, gaps only normalize', () => {
+	const ctx = makeTurndownCtx();
+	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
+	const run = (html, prev) => vm.runInContext('tinymceToMarkdown(' + JSON.stringify(html) + ', ' + JSON.stringify(prev) + ')', ctx).trim();
+	// Authored spaced body stays spaced.
+	assert.equal(run('<h1>Title</h1><p>Body text</p>', '# Title\n\nBody text'), '# Title\n\nBody text');
+	// A real content edit is never dropped — it re-spaces the gap once.
+	assert.equal(run('<h1>Title</h1><p>Body text!<br></p>', '# Title\nBody text'), '# Title\n\nBody text!');
+	// Gap shape removed in markdown mode (prev authoritative) stays removed.
+	assert.equal(run('<h1>Title</h1><p>Body text</p>', '# Title\nBody text'), '# Title\nBody text');
+	// Non-heading deltas are real content differences — the tiebreak must not fire.
+	assert.equal(run('<p>a</p><p>b</p>', 'a\nb'), 'a\n\nb');
 });
 
 // ---------------------------------------------------------------------------
@@ -585,13 +625,18 @@ function simulateTinyMCEGetContent(html) {
 		.replace(/<p>((?:[^<]|<(?!\/p>))+?)(?:<br>)?\s*<\/p>/gi, '<p>$1<br></p>');
 }
 
-function modeSwitchRoundTrip(md) {
+function modeSwitchRoundTrip(md, prevMd) {
 	const { renderMarkdown } = require('../app/templates');
 	const html = renderMarkdown(md);
 	const normalised = simulateTinyMCEGetContent(html);
 	const ctx = makeTurndownCtx();
 	runWithDeps(ctx, 'getTurndown', 'tinymceToMarkdown');
-	return vm.runInContext('tinymceToMarkdown(' + JSON.stringify(normalised) + ')', ctx).trim();
+	// Mirror the real sync path (tinyMCESyncToTA / _lazyTinyMCESyncBeforeSave):
+	// the fresh conversion is compared against the authored markdown (#note-body
+	// content) via the heading-gap tiebreak inside tinymceToMarkdown, so authored
+	// blank lines around headings survive and untouched compact notes stay compact.
+	const prevSrc = JSON.stringify(prevMd === undefined ? md : prevMd);
+	return vm.runInContext('(function(prev){return tinymceToMarkdown(' + JSON.stringify(normalised) + ',prev)})(' + prevSrc + ')', ctx).trim();
 }
 
 test('mode-switch round-trip: soft-break lines within paragraph', () => {
@@ -617,6 +662,30 @@ test('mode-switch round-trip: bold and italic inline formatting', () => {
 test('mode-switch round-trip: heading followed by body', () => {
 	const md = '## My heading\nBody text here.';
 	assert.equal(modeSwitchRoundTrip(md), md);
+});
+
+test('mode-switch round-trip: blank line after an ATX heading is preserved', () => {
+	// The reported bug: adding a blank line below the heading in markdown mode,
+	// then switching to rendered and back, used to silently remove it (and the
+	// collapsed body was saved). It must survive, and stay stable on reopen.
+	const md = '# Title\n\nBody text';
+	assert.equal(modeSwitchRoundTrip(md), md);
+});
+
+test('mode-switch round-trip: blank line before a heading is preserved', () => {
+	const md = 'Intro\n\n## Section';
+	assert.equal(modeSwitchRoundTrip(md), md);
+});
+
+test('mode-switch round-trip: heading gaps stay stable across 5 switches', () => {
+	const spaced = 'Intro\n\n# Title\n\nBody';
+	let cur = spaced;
+	for (let i = 0; i < 5; i++) cur = modeSwitchRoundTrip(cur);
+	assert.equal(cur, spaced, `spaced heading gaps must be stable, got: ${JSON.stringify(cur)}`);
+	const compact = 'Intro\n# Title\nBody';
+	cur = compact;
+	for (let i = 0; i < 5; i++) cur = modeSwitchRoundTrip(cur);
+	assert.equal(cur, compact, `compact heading body must not gain phantom gaps, got: ${JSON.stringify(cur)}`);
 });
 
 test('mode-switch round-trip: trailing <br> in <p> does not add extra line', () => {

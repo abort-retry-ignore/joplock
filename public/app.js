@@ -471,7 +471,7 @@ function cmSetVal(v){if(!_cmView)return;var cur=_cmView.state.doc.toString();if(
 function getTinyMCE(){return _tinymceEditor}
 function tinyMCEContent(){return _tinymceEditor?_tinymceEditor.getContent():''}
 function tinyMCESetContent(html){if(_tinymceEditor)_tinymceEditor.setContent(html)}
-function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var _synNoteId=_formNoteId(activeEditorForm());if(_tinymceContentNoteId&&_synNoteId&&_tinymceContentNoteId!==_synNoteId){_log('tinyMCESyncToTA skipped: TinyMCE content belongs to another note',_tinymceContentNoteId,_synNoteId);return false}var host=document.getElementById('tinymce-host');if(!host||!host.classList.contains('tinymce-host-visible')){_log('tinyMCESyncToTA skipped: TinyMCE host not visible');return false}var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
+function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var _synNoteId=_formNoteId(activeEditorForm());if(_tinymceContentNoteId&&_synNoteId&&_tinymceContentNoteId!==_synNoteId){_log('tinyMCESyncToTA skipped: TinyMCE content belongs to another note',_tinymceContentNoteId,_synNoteId);return false}var host=document.getElementById('tinymce-host');if(!host||!host.classList.contains('tinymce-host-visible')){_log('tinyMCESyncToTA skipped: TinyMCE host not visible');return false}var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html,ta.value);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
 function _isMarkdownModeActive(){return _editorMode==='markdown'||_editorMode==='md'}
 
 /* ---------------- Note export (rendered mode only): MD / HTML / DOCX / PDF ---------------- */
@@ -1478,7 +1478,7 @@ function initPersistentTinyMCE(){
 					var ta=getTA();
 					if(ta){
 						var html=editor.getContent();
-						var md=tinymceToMarkdown(html);
+						var md=tinymceToMarkdown(html,ta.value);
 					if(ta.value!==md){
 						ta.value=md;
 						// Do not dispatch 'input' during the post-load window:
@@ -3496,7 +3496,7 @@ function insertStamp(kind){insertTxt(formatStamp(kind))}
 var _linkSavedRange=null;var _linkSavedTA=null;
 function closeLinkModal(){var modal=document.getElementById('link-modal');var backdrop=document.getElementById('link-modal-backdrop');if(modal)modal.hidden=true;if(backdrop)backdrop.hidden=true}
 function openLinkModal(){var pv=getPV();var cm=getCM();if(pv){var sel=window.getSelection();_linkSavedRange=sel&&sel.rangeCount?sel.getRangeAt(0).cloneRange():null;var labelInput=document.getElementById('link-edit-label');if(labelInput)labelInput.value=(sel&&sel.toString())||''}else if(cm){var s=cm.state.selection.main;var labelInput=document.getElementById('link-edit-label');if(labelInput)labelInput.value=cm.state.sliceDoc(s.from,s.to)}var modal=document.getElementById('link-modal');var backdrop=document.getElementById('link-modal-backdrop');var urlInput=document.getElementById('link-edit-url');if(urlInput)urlInput.value='';if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false;if(urlInput)urlInput.focus()}
-function submitLink(event){if(event)event.preventDefault();var url=document.getElementById('link-edit-url');var label=document.getElementById('link-edit-label');var u=(url?url.value:'').trim();if(!u)return false;var t=(label?label.value:'').trim()||u;closeLinkModal();var pv=getPV();if(pv){if(_linkSavedRange){var sel=window.getSelection();sel.removeAllRanges();sel.addRange(_linkSavedRange)}_linkSavedRange=null;var sel=window.getSelection();var range=sel&&sel.rangeCount?sel.getRangeAt(0):null;var link=_createPVLink(u,t);if(range){range.deleteContents();range.insertNode(link);range.setStartAfter(link);range.collapse(true);sel.removeAllRanges();sel.addRange(range)}syncPV();pv.focus();return false}var cm=getCM();if(cm){var md='['+t+']('+u+')';var s=cm.state.selection.main;cm.dispatch({changes:{from:s.from,to:s.to,insert:md},selection:{anchor:s.from+md.length}});cm.focus()}return false}
+function submitLink(event){if(event)event.preventDefault();var url=document.getElementById('link-edit-url');var label=document.getElementById('link-edit-label');var u=(url?url.value:'').trim();if(!u)return false;var t=(label?label.value:'').trim();closeLinkModal();var pv=getPV();if(pv){if(_linkSavedRange){var sel=window.getSelection();sel.removeAllRanges();sel.addRange(_linkSavedRange)}_linkSavedRange=null;var sel=window.getSelection();var range=sel&&sel.rangeCount?sel.getRangeAt(0):null;var link=_createPVLink(u,t||u);if(range){range.deleteContents();range.insertNode(link);range.setStartAfter(link);range.collapse(true);sel.removeAllRanges();sel.addRange(range)}syncPV();pv.focus();return false}var cm=getCM();if(cm){var md=((!t||t===u)&&/^(https?|ftp|mailto):[^\s<>]+$/i.test(u))?'<'+u+'>':'['+(t||u)+']('+u+')';var s=cm.state.selection.main;cm.dispatch({changes:{from:s.from,to:s.to,insert:md},selection:{anchor:s.from+md.length}});cm.focus()}return false}
 function insertLink(){openLinkModal()}
 var _codeSavedSel=null;
 var _codeSavedRange=null;
@@ -3673,7 +3673,7 @@ function _uploadFileToTinyMCE(file,editor){
 			// the resource reference even if onEdit fires asynchronously.
 			var ta=getTA();
 			if(ta){
-				var md=tinymceToMarkdown(editor.getContent());
+				var md=tinymceToMarkdown(editor.getContent(),ta.value);
 				if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));}
 			}
 		});
@@ -3909,8 +3909,10 @@ function getTurndown(){
 	// Joplin resource links
 	td.addRule('joplinLink',{filter:function(n){return n.nodeName==='A'&&/^\/?resources\/[0-9a-zA-Z]{32}(?:\?download=1)?$/.test((n.getAttribute('href')||'').split('#')[0])},
 		replacement:function(c,n){var m=(n.getAttribute('href')||'').match(/^\/?resources\/([0-9a-zA-Z]{32})/);return '['+c+'](:/'+m[1]+')'}});
-	// Preserve external links created in rendered mode instead of collapsing same-label links back to plain text.
-	td.addRule('externalLink',{filter:function(n){var href=(n.getAttribute('href')||'').trim();return n.nodeName==='A'&&!!href&&!/^\/?resources\//.test(href)},replacement:function(c,n){var href=(n.getAttribute('href')||'').trim();var label=(c||'').trim()||href;return '['+label+']('+href+')'}});
+	// External links: named label → [label](url). No custom description (label empty or equal to href)
+	// → CommonMark autolink <url> so markdown does not repeat the URL as [url](url). Still a real
+	// link because the renderer keeps linkify off (bare URLs would become plain text).
+	td.addRule('externalLink',{filter:function(n){var href=(n.getAttribute('href')||'').trim();return n.nodeName==='A'&&!!href&&!/^\/?resources\//.test(href)},replacement:function(c,n){var href=(n.getAttribute('href')||'').trim();var label=(c||'').trim();if((!label||label===href)&&/^(https?|ftp|mailto):[^\s<>]+$/i.test(href))return '<'+href+'>';return '['+(label||href)+']('+href+')'}});
 	// md-blank-line markers — use placeholder to survive <br> normalization.
 	// Emitted by the renderer as <p class="md-blank-line"><br></p> (TinyMCE-stable);
 	// also accept the legacy <div class="md-blank-line"> shape. After
@@ -3955,12 +3957,18 @@ function getTurndown(){
 	// Each one = one extra blank line → \x00BL\x00 sentinel → post-processing converts to \n\n\n.
 	td.addRule('emptyP',{filter:function(n){return n.nodeName==='P'&&!n.querySelector('img')&&(!n.textContent.trim()||n.innerHTML==='<br>'||n.innerHTML==='\u2764BR\u2764')},replacement:function(){return '\x00BL\x00'}});
 	_tdService=td;return td}
-// Collapse a blank line immediately after / before an ATX heading, but ONLY
+// Collapse blank lines immediately after / before an ATX heading, but ONLY
 // outside fenced code blocks. A code line like `#include <stdio.h>` (C) or
 // `# comment` (bash) is NOT a markdown heading, and its following blank line
-// must be preserved verbatim — otherwise round-tripping through rendered mode
-// eats blank lines inside code. We mask ``` fenced ``` regions, apply the
+// must be preserved verbatim. We mask ``` fenced ``` regions, apply the
 // heading spacing fixes to the rest, then restore the code untouched.
+// NOTE: tinymceToMarkdown() no longer applies this unconditionally — a blank
+// line the user typed around a heading is unrepresentable in the HTML round
+// trip (Turndown always emits one, the renderer cannot show one), and
+// collapsing it destroyed authored spacing. It is now only used as the
+// canonical-collapse comparator for the authored-gap tiebreak in
+// tinymceToMarkdown(html,prevMd), and by the legacy preview path
+// (htmlToMarkdown). See the tiebreak comment in tinymceToMarkdown.
 function _applyHeadingSpacing(md){
 	var nl=String.fromCharCode(10);
 	var headingGapRe=new RegExp('^(#{1,6}[^'+nl+']*)'+nl+'{2,}(?=\\S)','gm');
@@ -4033,7 +4041,23 @@ function _protectInlineLeadingSpace(html){
 function _restoreProtectedSpace(md){
 	return md.replace(/\u2764S(\d+)\u2764/g,function(_m,code){return String.fromCharCode(parseInt(code,10))});
 }
-function tinymceToMarkdown(html){
+// TinyMCE content -> markdown. Optional prevMd = the markdown #note-body
+// already held for the same note (the authored state: what the user last had
+// in markdown mode / what was loaded from the server).
+//
+// Heading gaps: an HTML round trip cannot represent a blank line adjacent to
+// an ATX heading — Turndown always emits one blank line before/after a heading
+// and the renderer cannot show one (a `# H\nB` and a `# H\n\nB` render to the
+// same HTML). Blindly re-collapsing (the old behaviour) silently ate blank
+// lines the user typed around headings: add one in markdown mode, switch to
+// rendered and back, and it was gone — and the "normalised" body was saved.
+// Instead the round trip keeps Turndown's natural spacing, and ONLY when the
+// fresh conversion differs from the authored markdown purely by heading-gap
+// shape (collapsing both yields the same text) does prevMd win: untouched
+// compact notes don't gain a phantom "Edited"+save, authored gaps survive.
+// A real content edit always changes the collapsed text, so it is never
+// dropped by this tiebreak — it just rides along with the one-time re-space.
+function tinymceToMarkdown(html,prevMd){
 	if(!html)return '';
 	html=html.replace(/\u200b/g,'');
 	// Normalise blank-line markers. TinyMCE strips the <br> from
@@ -4071,7 +4095,11 @@ function tinymceToMarkdown(html){
 	var td=getTurndown();
 	var md=td.turndown(html);
 	var nl=String.fromCharCode(10);
-	md=_applyHeadingSpacing(md);
+	// No unconditional _applyHeadingSpacing() here: it ate authored blank lines
+	// adjacent to ATX headings. Turndown's natural spacing is kept; the
+	// authored-gap tiebreak below restores compactness only when nothing else
+	// changed. (Blank lines inside fenced code need no masking anymore — they
+	// are never touched.)
 	// Normalise blank-line sentinels (md-blank-line divs + empty paragraphs)
 	md=md.replace(/\n*(?:\x00BL\x00\n*)+/g,function(m){var count=(m.match(/\x00BL\x00/g)||[]).length;return nl+nl+Array(count+1).join(nl)});
 	// Restore line-break sentinels as \n (soft breaks within paragraphs).
@@ -4097,6 +4125,8 @@ function tinymceToMarkdown(html){
 		if(ch.charCodeAt(0)===92&&(nx==='['||nx===']'||nx.charCodeAt(0)===96||nx==='*'||nx==='_'||nx.charCodeAt(0)===92||nx==='$')){out+=nx;i++;continue}
 		out+=ch
 	}
+	// Authored heading-gap tiebreak (see function comment above).
+	if(prevMd!=null&&prevMd!==out&&_applyHeadingSpacing(out)===_applyHeadingSpacing(prevMd))return prevMd;
 	return out
 }
 function setEditorMode(mode){
@@ -4435,7 +4465,7 @@ function _lazyTinyMCESyncBeforeSave(){
 	var _lzNoteId=_formNoteId(activeEditorForm());
 	if(_tinymceContentNoteId&&_lzNoteId&&_tinymceContentNoteId!==_lzNoteId){_log('_lazyTinyMCESyncBeforeSave skipped: TinyMCE content provenance mismatch',_tinymceContentNoteId,_lzNoteId);return false}
 	try{
-		var md=tinymceToMarkdown(_tinymceEditor.getContent());
+		var md=tinymceToMarkdown(_tinymceEditor.getContent(),ta.value);
 		if(ta.value!==md){ta.value=md;return true}
 	}catch(e){_log('_lazyTinyMCESyncBeforeSave error',e&&e.message||e)}
 	return false;

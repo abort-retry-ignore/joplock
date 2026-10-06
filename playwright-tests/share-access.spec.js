@@ -36,7 +36,9 @@ test.describe('share cross-account access', () => {
 		await page.close();
 	});
 
-	test('shared folder visible to reader', async ({ ownerPage, readerPage }) => {
+	test('shared folder visible to reader', async ({ ownerPage, readerPage }, testInfo) => {
+		// Two-account desktop flow (owner UI uses the desktop New-notebook button).
+		test.skip(testInfo.project.name !== 'desktop');
 		if (!hasAdminCredentials()) test.skip();
 		await acceptDialogs(ownerPage);
 		await acceptDialogs(readerPage);

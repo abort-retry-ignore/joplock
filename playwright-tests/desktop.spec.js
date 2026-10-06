@@ -575,6 +575,9 @@ test.describe('Desktop UI', () => {
 
 	test('trash row uses explicit empty-trash confirm modal', async ({ page }, testInfo) => {
 		test.skip(testInfo.project.name !== 'desktop');
+		// deleteNotebook() ends in a native confirm(); without a handler Playwright
+		// auto-dismisses it and the notebook is never deleted.
+		acceptDialogs(page);
 		const folderName = slug('pw-trash-folder');
 		const noteTitle = slug('pw trash note');
 

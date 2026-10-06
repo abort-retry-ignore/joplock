@@ -3699,6 +3699,10 @@ function _insertResourceIntoTinyMCEFromMarkdown(markdown,rng){
 		var tmd=tinymceToMarkdown(ed.getContent(),ta.value);
 		if(ta.value!==tmd){ta.value=tmd;ta.dispatchEvent(new Event('input',{bubbles:true}));}
 	}
+	// Advance the batch target to the caret AFTER this insert (the CM6 branch does
+	// the same). Reusing the original caret for every file of a multi-file upload
+	// put each image at the same spot, so a batch came out reversed.
+	try{var nextRng=ed.selection.getRng();if(nextRng)_uploadInsertTarget={mode:'tinymce',rng:nextRng.cloneRange()}}catch(_e){}
 	return true;
 }
 function _insertUploadedMarkdown(markdown){if(_uploadInsertTarget&&_uploadInsertTarget.mode==='tinymce'&&_tinymceEditor){var t=_insertResourceIntoTinyMCEFromMarkdown(markdown,_uploadInsertTarget.rng);if(t)return true}if(_uploadInsertTarget&&_uploadInsertTarget.mode==='preview'&&getPV())return _insertMarkdownAtPreviewTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='cm'&&getCM()&&isMarkdownVisible())return _insertMarkdownAtCodeMirrorTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='textarea')return _insertMarkdownAtTextareaTarget(markdown,_uploadInsertTarget);_uploadInsertTarget=_captureUploadInsertTarget();if(_uploadInsertTarget&&_uploadInsertTarget.mode==='tinymce'&&_tinymceEditor){var t2=_insertResourceIntoTinyMCEFromMarkdown(markdown,_uploadInsertTarget.rng);if(t2)return true}if(_uploadInsertTarget&&_uploadInsertTarget.mode==='preview'&&getPV())return _insertMarkdownAtPreviewTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='cm'&&getCM()&&isMarkdownVisible())return _insertMarkdownAtCodeMirrorTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='textarea')return _insertMarkdownAtTextareaTarget(markdown,_uploadInsertTarget);return false}

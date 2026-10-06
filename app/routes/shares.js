@@ -47,6 +47,17 @@ const inviteesList = data => {
 
 const shareFolderId = share => share && (share.folder_id || share.notebook_id || share.folderId || share.notebookId || '');
 
+// `share_id` of an item, decoded from its JSON content.
+//
+// `items` also holds binary resource blobs (jop_type 0, e.g. every uploaded
+// image/PDF). Those are not valid UTF-8, so convert_from() raises
+// "invalid byte sequence" and aborts the WHOLE statement — and SQL gives no
+// guarantee that a sibling `jop_type = ...` predicate runs first. The CASE
+// guarantees only note/folder rows are ever decoded. (With an unguarded
+// expression every share fan-out / revoke silently did nothing once the
+// account owned a single uploaded attachment: the callers swallow errors.)
+const shareIdOf = (alias = '') => `(CASE WHEN ${alias}jop_type IN (1, 2) THEN convert_from(${alias}content, 'UTF8')::json->>'share_id' END)`;
+
 const newId = () => randomBytes(16).toString('hex');
 
 const autoAcceptShareUser = async (database, shareUserId) => {
@@ -103,7 +114,7 @@ const populateUserItems = async (database, recipientUserId, ownerId, shareId, no
 		  AND (
 		    jop_id = $2
 		    OR jop_parent_id = $2
-		    OR COALESCE(convert_from(content, 'UTF8')::json->>'share_id', '') = $3
+		    OR COALESCE(${shareIdOf()}, '') = $3
 		  )
 	`, [ownerId, notebookId, shareId || '']).catch(() => ({ rows: [] }));
 
@@ -326,7 +337,7 @@ const handle = async (url, request, response, ctx) => {
 						const folder = await database.query(
 							`SELECT jop_id FROM items
 							 WHERE owner_id = $1 AND jop_type = 2
-							   AND COALESCE(convert_from(content,'UTF8')::json->>'share_id','') = $2
+							   AND COALESCE(${shareIdOf()}, '') = $2
 							 LIMIT 1`,
 							[row.owner_id || auth.user.id, shareId],
 						).catch(() => ({ rows: [] }));
@@ -384,7 +395,7 @@ const handle = async (url, request, response, ctx) => {
 			if (database) {
 				await database.query(`DELETE FROM user_items WHERE item_id IN (
 					SELECT i.jop_id FROM items i
-					WHERE COALESCE(convert_from(i.content,'UTF8')::json->>'share_id','') = $1
+					WHERE COALESCE(${shareIdOf('i.')}, '') = $1
 				)`, [shareId]).catch(() => null);
 				await database.query(`DELETE FROM share_users WHERE share_id = $1`, [shareId]).catch(() => null);
 			}
@@ -522,7 +533,7 @@ const handle = async (url, request, response, ctx) => {
 				await database.query(`DELETE FROM share_users WHERE id = $1`, [inviteId]);
 				if (row) {
 					await database.query(`DELETE FROM user_items WHERE user_id = $1 AND item_id IN (
-						SELECT i.jop_id FROM items i WHERE COALESCE(convert_from(i.content,'UTF8')::json->>'share_id','') = $2
+						SELECT i.jop_id FROM items i WHERE COALESCE(${shareIdOf('i.')}, '') = $2
 					)`, [row.user_id, row.share_id]).catch(() => {});
 				}
 				sendJson(response, 200, { ok: true });

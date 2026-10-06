@@ -666,3 +666,39 @@ test('markdown mode: spreadsheet-style paste (text + html + preview bitmap) keep
 	assert.equal(w.eval('_edited'), 0);
 	try { w.eval('getCM().destroy()'); } catch (_e) { /* ignore */ }
 });
+
+// ---------------------------------------------------------------------------
+// Multi-file picker upload in rendered mode: the insert target must ADVANCE
+// after every file. The caret was captured once and reused, so every image of
+// a batch landed at the same stale spot — reversed, ahead of the existing text.
+// ---------------------------------------------------------------------------
+
+test('rendered mode: a multi-file upload batch inserts in upload order (target advances per file)', () => {
+	const ctx = makeTinyMCECtx(null);
+	// Fake TinyMCE selection: every insert moves the caret to a new Range object.
+	const calls = [];
+	let caret = 0;
+	const mkRng = n => ({ n, cloneRange() { return mkRng(n); } });
+	ctx.ed.selection = {
+		getRng: () => mkRng(caret),
+		setRng: r => calls.push(r.n),
+	};
+	const origInsert = ctx.ed.insertContent;
+	ctx.ed.insertContent = html => { origInsert(html); caret += 10; };
+	vm.runInContext('var _tinymceEditor=ed;var _uploadInsertTarget=null;', ctx);
+	vm.runInContext(extractFn('_normalizeUploadInsert'), ctx);
+	vm.runInContext(extractFn('_insertResourceIntoTinyMCEFromMarkdown'), ctx);
+	vm.runInContext(extractFn('_insertUploadedMarkdown'), ctx);
+	// Stubs for the other targets _insertUploadedMarkdown can fall through to.
+	vm.runInContext('function getPV(){return null}function getCM(){return null}function isMarkdownVisible(){return false}function _captureUploadInsertTarget(){return null}', ctx);
+
+	ctx._uploadInsertTarget = null;
+	vm.runInContext('_uploadInsertTarget={mode:"tinymce",rng:ed.selection.getRng().cloneRange()}', ctx);
+	const A = 'a'.repeat(32);
+	const B = 'b'.repeat(32);
+	assert.equal(vm.runInContext(`_insertUploadedMarkdown('![first](:/${A})')`, ctx), true);
+	assert.equal(vm.runInContext(`_insertUploadedMarkdown('![second](:/${B})')`, ctx), true);
+	assert.deepEqual(calls, [0, 10], 'second image must be inserted at the caret left by the first, not at the original caret');
+	assert.ok(ctx._inserted[0].includes(A) && ctx._inserted[1].includes(B));
+	assert.equal(vm.runInContext('_uploadInsertTarget.rng.n', ctx), 20, 'target keeps following the caret');
+});

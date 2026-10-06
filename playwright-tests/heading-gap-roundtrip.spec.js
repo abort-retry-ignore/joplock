@@ -55,10 +55,12 @@ async function switchToRich(page) {
 	await expect(page.locator('iframe.tox-edit-area__iframe')).toBeVisible({ timeout: 15000 });
 }
 
+// Read the CodeMirror DOCUMENT, not the rendered DOM text: with the per-user
+// "hide formatting marks" (live preview) setting on, `## ` is not in the DOM
+// of lines the caret is not on, although it is in the markdown.
 async function getCmText(page) {
-	return page.locator('#editor-panel .cm-content').first().evaluate(el =>
-		Array.from(el.querySelectorAll('.cm-line')).map(l => l.textContent).join('\n')
-	);
+	await page.locator('#editor-panel .cm-content').first().waitFor();
+	return page.evaluate(() => getCM().state.doc.toString());
 }
 
 test.describe('Heading blank lines survive mode switches', () => {

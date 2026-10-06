@@ -25,6 +25,53 @@ const TEST_IMAGE = path.resolve(__dirname, '..', 'public', 'icon-192.png');
 const IMG_B64 = fs.readFileSync(TEST_IMAGE).toString('base64');
 const PDF_B64 = Buffer.from('%PDF-1.1\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF').toString('base64');
 
+// These specs assert on DOM text, which depends on the user's markdown-editor
+// settings (e.g. "hide formatting marks" removes `## ` from every line the caret
+// is not on). Pin the defaults for the whole file and put the account's real
+// settings back afterwards.
+const MD_SETTING_DEFAULTS = { mdInlineWidgets: true, mdLivePreview: false, mdStatusBar: true, mdFolding: true };
+const MD_SETTING_IDS = {
+	mdInlineWidgets: 'settings-md-inline-widgets',
+	mdLivePreview: 'settings-md-live-preview',
+	mdStatusBar: 'settings-md-status-bar',
+	mdFolding: 'settings-md-folding',
+};
+async function readMdSettings(page) {
+	const html = await page.evaluate(async () => (await fetch('/settings', { credentials: 'same-origin' })).text());
+	const out = {};
+	for (const [key, id] of Object.entries(MD_SETTING_IDS)) {
+		const tag = (html.match(new RegExp(`<input[^>]*id="${id}"[^>]*>`)) || [''])[0].replace(/onchange="[^"]*"/, '');
+		out[key] = /\schecked\b/.test(tag);
+	}
+	return out;
+}
+async function putMdSettings(page, values) {
+	return page.evaluate(async v => (await fetch('/api/web/settings', {
+		method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(v),
+	})).status, values);
+}
+let originalMdSettings = null;
+test.beforeAll(async ({ browser }) => {
+	const page = await browser.newPage();
+	try {
+		await login(page);
+		originalMdSettings = await readMdSettings(page);
+		expect(await putMdSettings(page, MD_SETTING_DEFAULTS)).toBe(204);
+	} finally {
+		await page.close();
+	}
+});
+test.afterAll(async ({ browser }) => {
+	if (!originalMdSettings) return;
+	const page = await browser.newPage();
+	try {
+		await login(page);
+		await putMdSettings(page, originalMdSettings);
+	} finally {
+		await page.close();
+	}
+});
+
 async function setDoc(page, text) {
 	await page.evaluate(t => {
 		const v = getCM();

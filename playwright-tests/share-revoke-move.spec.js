@@ -35,7 +35,9 @@ test.describe('share revoke leave stop', () => {
 		await page.close();
 	});
 
-	test('owner revokes access — reader loses folder', async ({ ownerPage, readerPage }) => {
+	test('owner revokes access — reader loses folder', async ({ ownerPage, readerPage }, testInfo) => {
+		// Two-account desktop flow (owner UI uses the desktop New-notebook button).
+		test.skip(testInfo.project.name !== 'desktop');
 		if (!hasAdminCredentials()) test.skip();
 		await acceptDialogs(ownerPage);
 		await acceptDialogs(readerPage);
@@ -83,7 +85,9 @@ test.describe('share revoke leave stop', () => {
 		await teardownTestData(ownerPage, { folders: [folder] });
 	});
 
-	test('owner stop sharing — reader loses folder', async ({ ownerPage, readerPage }) => {
+	test('owner stop sharing — reader loses folder', async ({ ownerPage, readerPage }, testInfo) => {
+		// Two-account desktop flow (owner UI uses the desktop New-notebook button).
+		test.skip(testInfo.project.name !== 'desktop');
 		if (!hasAdminCredentials()) test.skip();
 		await acceptDialogs(ownerPage);
 		await acceptDialogs(readerPage);
@@ -108,7 +112,9 @@ test.describe('share revoke leave stop', () => {
 		await teardownTestData(ownerPage, { folders: [folder] });
 	});
 
-	test('reader cannot see owner controls in share dialog', async ({ ownerPage, readerPage }) => {
+	test('reader cannot see owner controls in share dialog', async ({ ownerPage, readerPage }, testInfo) => {
+		// Two-account desktop flow (owner UI uses the desktop New-notebook button).
+		test.skip(testInfo.project.name !== 'desktop');
 		if (!hasAdminCredentials()) test.skip();
 		await acceptDialogs(ownerPage);
 		await acceptDialogs(readerPage);

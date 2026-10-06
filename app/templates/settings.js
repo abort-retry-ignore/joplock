@@ -223,10 +223,6 @@ const settingsPage = (options = {}) => {
 								<option value="invert"${settings.newlineBehavior==='invert'?' selected':''}>Line breaks with list support</option>
 							</select>
 						</label>
-						<label class="settings-field settings-checkbox">
-							<span>Markdown editor</span>
-							<label><input type="checkbox" id="settings-highlight-active-line" onchange="saveSetting('highlightActiveLine',this.checked?'1':'0')"${settings.highlightActiveLine !== false ? ' checked' : ''} /> Highlight current line in editor</label>
-						</label>
 						<label class="settings-field">
 							<span>Open notes in</span>
 							<select id="settings-note-open-mode" class="login-input" onchange="saveSetting('noteOpenMode',this.value)">
@@ -262,6 +258,16 @@ const settingsPage = (options = {}) => {
 								${validDatetimeFormats.map(f => `<option value="${escapeHtml(f)}"${(settings.datetimeFormat || 'YYYY-MM-DD HH:mm') === f ? ' selected' : ''}>${escapeHtml(f)}</option>`).join('')}
 							</select>
 						</label>
+						<div class="settings-field settings-checkbox settings-field-wide">
+							<span>Markdown editor</span>
+							<div class="settings-checkbox-group">
+							<label><input type="checkbox" id="settings-highlight-active-line" onchange="saveSetting('highlightActiveLine',this.checked?'1':'0')"${settings.highlightActiveLine !== false ? ' checked' : ''} /> Highlight current line in editor</label>
+							<label><input type="checkbox" id="settings-md-inline-widgets" onchange="saveSetting('mdInlineWidgets',this.checked?'1':'0')"${settings.mdInlineWidgets !== false ? ' checked' : ''} /> Show images, attachments, checkboxes and code Copy buttons inline</label>
+							<label><input type="checkbox" id="settings-md-live-preview" onchange="saveSetting('mdLivePreview',this.checked?'1':'0')"${settings.mdLivePreview === true ? ' checked' : ''} /> Hide formatting marks (#, **, links) on lines you are not editing</label>
+							<label><input type="checkbox" id="settings-md-status-bar" onchange="saveSetting('mdStatusBar',this.checked?'1':'0')"${settings.mdStatusBar !== false ? ' checked' : ''} /> Show word count and heading outline bar</label>
+							<label><input type="checkbox" id="settings-md-folding" onchange="saveSetting('mdFolding',this.checked?'1':'0')"${settings.mdFolding !== false ? ' checked' : ''} /> Show fold arrows for headings, lists and code blocks</label>
+						</div>
+						</div>
 					</div>
 				</section>
 			</div>

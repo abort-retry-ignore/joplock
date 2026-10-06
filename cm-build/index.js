@@ -1,10 +1,10 @@
 // CM6 bundle entry point — exports everything on window.CM
-import { EditorView } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { EditorView, Decoration, WidgetType, ViewPlugin, hoverTooltip, showPanel, GutterMarker } from "@codemirror/view";
+import { EditorState, StateField, StateEffect, RangeSetBuilder, Prec, Compartment, EditorSelection } from "@codemirror/state";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { keymap, placeholder, drawSelection, highlightActiveLine } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, HighlightStyle, StreamLanguage } from "@codemirror/language";
+import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, HighlightStyle, StreamLanguage, syntaxTree, foldGutter, codeFolding, foldKeymap, foldService, foldEffect, unfoldEffect, foldedRanges, foldable, foldAll, unfoldAll } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { searchKeymap, highlightSelectionMatches, openSearchPanel, SearchQuery, setSearchQuery } from "@codemirror/search";
 
@@ -70,4 +70,30 @@ window.CM = {
   // Autocomplete support
   autocompletion,
   startCompletion,
+
+  // Rich markdown-mode extensions (public/cm-extras.js): decorations/widgets,
+  // state fields, panels, tooltips and folding.
+  Decoration,
+  WidgetType,
+  ViewPlugin,
+  hoverTooltip,
+  showPanel,
+  GutterMarker,
+  StateField,
+  StateEffect,
+  RangeSetBuilder,
+  Prec,
+  Compartment,
+  EditorSelection,
+  syntaxTree,
+  foldGutter,
+  codeFolding,
+  foldKeymap,
+  foldService,
+  foldEffect,
+  unfoldEffect,
+  foldedRanges,
+  foldable,
+  foldAll,
+  unfoldAll,
 };

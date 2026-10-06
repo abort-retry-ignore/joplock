@@ -344,7 +344,7 @@ test('CM6 mounts into #cm-host and syncs both ways with #note-body', () => {
 	const w = dom.window;
 	w.eval(cmBundle);
 	// Minimal globals that initCM references (autocomplete/prose/ring-buffer are stubbed).
-	w.eval('var _cmView=null,_highlightActiveLine=false,_ringBufFedFromBeforeinput=false;');
+	w.eval('var _cmView=null,_highlightActiveLine=false,_ringBufFedFromBeforeinput=false,_mdFolding=false;function _cmExtraExtensions(){return []}');
 	w.eval('function _ringBufAccepts(){return false}function _feedRingBuffer(){}function _resetRingBuffer(){}');
 	w.eval('function maybeTriggerManualProseFromCM(){}function requestManualProseCompletion(){return true}');
 	w.eval('function manualProseCompletionSource(){return null}function noteCompletionSource(){return null}');
@@ -563,3 +563,99 @@ test('rendered mode: does not stack a blank line next to an existing blank-line 
 		`should not add a leading blank line next to an existing one, got: ${html}`);
 });
 
+
+// ---------------------------------------------------------------------------
+// Clipboard paste of images/files in markdown mode. CM6's own paste handler
+// only reads text/plain, so a screenshot / "Copy image" paste used to do
+// nothing at all. Real CM6 bundle + real initCM; only the network is mocked.
+// ---------------------------------------------------------------------------
+
+function mountCmForPaste(initialDoc) {
+	const { editorFragment } = require('../app/templates');
+	const cmBundle = fs.readFileSync(path.join(__dirname, '../public/codemirror.min.js'), 'utf8');
+	const frag = editorFragment(
+		{ id: 'n1', title: 'T', body: initialDoc, parentId: 'f1', deletedTime: 0, createdTime: 1, updatedTime: 2 },
+		[{ id: 'f1', title: 'F' }],
+	);
+	const dom = new JSDOM('<!DOCTYPE html><body><div id="editor-panel">' + frag + '</div></body>', {
+		runScripts: 'outside-only', url: 'https://joplock.test', pretendToBeVisual: true,
+	});
+	const w = dom.window;
+	w.eval(cmBundle);
+	w.eval('var _cmView=null,_highlightActiveLine=false,_ringBufFedFromBeforeinput=false,_mdFolding=false;function _cmExtraExtensions(){return []}');
+	w.eval('function _ringBufAccepts(){return false}function _feedRingBuffer(){}function _resetRingBuffer(){}');
+	w.eval('function maybeTriggerManualProseFromCM(){}function requestManualProseCompletion(){return true}');
+	w.eval('function manualProseCompletionSource(){return null}function noteCompletionSource(){return null}');
+	w.eval('function activeEditorForm(){return document.getElementById("note-editor-form")}');
+	w.eval('function queryActiveEditor(sel){var f=activeEditorForm();return f&&f.querySelector?f.querySelector(sel):null}');
+	w.eval('function getTA(){return queryActiveEditor("#note-body")}');
+	w.eval('var _edited=0,_saved=0;function markEdited(){_edited++}function scheduleSave(){_saved++}');
+	w.eval('var _uploads=[];function fetch(){_uploads.push(1);return Promise.resolve({json:function(){return Promise.resolve({resourceId:"' + RID + '",markdown:"![image.png](:/' + RID + ')"})}})}');
+	for (const fn of [
+		'_cmNormalizeLanguageSupport', '_cmLanguageDescription', 'getCM', 'cmSyncToTA', 'cmSetVal',
+		'_maxUploadBytes', '_fileTooLarge', '_tooLargeMsg', '_clipboardFilesToUpload', '_uploadFileToCM',
+		'initCM', 'mountMarkdownEditor',
+	]) w.eval(extractFn(fn));
+	w.eval('mountMarkdownEditor(getTA().value)');
+	return w;
+}
+
+function pasteInto(w, { files = [], text = '', html = '' }) {
+	const ev = new w.Event('paste', { bubbles: true, cancelable: true });
+	const items = files.map(f => ({ kind: 'file', type: f.type, getAsFile: () => f }));
+	Object.defineProperty(ev, 'clipboardData', {
+		value: {
+			items,
+			files,
+			getData: t => (t === 'text/plain' ? text : t === 'text/html' ? html : ''),
+		},
+	});
+	w.document.querySelector('#cm-host .cm-content').dispatchEvent(ev);
+	return ev;
+}
+
+const tick = () => new Promise(r => setTimeout(r, 20));
+
+test('markdown mode: pasting an image-only clipboard uploads it and inserts markdown', async () => {
+	const w = mountCmForPaste('hello');
+	const png = new w.File([new Uint8Array([1, 2, 3])], 'image.png', { type: 'image/png' });
+	const ev = pasteInto(w, { files: [png] });
+	assert.equal(ev.defaultPrevented, true, 'paste must be handled (default prevented)');
+	await tick();
+	assert.equal(w.eval('_uploads.length'), 1, 'image must be uploaded');
+	assert.match(w.eval('getCM().state.doc.toString()'), new RegExp('!\\[image\\.png\\]\\(:/' + RID + '\\)'));
+	assert.equal(w.eval('getTA().value'), w.eval('getCM().state.doc.toString()'), 'textarea mirrors the doc');
+	assert.equal(w.eval('_edited'), 1, 'markEdited must fire so the note saves');
+	assert.equal(w.eval('_saved'), 1, 'scheduleSave must fire');
+	try { w.eval('getCM().destroy()'); } catch (_e) { /* ignore */ }
+});
+
+test('markdown mode: pasting a non-image file also uploads it', async () => {
+	const w = mountCmForPaste('');
+	const pdf = new w.File([new Uint8Array([1])], 'a.pdf', { type: 'application/pdf' });
+	pasteInto(w, { files: [pdf] });
+	await tick();
+	assert.equal(w.eval('_uploads.length'), 1);
+	try { w.eval('getCM().destroy()'); } catch (_e) { /* ignore */ }
+});
+
+test('markdown mode: plain-text paste is untouched (no upload, not intercepted)', async () => {
+	const w = mountCmForPaste('hello');
+	pasteInto(w, { text: 'just text' });
+	await tick();
+	// (CM's own handler preventDefaults text pastes itself, so defaultPrevented
+	// isn't a useful signal here — assert that OUR upload path did not run.)
+	assert.equal(w.eval('_uploads.length'), 0, 'text paste must not upload');
+	assert.equal(w.eval('_edited'), 0, 'our paste handler must not mark the note edited');
+	try { w.eval('getCM().destroy()'); } catch (_e) { /* ignore */ }
+});
+
+test('markdown mode: spreadsheet-style paste (text + html + preview bitmap) keeps the text', async () => {
+	const w = mountCmForPaste('hello');
+	const png = new w.File([new Uint8Array([1])], 'image.png', { type: 'image/png' });
+	pasteInto(w, { files: [png], text: 'a\tb', html: '<table></table>' });
+	await tick();
+	assert.equal(w.eval('_uploads.length'), 0, 'rich text copy must not upload its preview image');
+	assert.equal(w.eval('_edited'), 0);
+	try { w.eval('getCM().destroy()'); } catch (_e) { /* ignore */ }
+});

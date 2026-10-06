@@ -275,6 +275,13 @@ var _defaultNoteOpenMode=_cfg.noteOpenMode||'markdown';
 // preference means open in CM6, on desktop and mobile.
 function preferredEditorMode(){var v='';try{v=(window._joplockConfig&&window._joplockConfig.noteOpenMode)||''}catch(_e){}if(!v)v=_defaultNoteOpenMode||'';return v==='markdown'?'markdown':'rich'}
 var _highlightActiveLine=_cfg.highlightActiveLine!==false;
+// Markdown-mode (CM6) extras — see public/cm-extras.js. Inline widgets (image
+// previews, attachment chips, task checkboxes, code Copy button), status bar and
+// folding default ON; hiding formatting markers ("live preview") defaults OFF.
+var _mdInlineWidgets=_cfg.mdInlineWidgets!==false;
+var _mdLivePreview=_cfg.mdLivePreview===true;
+var _mdStatusBar=_cfg.mdStatusBar!==false;
+var _mdFolding=_cfg.mdFolding!==false;
 var _mobileStartup=_cfg.mobileStartup||null;
 var _uiMode=_cfg.uiMode||'auto';
 var _mobileShellMaxWidth=768;
@@ -3178,6 +3185,55 @@ function _cmLanguageDescription(C,name,alias,buildSupport){
 		load:function(){return Promise.resolve(support)}
 	});
 }
+// ---- CM6 extras: host hooks (images, chips, links, paste) -----------------
+var _linkInfoCache={};
+// What does `:/<id>` point at? A note (title from the headers cache) or an
+// attachment (HEAD /resources/<id>). Attachment info is immutable, so cached.
+function _resolveInternalLink(id){
+	if(_linkInfoCache[id])return Promise.resolve(_linkInfoCache[id]);
+	return fetchNoteHeaders().then(function(hs){
+		for(var i=0;i<hs.length;i++)if(hs[i].id===id)return {kind:'note',title:hs[i].title};
+		return _fetchResourceMeta(id).then(function(m){var info={kind:'resource',filename:m.filename,mime:m.mime};_linkInfoCache[id]=info;return info},function(){return {kind:'unknown'}});
+	});
+}
+// Open another note from a `[title](:/noteId)` link: reuse the note-list row
+// (keeps selection/save logic identical to a normal click) or load the editor
+// fragment directly when the note is not in the visible list.
+function _openNoteById(id){
+	if(!id)return;
+	var row=document.querySelector('.notelist-item[data-note-id="'+id+'"]');
+	if(row){row.click();return}
+	if(typeof isMobile==='function'&&isMobile()&&typeof window.mobilePushEditor==='function'){window.mobilePushEditor(id,typeof _state!=='undefined'&&_state?_state.folderId:'');return}
+	if(window.htmx)window.htmx.ajax('GET','/fragments/editor/'+encodeURIComponent(id),{target:'#editor-panel',swap:'innerHTML'});
+}
+// Clipboard HTML -> markdown for paste in markdown mode (web pages, Word, Docs).
+function _pasteHtmlToMarkdown(html){
+	var tpl=document.createElement('template');
+	tpl.innerHTML=html;
+	var frag=tpl.content;
+	frag.querySelectorAll('meta,style,script,link,title').forEach(function(n){n.remove()});
+	// Google Docs wraps the whole selection in <b style="font-weight:normal">.
+	frag.querySelectorAll('b[style*="font-weight:normal"],b[style*="font-weight: normal"]').forEach(function(b){while(b.firstChild)b.parentNode.insertBefore(b.firstChild,b);b.remove()});
+	var wrap=document.createElement('div');
+	wrap.appendChild(frag);
+	var md=getTurndown().turndown(wrap.innerHTML);
+	return md.replace(/\x00BL\x00/g,'\n').replace(/\u00a0/g,' ').replace(/\n{3,}/g,'\n\n').trim();
+}
+function _cmExtraHooks(){
+	return {
+		fetchResourceBlob:function(id){return _fetchResourceBlob(id).then(function(r){return r.blob})},
+		openResource:function(id){_openResourceLightbox(id)},
+		openNote:_openNoteById,
+		resolveLinkInfo:_resolveInternalLink,
+		copyText:_copyTextToClipboard,
+		htmlToMarkdown:_pasteHtmlToMarkdown
+	};
+}
+function _cmExtraExtensions(C){
+	if(!window.JoplockMd)return [];
+	try{return window.JoplockMd.createExtensions(C,_cmExtraHooks(),{inlineWidgets:_mdInlineWidgets,livePreview:_mdLivePreview,statusBar:_mdStatusBar,folding:_mdFolding})}
+	catch(err){console.error('[joplock] markdown extras failed to initialise',err);return []}
+}
 function initCM(host,content){
 	if(_cmView){_cmView.destroy();_cmView=null}
 	var C=window.CM;
@@ -3185,7 +3241,7 @@ function initCM(host,content){
 		'&':{height:'100%'},
 		'.cm-scroller':{overflow:'auto',fontFamily:'"Cascadia Mono",monospace',lineHeight:'1.7'},
 		'.cm-content':{padding:'16px 20px',caretColor:'var(--accent)'},
-		'.cm-gutters':{display:'none'},
+		'.cm-gutters':_mdFolding?{backgroundColor:'transparent',border:'none',color:'var(--text-dim)'}:{display:'none'},
 		'.cm-search.cm-panel':{display:'none'},
 		'.cm-searchMatch':{backgroundColor:'#ffe066',color:'#111',borderRadius:'2px'},
 		'.cm-searchMatch.cm-searchMatch-selected':{backgroundColor:'#ff9800',color:'#111',borderRadius:'2px'},
@@ -3266,6 +3322,7 @@ function initCM(host,content){
 					}},...C.defaultKeymap,...C.historyKeymap,...C.searchKeymap.filter(function(b){var k=b.key||'';return k!=='Mod-f'&&k!=='F3'&&k!=='Mod-g'}),C.indentWithTab]),
 					C.placeholder('Start writing...'),
 			C.autocompletion({ override: [manualProseCompletionSource,noteCompletionSource] }),
+			..._cmExtraExtensions(C),
 			onUpdate,
 			C.EditorView.lineWrapping,
 			C.EditorView.domEventHandlers({click:function(e,view){var pos=view.posAtCoords({x:e.clientX,y:e.clientY});if(pos==null)return false;var line=view.state.doc.lineAt(pos);var text=line.text;var offset=pos-line.from;var m;var linkRe=/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;while((m=linkRe.exec(text))!==null){if(offset>=m.index&&offset<=m.index+m[0].length){var url=m[2];if(e.ctrlKey||e.metaKey){window.open(url,'_blank','noopener');return true}_copyTextToClipboard(url,function(ok){if(ok)_showLinkCopiedToast(e.clientX,e.clientY)});return true}}var urlRe=/https?:\/\/[^\s)>\]]+/g;while((m=urlRe.exec(text))!==null){if(offset>=m.index&&offset<=m.index+m[0].length){if(e.ctrlKey||e.metaKey){window.open(m[0],'_blank','noopener');return true}_copyTextToClipboard(m[0],function(ok){if(ok)_showLinkCopiedToast(e.clientX,e.clientY)});return true}}return false;}})
@@ -3297,6 +3354,18 @@ function initCM(host,content){
 				e.preventDefault();if(e.dataTransfer){try{e.dataTransfer.dropEffect='copy'}catch(_){}}
 			}
 		});
+		// Clipboard paste of images / files into the markdown editor. CM6's built-in
+		// paste handler only reads text/plain, so an image-only clipboard (screenshot,
+		// "Copy image") is silently swallowed. Listen in the CAPTURE phase on the
+		// editor root so we run before CM's handler (which would otherwise replace
+		// the selection with an empty string) and only take over when the clipboard
+		// really carries uploadable files.
+		_cmView.dom.addEventListener('paste',function(e){
+			var files=_clipboardFilesToUpload(e.clipboardData||window.clipboardData);
+			if(!files.length)return;
+			e.preventDefault();e.stopPropagation();
+			files.reduce(function(pr,file){return pr.then(function(){return _uploadFileToCM(file)})},Promise.resolve()).then(function(){markEdited();scheduleSave()}).catch(function(err){console.error('CM paste upload failed:',err)});
+		},true);
 		_cmView.contentDOM.addEventListener('drop',function(e){
 			var files=e.dataTransfer&&e.dataTransfer.files;
 			if(!files||!files.length)return;
@@ -3677,6 +3746,31 @@ function _uploadFileToTinyMCE(file,editor){
 				if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));}
 			}
 		});
+}
+// Files on the clipboard that should be uploaded as attachments (markdown mode).
+// Returns [] when the paste should fall through to normal text handling.
+//  * Non-image files (PDF, ...) are always uploaded.
+//  * Images are uploaded unless the clipboard also carries BOTH text/plain and
+//    text/html — that is a rich-text/spreadsheet copy (e.g. Excel cells ship a
+//    preview bitmap), where the user wants the text, not the picture.
+function _clipboardFilesToUpload(cd){
+	if(!cd)return [];
+	var files=[];
+	var items=cd.items;
+	if(items&&items.length){
+		for(var i=0;i<items.length;i++){
+			if(items[i].kind==='file'){var f=items[i].getAsFile();if(f)files.push(f)}
+		}
+	}else if(cd.files&&cd.files.length){
+		files=Array.prototype.slice.call(cd.files);
+	}
+	if(!files.length)return [];
+	var hasText=false,hasHtml=false;
+	try{hasText=!!cd.getData('text/plain');hasHtml=!!cd.getData('text/html')}catch(_e){}
+	if(hasText&&hasHtml){
+		files=files.filter(function(f){return !(f.type&&f.type.indexOf('image/')===0)});
+	}
+	return files;
 }
 // Upload a file and insert its markdown reference at the CodeMirror cursor.
 function _uploadFileToCM(file){

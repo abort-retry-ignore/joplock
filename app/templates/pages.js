@@ -10,7 +10,7 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20260921autolink';
+const ASSET_VERSION = '20261005mdextras';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';
@@ -106,6 +106,7 @@ const layoutPage = (options = {}) => {
 	<script src="/htmx.min.js"></script>
 	<script src="/turndown.min.js"></script>
 	<script src="/codemirror.min.js?v=${ASSET_VERSION}"></script>
+	<script src="/cm-extras.js?v=${ASSET_VERSION}"></script>
 	<script src="/prism.min.js"></script>
 	<script src="/tinymce/tinymce.min.js"></script>
 	<script src="/hljs.min.js"></script>
@@ -121,6 +122,10 @@ const layoutPage = (options = {}) => {
 		datetimeFormat:${JSON.stringify(String(settings.datetimeFormat || 'YYYY-MM-DD HH:mm'))},
 		liveSearch:${settings.liveSearch ? 'true' : 'false'},
 		highlightActiveLine:${settings.highlightActiveLine !== false ? 'true' : 'false'},
+		mdInlineWidgets:${settings.mdInlineWidgets !== false ? 'true' : 'false'},
+		mdLivePreview:${settings.mdLivePreview === true ? 'true' : 'false'},
+		mdStatusBar:${settings.mdStatusBar !== false ? 'true' : 'false'},
+		mdFolding:${settings.mdFolding !== false ? 'true' : 'false'},
 		confirmTrash:${settings.confirmTrash !== false ? 'true' : 'false'},
 		encryptionAutoLockMinutes:${JSON.stringify(settings.encryptionAutoLockMinutes || 5)},
 		uiMode:${JSON.stringify(settings.uiMode || 'auto')},

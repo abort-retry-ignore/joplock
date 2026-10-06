@@ -42,6 +42,9 @@ test.describe('two-stage Escape for search', () => {
 			await createDesktopNote(page, notebook);
 			await setNoteTitle(page, noteTitle);
 
+			// This test pins rendered-mode behaviour; since the dual-mode editor
+			// notes open in markdown by default, switch to rich first.
+			await page.locator('#editor-panel #preview-toggle').click();
 			await page.waitForFunction(() => !!(window.tinymce && window.tinymce.activeEditor && window.tinymce.activeEditor.initialized), null, { timeout: 15000 });
 			const editArea = page.locator('#tinymce-host iframe').contentFrame().locator('body#tinymce');
 			await expect(editArea).toBeVisible({ timeout: 15000 });
@@ -61,6 +64,11 @@ test.describe('two-stage Escape for search', () => {
 			const results = page.locator('[data-folder-id="__search_results__"] .notelist-item');
 			await expect(results.first()).toBeVisible({ timeout: 15000 });
 			await results.first().click();
+
+			// The result may reopen in markdown (the current open-mode default);
+			// this test pins rendered-mode find marks — force rich mode.
+			await page.locator('#editor-panel #preview-toggle').click();
+			await page.waitForTimeout(1200); // past the TinyMCE post-load quiet window
 
 			// In-note find is active: marks + find-nav bar visible.
 			const markCount = async () => page.evaluate(() => {

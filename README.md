@@ -7,15 +7,17 @@ Joplock runs as a sidecar alongside an unmodified Joplin Server instance, sharin
 ### Key Features
 
 - **Full Joplin compatibility** -- desktop, mobile, CLI, and Joplock all work with the same account and data simultaneously
+- **Notebook sharing** -- share a notebook by email with per-recipient read/write access; the sharer keeps ownership, and vault notebooks cannot be shared
 - **Low Resource usage** -- minimal memory usage on the client, fast and responsive
 - **Security-first design** -- no private data stored on the client; sessions are cleaned up on logout; per-user settings and admin controls for user management
 - **Client-side encrypted vaults** -- turn any notebook into a vault; notes inside are AES-GCM encrypted in the browser with a PBKDF2-derived key. The server never sees vault passwords. Ciphertext is bound to a specific vault and note id, and the server rejects any write that would land a vault-encrypted body in the wrong note or the wrong vault
-- **Dual-mode editor** -- CodeMirror 6 for markdown editing and TinyMCE 8 for rich rendered mode, switchable per note; mobile opens in a read-only rendered view with an edit toggle
-- **Tables, code blocks, and lightbox** -- full-screen code editor modal with language picker, TinyMCE tables with markdown round-trip, and a lightbox for images and attachments
-- **Note export** -- export any note as Markdown, single-file HTML (images and links inlined), DOCX (server-side via pandoc with reference styles), or PDF, with visible table gridlines in PDF/DOCX output
-- **AI autocomplete** -- optional prose completion via user-configured provider profiles (OpenRouter and others), triggered by Ctrl/Cmd-Space or configurable Expander triggers; per-user text expanders for snippets
+- **Dual-mode editor** -- CodeMirror 6 for markdown editing (the default) and TinyMCE 8 for rich rendered mode, switchable per note; on the mobile/tablet shell rendered mode opens read-only with a pencil toggle to edit
+- **Rich markdown mode** -- inline image previews with drag-to-resize, attachment and note-link chips with hover info, clickable task checkboxes, code-block Copy buttons, Tab-aligned pipe tables, paste-as-markdown (web pages, Word, Docs) and URL-over-selection links, heading folding, a word-count status bar with a heading outline, and an optional live-preview mode that hides formatting marks off the line you are editing (each switchable under Settings → Markdown editor)
+- **Tables, code blocks, and lightbox** -- full-screen code editor modal with language picker, TinyMCE tables with markdown round-trip, a lightbox for images and attachments, and a per-image download button
+- **Note export** -- export any note as Markdown, single-file HTML (images and links inlined), DOCX (server-side via pandoc with reference styles), or PDF (pandoc + weasyprint), with visible table gridlines in PDF/DOCX output
+- **AI autocomplete** -- optional prose completion via user-configured provider profiles (OpenRouter and others), triggered by Ctrl/Cmd-Space or configurable Expander triggers; a `/ask <question>` slash command for direct Q&A; per-user text expanders for snippets
 - **Concurrent-edit detection** -- detects when another client (or another browser tab) has updated the same note and offers Overwrite / Create copy so edits are never silently lost
-- **Multiple themes** -- Grey, Fruit, Dark Fruit, Earth, Swamp Thing, Fireball, and more, all as CSS custom-property sets; per-user theme picker in the status bar and settings page
+- **Multiple themes** -- 21 themes (Grey, Fruit, Dark Fruit, Earth, Swamp Thing, Fireball, Dracula, Nord, and more), all as CSS custom-property sets; per-user theme picker in the status bar and settings page
 - **User creation from Joplock UI** -- create and modify users directly from Joplock settings page
 - **Full database backup and restore** -- create and restore complete Postgres backups for both Joplin and Joplock data
 - **Multi-factor authentication** -- optional TOTP-based MFA on top of standard Joplin sessions
@@ -56,7 +58,11 @@ plaintext, or put its ciphertext in a different note/vault.
 ## Requirements
 
 - docker
-- an existng Joplin Server instance, or run the fullstack option
+- an existing Joplin Server instance, or run the fullstack option
+
+The published image already contains everything the app shells out to:
+`postgresql18-client` (backups), `pandoc` (DOCX/PDF export), and `weasyprint`
+(PDF export).
 
 ## Environment
 
@@ -92,10 +98,10 @@ Use this when you already have Joplin Server and Postgres running elsewhere. Edi
 docker compose up -d
 ```
 
-This pulls the pre-built image from GitHub Container Registry. To build from source instead:
+This pulls the pre-built image from GitHub Container Registry. To build from source instead, use the full-stack build variant (Postgres + Joplin Server + Joplock, Joplock built locally):
 
 ```bash
-docker compose -f docker-compose-build.yml up -d --build
+docker compose -f docker-compose.example-full-build.yml up -d --build
 ```
 
 On Linux, the compose files map `host.docker.internal` to the host gateway so Joplock can reach host services by default.
@@ -132,3 +138,19 @@ docker compose -f docker-compose.example-full.yml up -d
 The full example uses the public `joplin/server:latest` image. Joplock is exposed on `http://localhost:5444` by default. Joplin Server is internal-only unless you add a port mapping.
 
 The full example is meant as a working reference compose file. Adjust it for your real deployment.
+
+### Development
+
+`AGENT_GUIDE.md` is the source of truth for repo conventions, architecture, the
+editor model, and debugging workflow. `docs/joplock-db-schema.html` documents the
+four sidecar tables Joplock adds to the shared database.
+
+For local work, keep a git-ignored `docker-compose.dev.yml` (Postgres + Joplin
+Server + Joplock from source) and rebuild the app container after source edits:
+
+```bash
+./scripts/rebuild-dev.sh
+```
+
+The Docker image copies `app/`, `public/`, and `server.js` at build time, so
+`docker compose restart joplock` does not pick up source changes.

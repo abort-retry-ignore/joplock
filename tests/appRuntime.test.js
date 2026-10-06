@@ -67,6 +67,13 @@ function runWithDeps(ctx, ...fns) {
 		const at = fns.indexOf('getTurndown') >= 0 ? fns.indexOf('getTurndown') + 1 : 0;
 		fns.splice(at, 0, '_encodeProtectedSpace', '_protectInlineLeadingSpace', '_restoreProtectedSpace');
 	}
+	if (fns.includes('tinymceToMarkdown') && !fns.includes('_stripTinymceDownloadChrome')) {
+		// tinymceToMarkdown unwraps the injected image-download wrap span before
+		// Turndown (see _stripTinymceDownloadChrome in app.js).
+		fns = [...fns];
+		const at = fns.indexOf('getTurndown') >= 0 ? fns.indexOf('getTurndown') + 1 : 0;
+		fns.splice(at, 0, '_stripTinymceDownloadChrome');
+	}
 	for (const fn of fns) vm.runInContext(extractFn(fn), ctx);
 }
 

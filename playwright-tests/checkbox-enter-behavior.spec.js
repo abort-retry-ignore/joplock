@@ -42,6 +42,11 @@ async function openNote(page, noteId) {
 		htmx.ajax('GET', '/fragments/editor/' + encodeURIComponent(id), { target: '#editor-panel', swap: 'innerHTML' });
 	}, noteId);
 	await page.waitForTimeout(2000);
+	// These tests drive the rendered (TinyMCE) view; since the dual-mode
+	// editor notes open in markdown by default, switch to rich explicitly.
+	await page.locator('#editor-panel #preview-toggle').click();
+	await page.locator('iframe.tox-edit-area__iframe').waitFor({ state: 'visible', timeout: 15000 });
+	await page.waitForTimeout(1200); // past the TinyMCE post-load quiet window
 }
 
 test.describe('Checkbox Enter key behaviour', () => {

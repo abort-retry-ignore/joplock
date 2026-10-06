@@ -25,9 +25,33 @@ async function waitForAutosaveComplete(page) {
 }
 
 async function openNoteGetBody(page, folderName, noteTitle) {
-	await page.locator('.nav-folder-title', { hasText: folderName }).first().click();
+	// Clicking a folder title TOGGLES it: after a goto the app may have already
+	// auto-restored and expanded this folder (selected-folder heuristic), and
+	// clicking would collapse it again, hiding the note list. Expand only when
+	// actually collapsed, via the app's own handler (idempotent either way).
+	await page.evaluate((name) => {
+		const el = document.querySelector(`.nav-folder[data-folder-title="${name}"]`);
+		if (!el) return;
+		if (el.classList.contains('collapsed') && typeof window.openNavFolderAndFirstNote === 'function') {
+			window.openNavFolderAndFirstNote(el.getAttribute('data-folder-id'));
+		}
+	}, folderName);
 	await page.waitForTimeout(1000);
-	const noteBtn = page.locator('.notelist-item-title', { hasText: noteTitle }).first();
+	// The editor-open response re-renders #nav-panel with all folders collapsed
+	// (the server fragment emits `nav-folder collapsed` unconditionally), which
+	// hides the nested note list again right after the folder was expanded.
+	// Re-expand via the app's own toggle after the swaps settle.
+	await page.evaluate((name) => {
+		const el = document.querySelector(`.nav-folder[data-folder-title="${name}"]`);
+		if (el && el.classList.contains('collapsed') && typeof window.toggleNavFolder === 'function') {
+			window.toggleNavFolder(el.getAttribute('data-folder-id'), false);
+		}
+	}, folderName);
+	await page.waitForTimeout(500);
+	// Notes render nested inside each sidebar folder; folders start collapsed,
+	// so a global .notelist-item-title locator can .first()-match a HIDDEN copy
+	// in another (collapsed) folder such as All Notes. Scope to the folder row.
+	const noteBtn = page.locator(`.nav-folder[data-folder-title="${folderName}"] .notelist-item-title`, { hasText: noteTitle }).first();
 	await expect(noteBtn).toBeVisible({ timeout: 15000 });
 	await noteBtn.click();
 	await expect(page.locator('#editor-panel #note-editor-form')).toBeVisible({ timeout: 10000 });

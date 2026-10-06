@@ -12,10 +12,30 @@ const {
 	logout,
 	openMobileFolder,
 	setNoteBody,
-	setNoteTitle,
 	teardownTestData,
 	waitForSaved,
 } = require('./helpers');
+
+// Rendered-mode content lives in the persistent TinyMCE iframe (#tinymce-host
+// is app-shell level, positioned over #tinymce-slot) — the old #note-preview
+// contenteditable pane is gone. The file-picker insert path targets the hidden
+// textarea in rendered mode and autosaves without re-rendering the iframe, so
+// upload tests assert persistence via the source of truth (#note-body), like
+// the desktop test in this file.
+
+async function waitForNoteBodyResourceCount(page, expected) {
+	const noteBody = page.locator('#mobile-editor-body #note-body');
+	await expect.poll(async () => {
+		const v = await noteBody.inputValue();
+		return (v.match(/!\[[^\]]*\]\(:\/[0-9a-fA-F]{32}\)/g) || []).length;
+	}, { timeout: 15000 }).toBe(expected);
+	return noteBody.inputValue();
+}
+
+async function expectRenderedViewVisible(page) {
+	await page.locator('#mobile-preview-toggle').click();
+	await expect(page.locator('iframe.tox-edit-area__iframe')).toBeVisible();
+}
 
 const TEST_IMAGE = path.resolve(__dirname, '..', 'public', 'icon-192.png');
 
@@ -41,15 +61,14 @@ test.describe('Uploads', () => {
 			await openMobileFolder(page, 'All Notes');
 			await page.locator('#mobile-notes-screen .mobile-header-btn[title="New note"]').click();
 			await expect(page.locator('#mobile-editor-screen.mobile-screen-active')).toBeVisible();
-			await page.locator('#mobile-preview-toggle').click();
-			await expect(page.locator('#mobile-editor-body #note-preview')).toBeVisible();
+			await expectRenderedViewVisible(page);
 
 			const uploadInput = page.locator('#mobile-editor-body #file-upload');
 			await expect(uploadInput).toHaveCount(1);
 			await uploadInput.setInputFiles(TEST_IMAGE);
 
 			await expect.poll(() => uploadRequests.length, { timeout: 15000 }).toBeGreaterThan(0);
-			await expect(page.locator('#mobile-editor-body #note-preview img.preview-img')).toHaveCount(1, { timeout: 15000 });
+			await waitForNoteBodyResourceCount(page, 1);
 			expect(pageErrors, `page errors: ${pageErrors.join('\n')}`).toEqual([]);
 			expect(consoleMessages.filter(msg => /error|ReferenceError|TypeError/i.test(msg)), `console messages: ${consoleMessages.join('\n')}`).toEqual([]);
 			noteId = await getActiveNoteId(page);
@@ -82,7 +101,7 @@ test.describe('Uploads', () => {
 			await waitForSaved(page);
 
 			await page.locator('#mobile-preview-toggle').click();
-			await expect(page.locator('#mobile-editor-body #note-preview')).toBeVisible();
+			await expect(page.locator('iframe.tox-edit-area__iframe')).toBeVisible();
 
 			const imageBuffer = fs.readFileSync(TEST_IMAGE);
 			await page.locator('#mobile-editor-body #file-upload').setInputFiles([
@@ -91,8 +110,12 @@ test.describe('Uploads', () => {
 			]);
 
 			await expect.poll(() => uploadRequests.length, { timeout: 15000 }).toBe(2);
-			await expect(page.locator('#mobile-editor-body #note-preview img.preview-img')).toHaveCount(2, { timeout: 15000 });
-			await expect.poll(async () => page.locator('#mobile-editor-body #note-preview img.preview-img').evaluateAll(nodes => nodes.map(node => node.getAttribute('alt'))), { timeout: 15000 }).toEqual(['first-image.png', 'second-image.png']);
+			const body = await waitForNoteBodyResourceCount(page, 2);
+			const firstIdx = body.indexOf('first-image.png');
+			const secondIdx = body.indexOf('second-image.png');
+			expect(firstIdx, 'first image must be present').toBeGreaterThanOrEqual(0);
+			expect(secondIdx, 'second image must be present').toBeGreaterThanOrEqual(0);
+			expect(firstIdx, 'images must keep upload order').toBeLessThan(secondIdx);
 			await expect(page.locator('#mobile-editor-body .editor-title-hidden')).toHaveValue('Anchor line');
 			noteId = await getActiveNoteId(page);
 		} finally {
@@ -113,12 +136,11 @@ test.describe('Uploads', () => {
 			await openMobileFolder(page, 'All Notes');
 			await page.locator('#mobile-notes-screen .mobile-header-btn[title="New note"]').click();
 			await expect(page.locator('#mobile-editor-screen.mobile-screen-active')).toBeVisible();
-			await page.locator('#mobile-preview-toggle').click();
-			await expect(page.locator('#mobile-editor-body #note-preview')).toBeVisible();
+			await expectRenderedViewVisible(page);
 
 			await page.locator('#mobile-editor-body #file-upload').setInputFiles(TEST_IMAGE);
 
-			await expect(page.locator('#mobile-editor-body #note-preview img.preview-img')).toHaveCount(1, { timeout: 15000 });
+			await waitForNoteBodyResourceCount(page, 1);
 			await expect(page.locator('#mobile-editor-body .editor-title-hidden')).toHaveValue('Untitled note', { timeout: 15000 });
 			noteId = await getActiveNoteId(page);
 		} finally {
@@ -139,8 +161,7 @@ test.describe('Uploads', () => {
 			await openMobileFolder(page, 'All Notes');
 			await page.locator('#mobile-notes-screen .mobile-header-btn[title="New note"]').click();
 			await expect(page.locator('#mobile-editor-screen.mobile-screen-active')).toBeVisible();
-			await page.locator('#mobile-preview-toggle').click();
-			await expect(page.locator('#mobile-editor-body #note-preview')).toBeVisible();
+			await expectRenderedViewVisible(page);
 
 			const imageBuffer = fs.readFileSync(TEST_IMAGE);
 			await page.locator('#mobile-editor-body #file-upload').setInputFiles([
@@ -148,8 +169,12 @@ test.describe('Uploads', () => {
 				{ name: 'blank-second.png', mimeType: 'image/png', buffer: imageBuffer },
 			]);
 
-			await expect(page.locator('#mobile-editor-body #note-preview img.preview-img')).toHaveCount(2, { timeout: 15000 });
-			await expect.poll(async () => page.locator('#mobile-editor-body #note-preview img.preview-img').evaluateAll(nodes => nodes.map(node => node.getAttribute('alt'))), { timeout: 15000 }).toEqual(['blank-first.png', 'blank-second.png']);
+			const body = await waitForNoteBodyResourceCount(page, 2);
+			const firstIdx = body.indexOf('blank-first.png');
+			const secondIdx = body.indexOf('blank-second.png');
+			expect(firstIdx, 'first image must be present').toBeGreaterThanOrEqual(0);
+			expect(secondIdx, 'second image must be present').toBeGreaterThanOrEqual(0);
+			expect(firstIdx, 'images must keep upload order').toBeLessThan(secondIdx);
 			await expect(page.locator('#mobile-editor-body .editor-title-hidden')).toHaveValue('Untitled note', { timeout: 15000 });
 			noteId = await getActiveNoteId(page);
 		} finally {

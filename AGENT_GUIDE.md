@@ -26,11 +26,14 @@ Use this guide when working in this repository.
 - **Server**: Node.js HTTP server, no framework
 - **Client**: SSR HTML + htmx fragment swaps + shared browser logic in `public/app.js`
 - **Editor**: Dual-mode. Markdown mode = CodeMirror 6 (mounted into `#cm-host`); rendered mode = TinyMCE 8. The `#note-body` textarea is the hidden form/sync target for both.
-- **Code blocks**: Full-screen code modal with a CM6 editor and language picker. Highlighting differs by mode: preview/markdown modes use highlight.js (`hljs`); rendered mode (TinyMCE) uses the native `codesample` plugin (PrismJS `.token` spans). Rendered mode points TinyMCE's codesample plugin at full `window.Prism` bundle (`public/prism.min.js`) so every language offered by modal has grammar support. Prism token colors are injected into the TinyMCE iframe via `content_style` in `_tinyMCEContentFontStyle()` (the oxide dark content skin ships no `.token` CSS). `codemirror.min.js` and `prism.min.js` are loaded on page before TinyMCE/app.js.
+- **Code blocks**: Full-screen code modal with a CM6 editor and language picker. Highlighting differs by mode: **markdown mode (CM6)** uses CM6's own `syntaxHighlighting(joplockHighlight)` with the language parsers bundled from `cm-build/`; **rendered mode (TinyMCE)** uses the native `codesample` plugin (PrismJS `.token` spans). highlight.js (`public/hljs.min.js`) is loaded on the page but is only reachable from the dead `#note-preview` path — it highlights nothing live (see the dead-code note below). Rendered mode points TinyMCE's codesample plugin at full `window.Prism` bundle (`public/prism.min.js`) so every language offered by modal has grammar support. Prism token colors are injected into the TinyMCE iframe via `content_style` in `_tinyMCEContentFontStyle()` (the oxide dark content skin ships no `.token` CSS). `codemirror.min.js` and `prism.min.js` are loaded on page before TinyMCE/app.js.
 - **Autosave**: htmx delayed PUT after typing pause (deferred while modals are open)
 - **Markdown**: server-side `renderMarkdown()`, client-side Turndown `htmlToMarkdown()`
 - **Auth**: reuses Joplin Server `sessionId` cookie
 - **DB access**: reads direct from shared Postgres; writes go through stock Joplin Server API
+- **Exports**: `POST /api/export/{docx,pdf,html}` in `app/routes/api.js` — DOCX and PDF are rendered server-side with `pandoc` (PDF via `weasyprint` plus pandoc's print CSS), HTML is a single self-contained file with inlined theme CSS, base64 images and base64 attachment links. `public/html-docx.js` is the legacy client-side DOCX path.
+- **Ops surface**: admin user management (`/admin/users`), `pg_dump` backup/restore (`/admin/backups`, `/admin/restore`), break-glass recovery mode (`/recovery`), and login rate limiting — all served by the same sidecar process.
+- **Script load order** (`app/templates/pages.js`): `htmx` → `turndown` → `codemirror` → `cm-extras` → `prism` → `tinymce` → `hljs` → `html-docx` → inline config → `app.js` (`defer`). `app.js`, `codemirror.min.js` and `cm-extras.js` are cache-busted with `ASSET_VERSION`.
 
 ### Runtime Shape
 
@@ -67,6 +70,7 @@ Use this guide when working in this repository.
 
 - One authoritative tree owned by sharer (`owner_id` never transferred).
 - Recipients gain access via Joplin `user_items` + accepted `share_users` (auto-accept on invite).
+- **Vault notebooks cannot be shared**: `POST /api/web/shares` rejects them with 400 `Vault notebooks cannot be shared` (`app/routes/shares.js`).
 - `share_users.can_write` controls whether recipients can edit shared notes (default `1` — editable). Only the owner can move, delete, or stop-share.
 - Move into a shared notebook sets `share_id`; move out clears it and drops recipient access to that item.
 - Revoke/stop sharing removes recipient access; owner keeps folders/notes in place.
@@ -78,15 +82,15 @@ Use this guide when working in this repository.
 - **Route layer** (`app/routes/fragments.js`, `app/routes/api.js`): `resolveItemShareAccess` → `assertCanWrite`/`assertOwnerForDestructive` on create/update/delete/restore/move. `canWrite` respects `share_users.can_write` for recipients. Owner-only for move/delete regardless of `can_write`. Recipient creates in shared folder blocked with 403.
 - **Proxy layer** (`app/proxy/shareProxyGuard.js`): inspects PUT and DELETE sync-proxy requests. PUT checks `resolveItemShareAccess` → `canWrite`. DELETE is owner-only. Inherits `noteIdFromItemPath`/`bufferRequest` from vault proxy guard.
 - **Editor UI** (`app/templates/fragments.js`, `public/app.js`): `editorFragment` accepts `canWrite` param from route handler (queries `share_users.can_write`). When `canWrite=false` renders read-only banner, disables folder select, hides delete button, sets `contenteditable="false"` on title. When `canWrite=true` the editor is fully interactive.
-- **Share-id propagation** (`app/items/shareAccess.js`): `deriveShareFieldsForMove` sets/clears `shareId`/`isShared` on move. `ensureShareIdsOnNotebook` writes `share_id` directly to items DB content JSON. `createNote`/`updateNote` serialize these fields into Joplin note metadata.
-- **Share dialog API** (`app/routes/shares.js`): uses Joplin Server's `/api/shares/:id/users` endpoints (not deprecated `/api/share_users`). PATCH/ACCEPT/REJECT/DELETE operations use DB-only writes since Joplin Server's newer API doesn't support mutations on individual share_users. `can_write` column managed via direct `share_users` table updates.
+- **Share-id propagation** (`app/items/shareAccess.js` for the field derivation, `app/routes/shares.js` for the write): `deriveShareFieldsForMove(targetFolder)` returns `{ shareId, isShared }` from the target folder, so a move sets/clears `share_id`. `ensureShareIdsOnNotebook()` writes `share_id` directly to the items DB content JSON. `createNote`/`updateNote` serialize these fields into Joplin note metadata.
+- **Share dialog API** (`app/routes/shares.js`): uses Joplin Server's `/api/shares/:id/users` endpoints (not deprecated `/api/share_users`). PATCH/ACCEPT/REJECT/DELETE operations use DB-only writes since Joplin Server's newer API doesn't support mutations on individual share_users. `can_write` column managed via direct `share_users` table updates. The module also exports helpers reused elsewhere: `autoAcceptShareUser`, `populateUserItems`, `ensureShareIdsOnNotebook`, `STATUS_ACCEPTED`/`STATUS_WAITING`.
 
 ### File map
 
 | Layer | File |
 |-------|------|
 | Access helpers | `app/items/shareAccess.js` |
-| Share API routes | `app/routes/shares.js` |
+| Share dialog API routes | `app/routes/shares.js` |
 | Proxy write guard | `app/proxy/shareProxyGuard.js` |
 | Fragment write gates | `app/routes/fragments.js` |
 | API write gates | `app/routes/api.js` |
@@ -153,6 +157,7 @@ Client (`public/app.js`) rules:
 - **Async fetch discipline**: every `/fragments/preview` fetch that writes into the shared editor (`setEditorMode('rich')`, `refreshTinyMCEForActiveNote`) captures the note id before the request and discards the response if the note, mode, or active form changed mid-flight. `tinyMCESyncToTA` and `_lazyTinyMCESyncBeforeSave` refuse to copy TinyMCE content into a textarea whose note doesn't match `_tinymceContentNoteId`.
 - **Other guarded paths**: `_completeUnlock` aborts if the unlocked note is no longer the active note; late `htmx:afterRequest` save responses from detached/replaced forms don't stamp `snapshotHash` (would mark a switched-to note as "Saved" while dropping its pending edits); `flushSave` success only updates save state when the flushed form is still active.
 - **flushSave baseUpdatedTime sync (do not remove)**: `flushSave` saves via a raw `fetch()` whose OOB-carrying response body is discarded — unlike the htmx autosave path, nothing would refresh the form's hidden `baseUpdatedTime`. A flush save advances the server clock while the form keeps the old base, so the NEXT autosave PUT trips the server conflict guard and the user sees "A newer version of this note exists on the server" after merely switching tabs/views (visibilitychange → flushSave). Fix: the editor PUT sets an `X-Note-Updated-Time` response header (mirror of the `#editor-sync-state` OOB), and flushSave reads it to refresh the form's `baseUpdatedTime`. flushSave also detects the `X-Note-Conflict` header and surfaces the conflict fragment + banner instead of wrongly marking the editor "Saved".
+- **flushSave must fetch with `keepalive: true` (do not remove)**: the flush usually fires from `visibilitychange` while the document is being torn down (tab close, note switch via navigation). A plain `fetch()` is aborted mid-flight, Chromium sends a truncated request whose `Cookie` header never reaches the server → 401, and the pending title/body edits are silently lost. `keepalive` lets the request outlive the document. Pinned by `tests/saveIdentityGuard.test.js`.
 - **Mobile shell conflict participation (do not remove)**: `mobileEditorFragment` re-adds `#editor-sync-state` (with `baseUpdatedTime`) after the titlebar-stripping transform. Without it, mobile saves carry no base → the server skips the conflict check (silent last-write-wins) and `checkNoteFreshness` early-returns (base 0) → the desktop↔mobile switch never detects concurrent changes.
 - **Shell-scoped banner**: both shells render `#remote-update-bar` with duplicate ids; `showRemoteUpdateBanner`/`dismissRemoteUpdateBanner` resolve the bar via `queryActiveEditor('#remote-update-bar')` first — `getElementById` alone returns the desktop shell's bar, which is `display:none` in the mobile shell (banner invisible exactly when mobile users need it).
 
@@ -181,37 +186,51 @@ Owns:
 - session validation against shared DB
 - markdown rendering and editor behavior
 - resource upload/serving
-- app-specific settings in `joplock_settings`
+- note history snapshots (`joplock_history`)
+- per-user + admin settings and TOTP seeds (`joplock_settings`)
+- vault metadata (`joplock_vaults`) and its own session mirror (`joplock_sessions`)
+- admin user management, DB backup/restore, break-glass recovery
+- note export (DOCX/PDF/HTML) and the AI provider proxy
 - PWA shell/assets
 
 Does not own:
 - canonical note/folder/resource persistence rules
 - sync protocol semantics
-- auth/session source of truth
+- auth/session source of truth — Joplin's `sessions` table is authoritative; `joplock_sessions` only mirrors `last_seen` for logout/heartbeat
 - offline-first storage
 
 ## File Map
 
 ### Entry / Server
-- `server.js` — entry point, env wiring, server startup
-- `app/createServer.js` — server assembly, shared context, full-page `/` render, static serving
+- `server.js` — entry point, env wiring, service construction (pool, settings, items, history, admin, vault, backup, recovery, rate limit), server startup
+- `app/env.js` — `normalizeEnvValue()`; strips matching surrounding quotes from env values (compose files are hand-edited, so `'...'` and `"..."` are tolerated)
+- `app/createServer.js` — server assembly, shared context, full-page `/` render, static serving, `effectiveDebug`/`refreshDebugLogging()`
 
 ### Route Handlers
 - `app/routes/fragments.js` — desktop/shared fragment routes
 - `app/routes/mobile.js` — mobile folder/note/search routes
 - `app/routes/api.js` — JSON API endpoints
+- `app/routes/shares.js` — share dialog API (invite/accept/reject/remove, `can_write`, leave)
+- `app/routes/recovery.js` — break-glass `/recovery` page, login, backups, restore
+- `app/routes/_helpers.js` — shared route helpers: `parseBody`, `authenticatedUser`, `assertVaultNoteBodyEncrypted` (vault boundary enforcement)
 - `app/routes/auth.js`, `app/routes/settings.js`, `app/routes/admin.js`, `app/routes/history.js`, `app/routes/resources.js`
 
 ### Templates / UI
+- `app/templates.js` — thin re-export wrapper for `app/templates/` (kept for old require paths)
 - `app/templates/index.js` — central template re-export
-- `app/templates/pages.js` — full-page layout/login/MFA shells
+- `app/templates/pages.js` — full-page layout/login/MFA shells, `<body>` shell classes, `_joplockConfig` inlining, script order
 - `app/templates/fragments.js` — nav, editor, search, history, OOB fragments
 - `app/templates/mobile.js` — mobile folder/note/search fragments
-- `app/templates/shared.js` — escaping, markdown rendering, title normalization
+- `app/templates/shares.js` — share dialog template
+- `app/templates/shared.js` — escaping, markdown rendering, title normalization, `themeOptions`
 - `app/templates/settings.js` — settings/admin page sections
+
+### Markdown / Rendering
+- `app/markdownRenderer.js` — server-side `renderMarkdown()`: markdown-it + Joplin resource rewriting, `hx-*` attribute stripping (htmx-injection guard), and the `md-blank-line` / `md-checkbox` class injection the rendered editor depends on
 
 ### Client Runtime
 - `public/app.js` — shared client logic for editor, autosave, vault flows, mobile screen stack, search, and modals
+- `public/html-docx.js` — client-side HTML→DOCX converter (legacy export path; loaded before `app.js`)
 
 Important subareas:
 - `settingsPage()` — Settings UI and simple client save helpers
@@ -224,12 +243,36 @@ Important subareas:
 - `app/auth/cookies.js` — cookie parsing
 - `app/auth/sessionService.js` — shared DB session lookup
 - `app/auth/mfaService.js` — env-driven TOTP verification and otpauth/QR generation
+- `app/auth/rateLimitService.js` — in-memory login rate limiting, capped by the admin `authRateLimitAttempts` setting
 
 ### Data
-- `app/items/itemService.js` — DB reads for folders, notes, search, resources
+- `app/items/itemService.js` — DB reads for folders, notes, search, resources (+ `ensureIndexes()`)
 - `app/items/itemWriteService.js` — note/folder/resource serialization and upstream writes
-- `app/settingsService.js` — Joplock-owned settings table access
+- `app/items/shareAccess.js` — share ownership / `can_write` resolution shared by the fragment, API, and proxy guards
+- `app/settingsService.js` — Joplock-owned settings table access (user settings, `__app__` admin row, TOTP seeds)
+- `app/historyService.js` — note history snapshots in `joplock_history` (ring buffer per note)
 - `app/vaultService.js` — vault metadata CRUD in `joplock_vaults`
+- `app/adminService.js` — admin user CRUD against Joplin Server's users API + `ensureAdminUser()` bootstrap
+- `app/backupService.js` — `pg_dump`/`pg_restore` of the whole shared database, with backup-path containment checks
+- `app/recoveryService.js` — break-glass recovery sessions for `/recovery`
+- `app/proxy/vaultProxyGuard.js`, `app/proxy/shareProxyGuard.js` — write guards applied to Joplin sync-proxy traffic
+
+### Sidecar Tables (four, no Joplin FKs)
+
+Joplock owns exactly four tables in the shared database; every cross-reference is
+an application-level pointer, never an SQL foreign key:
+
+| Table | Purpose |
+|---|---|
+| `joplock_sessions` | `session_id` → `last_seen` mirror of Joplin sessions (logout/heartbeat only) |
+| `joplock_settings` | per-user settings JSONB, `updated_time`, `totp_seed`; `user_id = '__app__'` is the admin row |
+| `joplock_vaults` | `user_id` + `folder_id` (unique) with `salt` and `verify` |
+| `joplock_history` | note snapshots: `note_id`, `user_id`, `title`, `body`, `body_hash`, `saved_time`, indexed by `joplock_history_note_time` |
+
+Physical schema reference: `docs/joplock-db-schema.html`. Keep it in sync when a
+column changes — tables are created lazily with `CREATE TABLE IF NOT EXISTS` in
+the service that owns them (e.g. `app/settingsService.js` also carries the
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS totp_seed` migration).
 
 ### How Reads vs Writes Work
 
@@ -240,14 +283,17 @@ Important subareas:
 
 ### Static Assets
 - `public/htmx.min.js`
-- `public/codemirror.min.js` — CM6 bundle with 11 language parsers (built from `cm-build/`, `npm run build:cm`); loaded on the page before `app.js`. Powers markdown mode (`initCM`) and the code-block modal (`_initCodeModalCM`).
+- `public/codemirror.min.js` — CM6 bundle with 11 language parsers (markdown base + javascript/typescript, html, css, json, sql, python, xml, go, yaml, shell; built from `cm-build/`, `npm run build:cm`); loaded on the page before `app.js`. Powers markdown mode (`initCM`) and the code-block modal (`_initCodeModalCM`).
+- `public/cm-extras.js` — markdown-mode (CM6) extras: inline image previews with drag-resize, attachment/note-link chips, clickable task checkboxes, code-block Copy button, live-preview marker hiding, status bar + outline, folding, table helper, paste-as-markdown, link hover info. Exposes `window.JoplockMd` (and `module.exports` for tests); pure helpers are unit-tested in plain Node. See "Markdown-mode extras" under Editor Model. Listed in the service worker's `STATIC_ASSETS` (network-first, cache fallback) so the offline shell keeps the extras.
 - `public/tinymce/` — TinyMCE 8 (npm dep, see root `package.json`), loaded as `/tinymce/tinymce.min.js`; this is the live rendered-mode editor
 - `public/turndown.min.js` — HTML→Markdown conversion, used by `tinymceToMarkdown()`
-- `public/hljs.min.js` — highlight.js bundle for preview mode code highlighting (built from `hljs-build/`)
+- `public/hljs.min.js` — highlight.js bundle (built from `hljs-build/`). Loaded on the page, but only the dead `#note-preview` path calls it; markdown mode highlights via CM6, rendered mode via Prism. Safe to keep loading, safe to drop with the PV cleanup.
 - `public/prism.min.js` — Prism bundle for rendered-mode TinyMCE code-block highlighting (built from `prism-build/`)
+- `public/html-docx.js` — legacy client-side HTML→DOCX converter
+- `public/reference.docx` — pandoc reference document for DOCX export styling (regenerate with `scripts/build-reference-docx.sh`; referenced from `app/routes/api.js`)
 - `public/styles.css`
-- `public/service-worker.js`
-- `public/manifest.webmanifest`
+- `public/service-worker.js` — shell-only cache. `CACHE_NAME` at the top of the file is the `joplock-shell-vN-<label>` string and must be bumped whenever shipped CSS/JS changes
+- `public/manifest.webmanifest` + `public/icons`, `public/apple-splash` — PWA assets (regenerate with `npm run generate:pwa-assets`)
 
 ### Bundle Build Sources
 - `cm-build/` — CM6 bundle source → `public/codemirror.min.js`. Build from repo root with `npm run build:cm` (or `cd cm-build && npm install && npm run build`).
@@ -255,14 +301,36 @@ Important subareas:
 - `prism-build/` — Prism bundle source → `public/prism.min.js`. Build with `npm run build:prism` (or `cd prism-build && npm install && npm run build`).
 
 ### Tests
-- `tests/*.test.js`
-- Run: `node --test tests/**/*.test.js`
+- `tests/*.test.js` — unit/integration tests (`node:test`; several suites extract real functions out of `public/app.js` and run them under a JSDOM harness)
+- Run: `npm test` (i.e. `node --test tests/*.test.js`)
+- `playwright-tests/*.spec.js` — browser E2E against a live dev stack; run with `npm run test:ui`
 
 ### Deployment
-- `Dockerfile`
-- `docker-compose.yml` — sidecar-only example
-- `docker-compose.example-full.yml` — Postgres + Joplin Server + Joplock example
-- `.env.example`
+- `Dockerfile` — the image copies `app/`, `public/`, and `server.js` at build time, so source edits need a rebuild, not a container restart
+- `docker-compose.yml` — sidecar-only example (pre-built `ghcr.io/abort-retry-ignore/joplock:latest`)
+- `docker-compose.example-full.yml` — Postgres + Joplin Server + Joplock, pre-built image
+- `docker-compose.example-full-build.yml` — same stack, but builds Joplock from source (`build:` instead of `image:`)
+- `docker-compose.dev.yml` — local dev stack (Postgres + Joplin Server + Joplock from source). **Git-ignored**: it is the per-developer compose file used by `./scripts/rebuild-dev.sh` and `npm run docker:up:dev`, so recreate it from `docker-compose.example-full-build.yml` if it is missing
+- `.env` is git-ignored and optional — configuration is set as inline env vars in the compose file. There is no committed `.env.example`
+
+Environment variables (all optional unless noted; set them inline in the compose file):
+
+| Var | Default | Notes |
+|---|---|---|
+| `PORT` / `HOST` | `3001` / `0.0.0.0` | |
+| `POSTGRES_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_DATABASE` | `127.0.0.1` / `5432` / `joplin` / `joplin` / `joplin` | shared Joplin DB; also used by `pg_dump` for backups |
+| `JOPLIN_SERVER_ORIGIN` | `http://server:22300` | upstream Joplin Server that all writes go through |
+| `JOPLIN_PUBLIC_BASE_PATH` | *(empty)* | path prefix Joplock proxies Joplin sync under |
+| `JOPLOCK_PUBLIC_BASE_URL` | `http://localhost:$PORT` | used to derive `JOPLIN_SERVER_PUBLIC_URL` |
+| `JOPLIN_SERVER_PUBLIC_URL` | derived | must match Joplin's `APP_BASE_URL` |
+| `JOPLOCK_ADMIN_EMAIL` / `JOPLOCK_ADMIN_PASSWORD` | *(empty)* | when set, `adminService.ensureAdminUser()` bootstraps the admin at startup |
+| `IGNORE_ADMIN_MFA` | `false` | skips MFA for the admin account only |
+| `JOPLOCK_SESSION_COOKIE_MAX_AGE_SECONDS` | `31536000` | |
+| `DEBUG` | `false` | startup default only; the admin `debugLogging` setting overrides it at runtime |
+| `JOPLOCK_BACKUP_DIR` | *(empty)* | enables server-side DB backups; must be persistent storage |
+| `JOPLOCK_BACKUP_COMPRESSION` / `JOPLOCK_BACKUP_COMPRESSION_LEVEL` | `zstd:19` / `9` | the compression string wins over the level |
+| `JOPLOCK_RECOVERY_ENABLED` / `JOPLOCK_RECOVERY_PASSWORD` / `JOPLOCK_RECOVERY_SESSION_TTL_MINUTES` | `false` / *(empty)* / `30` | break-glass `/recovery` |
+| `JOPLOCK_VERSION` | `version.txt`, then `package.json` | shown in the UI; written by the Docker build |
 
 ## MFA Notes
 
@@ -271,6 +339,41 @@ Important subareas:
 - No global/shared TOTP seed. The old `JOPLOCK_TOTP_SEED` / `JOPLOCK_TOTP_ISSUER` env vars are removed.
 - `IGNORE_ADMIN_MFA=true` skips the per-user MFA check at login for the docker-defined admin account (`JOPLOCK_ADMIN_EMAIL`). Other users are unaffected.
 - Admin can force-enable/disable MFA for any user via the Admin tab (no code required).
+
+## Admin & Ops Surface
+
+### Who is "admin"
+
+- Admin is **not** a role grant inside Joplock. `isJoplockAdmin()` in `app/createServer.js` returns true only for the single account whose email equals `JOPLOCK_ADMIN_EMAIL` **and** whose Joplin `users.is_admin` flag is set (`app/auth/sessionService.js`). If `JOPLOCK_ADMIN_EMAIL` is unset, `adminService` is `null` and there is no admin at all — so the Admin tab and the `/admin/*` routes disappear entirely.
+- Only that account sees the Admin tab on `/settings`; `appSettings` (the `__app__` row) is read only for admins (`app/routes/settings.js`).
+- `server.js` calls `adminService.ensureAdminUser()` (best-effort, non-blocking) so the account exists in Joplin with the configured password on startup.
+
+### Settings tabs
+
+`/settings` tabs: Appearance, AI, Expander, Profile, Security, About, plus Admin when the user is the Joplock admin. Relevant sub-areas:
+
+- **Appearance** — theme, note/mobile/code/markdown font sizes, note font family, newline behavior, open mode, resume-last-note, date/datetime formats, live search, active-line highlight, UI mode.
+- **AI** — provider profiles + sentence count; **Expander** — text/AI trigger strings. See "Expander / AI Autocomplete" above.
+- **Profile** — display name / email. **Security** — note-encryption auto-lock, confirm-before-trash, change password, MFA setup/verify/disable, session timeout. **About** — Joplock / Joplin versions.
+- **Admin** — Login Security (`authRateLimitAttempts`, `maxUploadMb`, `debugLogging`), Create New User, Users (status/actions), Orphaned Resources (+ cleanup), Database Compression, Notes/Attachments usage, Backup & Restore.
+
+`noteMonospace` is not a separate UI switch: it is derived from `noteFontFamily === 'mono'`
+(via the `note-body-monospace` class on `<body>`).
+
+### Backup / restore
+
+- `app/backupService.js` shells out to `pg_dump`/`pg_restore` for the **entire shared database** (Joplin's and Joplock's tables together), writing `<name>.dump` files under `JOPLOCK_BACKUP_DIR` with path-containment checks. Compression is `JOPLOCK_BACKUP_COMPRESSION` (default `zstd:19`) or `JOPLOCK_BACKUP_COMPRESSION_LEVEL` (default `9`).
+- A restore **replaces the whole database**, Joplin data included. `README.md` documents the operational order (stop/quiesce Joplin Server, stop sync clients).
+- Backups are only durable if `JOPLOCK_BACKUP_DIR` is on persistent storage.
+
+### Break-glass recovery
+
+- `JOPLOCK_RECOVERY_ENABLED=true` + `JOPLOCK_RECOVERY_PASSWORD` expose `/recovery` (`app/routes/recovery.js`, `app/recoveryService.js`): its own login, its own short-lived session (`JOPLOCK_RECOVERY_SESSION_TTL_MINUTES`, default 30), and backup/restore without normal Joplin auth. It is for backup/restore only, not note editing.
+- Recovery is separate from MFA: it does not consult `joplock_settings.totp_seed`.
+
+### Login rate limiting
+
+- `app/auth/rateLimitService.js` is an in-memory, per-credential-attempt limiter; the ceiling is the admin `authRateLimitAttempts` setting (default 20 per 15 minutes). It is not persisted — a Joplock restart clears the counters.
 
 ## Design Decisions
 
@@ -281,7 +384,7 @@ Joplock lives outside Joplin monorepo. Keep standalone build, test, docs, Docker
 Joplock reads same Postgres database as Joplin Server. No data duplication. Writes still go through Joplin Server API for compatibility and validation.
 
 ### Configurable open mode
-Notes can open in rendered mode or markdown mode based on the per-user `noteOpenMode` setting (default **markdown**). Explicit `preview` is kept. Desktop and mobile both respect the same setting. `initEditorPanel` / `_completeUnlock` must call `preferredEditorMode()` (live `_joplockConfig.noteOpenMode`). Do not let `_tinymceReadonlyDefault()` / mobile-shell read-only force rendered mode — that override made Settings → "Open notes in: Markdown" a no-op on tablet/narrow windows. Mobile read-only still applies, but only when the note actually opens in rendered mode. `_joplockConfig` is inlined in `<head>` *before* `app.js`.
+Notes can open in rendered mode or markdown mode based on the per-user `noteOpenMode` setting (default **markdown**). The stored value may be `preview` (the pre-TinyMCE name, still accepted and preserved by `normalizeSettings`), but note the vocabulary mismatch: `preferredEditorMode()` returns only `'markdown'` or `'rich'`, and `_editorMode` is never `'preview'`. So `noteOpenMode: 'preview'` means "open rendered", and any `_editorMode === 'preview'` branch is dead. Desktop and mobile both respect the same setting. `initEditorPanel` / `_completeUnlock` must call `preferredEditorMode()` (live `_joplockConfig.noteOpenMode`). Do not let `_tinymceReadonlyDefault()` / mobile-shell read-only force rendered mode — that override made Settings → "Open notes in: Markdown" a no-op on tablet/narrow windows. Mobile read-only still applies, but only when the note actually opens in rendered mode. `_joplockConfig` is inlined in `<head>` *before* `app.js`.
 
 ### Shared editor fragment
 Desktop and mobile do not have separate editor implementations. Both use the same `editorFragment()` and client editor logic; mobile wraps it in a mobile-specific shell and screen navigation layer.
@@ -312,7 +415,35 @@ Text-expander is now wired for BOTH modes:
 - **Rendered mode (TinyMCE)**: `maybeExpandTextFromTinyMCE()` on `editor.on('keyup')`; inspects the caret text node suffix in the iframe and replaces the trigger via `replaceTinyMCETextExpansion()` (multi-line → `<br>`, then `tinyMCESyncToTA()`). Both `action:'text'` AND `action:'ai'` triggers now fire in rendered mode: AI triggers call `removeTinyMCETriggerForAction()` then `requestTinyMCEProseCompletion()` (builds a prompt from the iframe caret via `getTextBeforeCaretTinyMCE()`, calls `requestProseCompletion()`). The completion is offered in the SAME `note-autocomplete-popup` used by markdown mode — kind `'tinymce-prose'`, accept with Enter/Tab inserts via `insertProseCompletionTinyMCE()` (DOM text nodes, restores a caret bookmark first), Esc discards. `Ctrl/Cmd-Space` inside the iframe is wired on `editor.on('keydown')` (the global `document` keydown can't see iframe keystrokes) and also shows the popup. Popup keys are forwarded from the iframe keydown via `handleRenderPopupKey()` because iframe key events never reach the outer-document listener; popup coords come from `tinyMCECaretCoords()` (iframe caret rect offset by the iframe element rect).
 
 Follow-up (still not done, out of scope):
-- **Dead `getPV()` / `#note-preview` contenteditable code** still exists in `public/app.js` (superseded by TinyMCE). `getPV()` returns null (element never rendered), so every `if(pv){...}` branch in the formatting helpers (`wrapSel`, `insertPfx`, `clearFormat`, `openCodeModal`, `submitCode`, `syncPV`, `replacePVTextExpansion`, etc.) is dead and always falls through to the CM/textarea branch. Harmless. NOT removed because it is threaded through ~30 functions and ripping it out risks regressing the live CM path; do it as a dedicated, well-tested cleanup pass, not a drive-by.
+- **Dead `getPV()` / `#note-preview` contenteditable code** still exists in `public/app.js` (superseded by TinyMCE). `getPV()` returns null (the element is never rendered by any template), so every `if(pv){...}` branch in the formatting helpers (`wrapSel`, `insertPfx`, `clearFormat`, `openCodeModal`, `submitCode`, `syncPV`, `replacePVTextExpansion`, etc.) is dead and always falls through to the CM/textarea branch. Harmless. NOT removed because it is threaded through ~30 functions and ripping it out risks regressing the live CM path; do it as a dedicated, well-tested cleanup pass, not a drive-by.
+- **Image download buttons live in the TinyMCE body, not the dead PV path.** `initResourceImageDownloadButtons`/`activatePV` are legacy-only (PV never renders). The restored button is `initTinyMCEImageDownloadButtons(editor)`, called from `_setTinyMCEContent`'s post-load hook next to `initTinyMCECodeCopyButtons`. Serialization contract (same as the code-copy button): the button is `textContent=''` + `data-mce-bogus="all"` (label via CSS `::after` in `_tinyMCEContentFontStyle()`), so `getContent()` drops it — it can never reach saved markdown, HTML/DOCX/PDF exports. Only the positioning wrap `<span class="preview-img-download-wrap">` survives `getContent()`; `_stripTinymceDownloadChrome()` unwraps it in `tinyMCEContent()` and `tinymceToMarkdown()` so every serialization boundary sees the pre-injection DOM (keeps round-trip hashes stable — no phantom edits). Because the anchor can now sit inside the iframe, `_positionResourceActions` resolves anchor rects via `_anchorRectInHostDoc()` (iframe-viewport rect offset by the iframe element's rect). Coverage: `tests/tinymceImageDownload.test.js`.
+- **`highlightTinyMCECodeBlocks()` is unreferenced dead code.** It was the hljs pass over the TinyMCE body before Prism/`codesample` took over; every call site was removed but the function is still defined (`public/app.js`). It is the only hljs consumer besides the dead PV path, so removing it (with `highlightCodeBlocks()`) is a safe, self-contained slice of the PV cleanup.
+
+### Markdown-mode extras (`public/cm-extras.js`)
+
+`initCM()` spreads `_cmExtraExtensions(C)` (try/catch-guarded: a failure must never stop the editor mounting) into the CM6 extension list. The extras need extra symbols from the bundle (`Decoration`, `WidgetType`, `StateField`, `ViewPlugin`, `showPanel`, `hoverTooltip`, fold APIs, `syntaxTree`, `Prec`, ...) — they are exported from `cm-build/index.js`; **if you add an extra that needs another CM symbol, export it there and rebuild with `npm run build:cm`**.
+
+User settings (Settings → Markdown editor; `app/settingsService.js`, whitelisted in `app/routes/api.js`, exposed through `_joplockConfig` in `pages.js`, read in `app.js` as `_mdInlineWidgets` / `_mdLivePreview` / `_mdStatusBar` / `_mdFolding`):
+
+- `mdInlineWidgets` (default ON): image previews, attachment/note-link chips, task checkboxes, code-block background + Copy button.
+- `mdLivePreview` (default OFF): hide `#`, `**`, `*`, `~~`, backticks and `[](url)` marks except on the heading line / inside the construct the caret touches. Only when the editor has focus.
+- `mdStatusBar` (default ON): bottom `showPanel` with word count, reading time, Ln/Col (or selection word count) and an Outline popup.
+- `mdFolding` (default ON): fold gutter (headings, lists, fenced code) — the theme hides `.cm-gutters` entirely when OFF.
+- Always on: paste-as-markdown, URL-over-selection → link, table helper, hover info on `:/id` links, and the file-drop claim below.
+
+How it fits together (details that bit us — keep them):
+
+- One `StateField` (`modelField`) holds `scanDoc(doc)` output (images, links, tasks, headings, fences; nothing inside fenced code is ever scanned) and provides the **block** image widgets (block decorations cannot come from a `ViewPlugin`). A `ViewPlugin` builds the inline decorations (chips, checkboxes, code lines, live-preview hides) for `view.visibleRanges` only. Docs over ~2 MB skip scanning.
+- Image rows are block widgets *under* the `![](:/id)` / `<img src=":/id">` line; the source line stays visible and editable. Previews load through `hooks.fetchResourceBlob` into a refcounted blob-URL cache because `/resources/:id` is `Cache-Control: no-store`. Click selects the source reference (Delete removes the image); double-click opens the lightbox.
+- **Resize writes `<img src=":/id" alt=".." width="N" />`** — byte-identical to the Turndown `joplinImg` rule and understood by `renderMarkdown()`, so rendered mode honours the width and round-trips it. Double-clicking the handle resets to plain `![](:/id)`. Widget positions go stale as text above changes, so `locateImage()` re-finds the line from `view.posAtDOM()` before every edit.
+- Resize/checkbox edits are ignored when the editor is read-only (`canEdit()` checks `contenteditable="false"`, which is what `_applyFormReadonly` sets).
+- **CM6 does not repaint its cursor/selection layers when a block widget changes height** (image finishing its load). `relayout()` re-asserts the selection (`addToHistory:false`) after each load; `requestMeasure()` alone leaves the caret painted at a stale y.
+- **CodeMirror's built-in drop handler reads dropped text-like files (.txt, .svg, .json, ...) and inserts their contents.** The app's own listener uploads them, so the extras claim file drops with a `domEventHandlers({drop})` returning `true` (handlers from extensions run before the built-in). Without it a dropped text file is both pasted AND uploaded.
+- Paste: the app's capture-phase `paste` listener (`initCM`) uploads image/file clipboard items; the extras' `paste` handler converts rich HTML via `hooks.htmlToMarkdown` = `_pasteHtmlToMarkdown()` (the shared Turndown instance) only when the HTML has real structure (`shouldConvertHtml`), never inside fenced code, never for VS Code clipboards, never on Ctrl/Cmd+Shift+V. (`lang-markdown` also wraps URL-over-selection natively; the extras' version just guarantees it and escapes brackets.)
+- Chips replace `[text](:/id)`; the kind (note vs attachment) is resolved lazily via `_resolveInternalLink()` (note headers cache, then `HEAD /resources/:id`). Notes open through the note-list row (`_openNoteById()`), attachments through `_openResourceLightbox()`. Rendered mode still treats every `:/id` link as an attachment — note-link navigation exists only in markdown mode.
+- Table helper (`Prec.high` keymap): Tab/Shift-Tab align the whole pipe table and move between cells (Tab at the last cell appends a row). Tables inside fences are ignored. **Do not bind Enter**: people type pipe tables row by row, and an "Enter adds a formatted row" handler corrupts what they type next (it broke `table-regression.spec.js`).
+- No regex lookbehind anywhere in `cm-extras.js` (a parse-time SyntaxError on iOS < 16.4 would take the whole file down) — pinned by a test.
+- Coverage: `tests/cmExtras.test.js` (pure helpers + real CM6 in jsdom), `playwright-tests/md-extras.spec.js` (real browser: preview/resize/round-trip, chips + hover, checkboxes, tables, paste, status bar/outline/folding, Copy button, live preview).
 
 ### Two modes
 
@@ -340,14 +471,17 @@ Follow-up (still not done, out of scope):
 
 ### Upload behavior
 
-- The upload modal (`openUploadModal()` → `uploadModalFiles()` → `insertUploadedFiles()`) is the primary picker/drag-drop path; it uploads to `/fragments/upload` and inserts into the live TinyMCE document (or the textarea/CM target when not in rich mode). On success (all files upload, no errors) the modal auto-dismisses; if any file errors it stays open showing per-file errors.
+- The upload modal (`openUploadModal()` → `uploadModalFiles()` → `insertUploadedFiles()`) is the primary picker/drag-drop path; it uploads to `/fragments/upload` and inserts into the live TinyMCE document when in rich mode (or the CM6/textarea target when not). On success (all files upload, no errors) the modal auto-dismisses; if any file errors it stays open showing per-file errors.
 - Drag-and-drop directly onto TinyMCE works via `_uploadFileToTinyMCE()` (inserts `<img data-resource-id>` / `<a data-resource-id>` into the live editor). Markdown-mode drops route through `_uploadFileToCM()` (inserts `![](:/id)` at the CM cursor).
+- **The upload-modal/picker insert must go through the live editor in rich mode** (it used to fall through to the hidden textarea, which lost the insert). `_captureUploadInsertTarget()` now returns `{ mode: 'tinymce', rng }` when rich mode is active, the TinyMCE host is visible, and the editor is not read-only; `_insertUploadedMarkdown()` then routes to `_insertResourceIntoTinyMCEFromMarkdown(markdown, rng)`, which re-inserts a saved caret range, builds the same `<img>`/`<a>` HTML as the drop path, and inserts it through `_tinyMCEBlockAttachmentHtml()` (so blank-line padding is identical). Read-only editors (mobile rendered mode) still fall through to the textarea/CM branches.
+- **Programmatic rich-mode inserts must call `_endTinyMCEPostLoadWindow()` first** (`_uploadFileToTinyMCE`, `insertUploadedFiles`, `_insertResourceIntoTinyMCEFromMarkdown`). An insert is a real edit, not load echo: it clears `_tinymcePostLoad`/`_tinymcePostLoadUntil` and sets `_tinymceUserTypedSinceLoad`. Without this, `onEdit` classifies the insert's own events as round-trip echo, the post-load reconcile re-baselines `_savedHash` to the inserted content, and the debounced save then sees "hash unchanged" — the upload never reaches the server.
 - **Dropped/pasted attachments (image AND document) are padded with a blank line before and after** so a single attachment stays easy to delete even when several are stacked. This padding is *only* about spacing around the inserted resource — it does not change how surrounding typed text is handled.
   - Markdown mode (CM6): `_uploadFileToCM()` inserts `<pad>` + ref + `\n\n`, where `<pad>` is `''` at the very start of the doc, `\n` if the char before the cursor is already a newline, else `\n\n`. Both images and documents get this. (Plain source blank line; no `md-blank-line` marker needed because the user edits raw text here.)
   - Rendered mode (TinyMCE): `_tinyMCEBlockAttachmentHtml(editor,inner)` wraps the image/link in its own `<p>` and adds a `<p class="md-blank-line"><br></p>` (the renderer's canonical deletable blank line — see `injectBlankLineBlocks`) before and after, for both images and documents. **Smart**: it skips the leading and/or trailing marker when the caret block is already empty or already adjacent to an existing blank-line paragraph (via `editor.selection.getNode()`), falling back to adding both when the selection API is unavailable (unit tests).
   - Round-trip safety (rendered mode): `md-blank-line` paragraphs are pre-normalized in `tinymceToMarkdown()` and matched by the `blankLine`/`emptyP` Turndown rules → `\x00BL\x00` sentinel → `\n\n\n` (one extra newline = one blank line that re-renders as an `md-blank-line` `<p>`). Do NOT switch these separators to bare `<div><br></div>` or plain empty `<p></p>` — those get merged/dropped around block-level images and swallow the spacing after a few round-trips.
   - `_buildMarkdownInsert()` (used by the upload-modal picker's textarea/CM targets) is unchanged — it still adds a single `\n` on each side as needed. It is deliberately NOT part of the blank-line padding change.
   - Coverage: `tests/cm6MarkdownMode.test.js` (CM padding for image + document; TinyMCE `_tinyMCEBlockAttachmentHtml` markers + smart skip), `tests/previewRoundTrip.test.js` (blank line between stacked image/image, image/doc, doc/image survives render⇄markdown), `tests/appRuntime.test.js` (mode-switch round-trip, no mangling).
+- Markdown-mode clipboard paste: `initCM()` registers a CAPTURE-phase `paste` listener on `_cmView.dom` that uploads image/file clipboard items via `_uploadFileToCM()` (`_clipboardFilesToUpload()` decides: non-image files always, images unless the clipboard is a text+HTML rich copy such as a spreadsheet). It must be capture-phase on the editor root: CM6's own paste handler only reads `text/plain` and, for an image-only clipboard, would *replace the selection with an empty string*.
 - Clipboard paste: images are uploaded by TinyMCE's built-in pipeline (`paste_data_images:true` + `automatic_uploads:true` + `images_upload_handler`); non-image clipboard files are handled by an explicit `editor.on('paste', ...)` handler that routes through `_uploadFileToTinyMCE()`.
 - The Image/Media dialogs' Browse button is wired via `file_picker_callback` to `/fragments/upload`, returning a `/resources/<id>` URL.
 - All upload paths produce `src="/resources/<id>"` / `href="/resources/<id>"`, which `tinymceToMarkdown()` (the `joplinImg`/`joplinLink` Turndown rules) converts to Joplin `![](:/id)` / `[](:/id)` on save. `data-resource-id` is added by drop/paste/upload-modal paths but is not required for the round-trip (matching is by `src`/`href`).
@@ -367,7 +501,7 @@ Follow-up (still not done, out of scope):
 - Checkbox, code block, and blank-line handling are easy to regress.
 - **Blank-line markers between blocks are `<p class="md-blank-line"><br></p>`, NOT bare `<div><br></div>`.** `injectBlankLineBlocks()` (`app/markdownRenderer.js`) emits extra blank lines as empty paragraphs because TinyMCE's schema preserves empty `<p>` natively; a bare `<div><br></div>` got normalised/merged/dropped around block-level images, which swallowed spacing between images after a few markdown⇄render round-trips. The Turndown `blankLine` rule (`public/app.js`, and the preview-path copy in `tests/previewRoundTrip.test.js`) matches `P|DIV.md-blank-line`; in `getTurndown()` both `blankLine` and `emptyP` emit the same `\x00BL\x00` sentinel so precedence is moot. **Two TinyMCE quirks made image spacing collapse anyway (both fixed):** (1) **TinyMCE strips the `<br>`** from the marker on `setContent`, leaving an empty `<p class="md-blank-line"></p>` that Turndown drops — so `tinymceToMarkdown()` pre-normalises a **blank** `md-blank-line` paragraph (empty, whitespace/`&nbsp;`-only, or just `<br>`) to the `❤BR❤` sentinel shape before Turndown. **This normalisation MUST stay conditional.** A marker is a real, focusable paragraph in the iframe, so clicking the gap between two blocks puts the caret inside it and typing puts the new text there; rewriting markers unconditionally (the old "empty or not" behaviour) replaced that text with the sentinel and **silently destroyed it** — type a line after a checklist, leave the note, come back, gone. When a marker holds real content, leave the paragraph verbatim: with text present neither the `blankLine` nor the `emptyP` rule matches, so it converts as an ordinary paragraph. Coverage: `tests/appRuntime.test.js` "keeps text typed INTO a blank-line marker (data-loss regression)" + "still collapses a genuinely blank blank-line marker". (2) **Sized/raw-HTML images** (Turndown emits `<img … width=… />` for resized images) are markdown-it *HTML blocks* rendered OUTSIDE any `<p>`; a loose block `<img>` next to markers gets absorbed into an adjacent paragraph by TinyMCE, so `postProcess()` wraps any line that is a lone `<img>` in its own `<p>`. Regression coverage: `tests/appRuntime.test.js` "image spacing …", "sized … survive 6 mode switches", "br-stripped … marker".
 - The code modal is outside the fragment-swapped editor so it survives swaps; it uses CM6 (`_initCodeModalCM`) which requires `window.CM` (now loaded).
-- Both markdown mode (CM6) AND rendered mode (TinyMCE) open this same custom full-screen CM6 code modal (`openCodeModal`/`submitCode`) for *editing* the code text/language, NOT TinyMCE's built-in `codesample` dialog. The toolbar uses a custom `jop_code` button; clicking an existing `<pre>` in rendered mode routes through `tinyMCEInsertCodeBlock()` → `openCodeModal()`. On submit in rendered mode, `submitCode()` (TinyMCE branch, `_codeTinyMCE`/`_codeTinyMCEBookmark`) inserts `<pre class="language-x">code</pre>` via `ed.insertContent()` — the `codesample` plugin's `SetContent` handler then highlights it with Prism. Do NOT reintroduce hljs highlighting of rendered-mode blocks (`highlightTinyMCECodeBlocks` was removed); Prism owns rendered-mode coloring. Do not reintroduce `ed.execCommand('mceCodeSample')` (that opens the built-in dialog).
+- Both markdown mode (CM6) AND rendered mode (TinyMCE) open this same custom full-screen CM6 code modal (`openCodeModal`/`submitCode`) for *editing* the code text/language, NOT TinyMCE's built-in `codesample` dialog. The toolbar uses a custom `jop_code` button; clicking an existing `<pre>` in rendered mode routes through `tinyMCEInsertCodeBlock()` → `openCodeModal()`. On submit in rendered mode, `submitCode()` (TinyMCE branch, `_codeTinyMCE`/`_codeTinyMCEBookmark`) inserts `<pre class="language-x">code</pre>` via `ed.insertContent()` — the `codesample` plugin's `SetContent` handler then highlights it with Prism. Do NOT reintroduce hljs highlighting of rendered-mode blocks; Prism owns rendered-mode coloring. `highlightTinyMCECodeBlocks()` (the old hljs pass over the TinyMCE body) has **no call sites left** — the function body is dead, not deleted, so grep hits are misleading. Do not reintroduce `ed.execCommand('mceCodeSample')` (that opens the built-in dialog).
 - On htmx editor-panel swap, `_cmView` is destroyed in `htmx:afterSwap` and re-mounted by `initEditorPanel()` (via `mountMarkdownEditor`) on `htmx:afterSettle` when the note opens in markdown mode. Keep that destroy/remount ordering intact.
 - `#tinymce-host` is `position:fixed` and repositioned via `positionTinyMCEHost()`; if it looks detached, check that function and the `#tinymce-slot` rect, not CSS alone.
 - **Turndown expels "flanking" whitespace, and it gets that wrong next to atomic children.** `flankingWhitespace()` derives an element's edge whitespace from `node.textContent`, which skips `<img>`/`<br>` (they contribute no text). For `<a><img/>&nbsp;Label</a>` it reports *leading* whitespace even though the whitespace is interior to the produced markdown (`![alt](:/id) Label`), so `replacementForNode()`'s `content.trim()` cannot remove it — yet it is still prepended. The space was therefore **duplicated on every round-trip and grew one character per note open**, corrupting the stored body. `tinymceToMarkdown()` hides such whitespace behind a sentinel (`_protectInlineLeadingSpace` → `_restoreProtectedSpace`) that **encodes the character code**: these runs are frequently NBSP, and restoring a generic `' '` would itself change the body and keep the note permanently dirty. Do not "simplify" that sentinel back to a plain space, and do not narrow its character class to `[ \t]` — Turndown's `edgeWhitespace` uses `\s`, which matches NBSP.
@@ -417,25 +551,33 @@ These screens are shown/hidden by inline JS in `layoutPage()` using class change
 
 ### Current notable settings
 
-- `theme`
-- `noteFontSize`
-- `mobileNoteFontSize`
-- `codeFontSize`
-- `noteMonospace`
-- `noteOpenMode`
-- `resumeLastNote`
-- `dateFormat`
-- `datetimeFormat`
-- `liveSearch`
-- `confirmTrash`
-- `autoLogout`
-- `autoLogoutMinutes`
+Per-user (`joplock_settings.settings` JSONB; allowlist for `PUT /api/web/settings` lives in `app/routes/api.js` as `allowedKeys`):
+
+- `theme` — one of `validThemes` in `app/settingsService.js` (21 slugs); display names come from `themeOptions` in `app/templates/shared.js`
+- `noteFontSize`, `mobileNoteFontSize`, `codeFontSize`, `markdownFontSize` — note, mobile note, code block, and markdown-editor font sizes
+- `noteFontFamily` — `sans` | `mono` | `serif` | `rounded` | `humanist`
+- `noteMonospace` — boolean, forces the monospace note body
+- `newlineBehavior` — `linebreak` (default) | `invert`; rendered into `<body data-newline-behavior>` and consumed by TinyMCE's `newline_behavior`
+- `noteOpenMode` — `markdown` (default) | `preview`
+- `resumeLastNote`, `lastNoteId`, `lastNoteFolderId` — last-opened note resumption
+- `dateFormat`, `datetimeFormat`
+- `uiMode` — `auto` (default) | `mobile` | `desktop`; `auto` picks the mobile shell at/below the shell breakpoint, the explicit values add `force-mobile`/`force-desktop` to `<body>`
+- `liveSearch`, `highlightActiveLine` (CM6 caret-line highlight), `confirmTrash`
+- `autoLogout`, `autoLogoutMinutes`
 - `encryptionAutoLockMinutes`
-- `aiProfiles`
-- `proseAutocompleteSentenceCount`
+- `aiProfiles`, `proseAutocompleteSentenceCount`
 - `textExpanders`
-- `maxUploadMb` (admin) — max upload size in MB (default 200, clamp 1–2000)
-- `debugLogging` (admin, tri-state) — `null` inherits env `DEBUG`; `true`/`false` overrides at runtime
+- `openRouterApiKey`, `openRouterModel` — legacy keys, still migrated into an OpenRouter profile
+
+Admin-only (`user_id = '__app__'` row, normalized by `normalizeAppSettings`):
+
+- `maxUploadMb` — max upload size in MB (default 200, clamp 1–2000)
+- `authRateLimitAttempts` — login attempts per window (default 20, clamp 1–1000)
+- `debugLogging` (tri-state) — `null` inherits env `DEBUG`; `true`/`false` overrides at runtime
+
+A setting only persists if it is (a) defaulted/normalized in `app/settingsService.js` and
+(b) listed in the `allowedKeys` array in `app/routes/api.js` (or handled by a `/admin/*` route
+for admin settings). Adding a key to only one of the two silently does nothing.
 
 ### Expander / AI Autocomplete
 
@@ -497,10 +639,11 @@ These screens are shown/hidden by inline JS in `layoutPage()` using class change
 ### Adding a new setting
 
 1. Add default + normalization in `app/settingsService.js`
-2. Allow the key in `/api/web/settings` in `app/createServer.js` (or `/admin/*` for admin-only settings)
+2. Allow the key in the `allowedKeys` array of `PUT /api/web/settings` in `app/routes/api.js` (or in the matching `/admin/*` route for admin-only settings)
 3. Add the UI in `settingsPage()` in `app/templates/settings.js`
-4. If needed, inject the normalized setting into `layoutPage()` / `public/app.js`
-5. Rebuild with `./scripts/rebuild-dev.sh`
+4. If needed, inject the normalized setting into `layoutPage()` / `_joplockConfig` in `app/templates/pages.js` for `public/app.js`
+5. Bump `CACHE_NAME` in `public/service-worker.js` if the change adds or changes shipped client JS/CSS
+6. Rebuild with `./scripts/rebuild-dev.sh`
 
 ### Adding or editing a theme
 
@@ -509,11 +652,12 @@ Themes are CSS-only. Each theme is a class on `<body>` that sets a shared set of
 **Files to touch:**
 
 1. **`public/styles.css`** — Add/edit a `.theme-<slug>` block that defines the same set of custom properties used by every other theme.
-   - Minimum properties that must be defined: `--bg`, `--theme-color`, `--bg-side`, `--bg-list`, `--bg-editor`, `--bg-hover`, `--bg-active`, `--text`, `--text-dim`, `--text-muted`, `--text-heading`, `--accent`, `--border`, `--border-focus`, `--danger`, `--toolbar-bg`, `--scrollbar`, `--statusbar-bg`, and `color-scheme` (`light` or `dark`).
+   - Minimum properties that must be defined: `--bg`, `--theme-color`, `--bg-side`, `--bg-list`, `--bg-editor`, `--bg-elevated`, `--bg-input`, `--bg-hover`, `--bg-active`, `--overlay`, `--shadow`, `--text`, `--text-dim`, `--text-muted`, `--text-heading`, `--text-on-accent`, `--accent`, `--border`, `--border-focus`, `--danger`, `--toolbar-bg`, `--scrollbar`, `--statusbar-bg`, and `color-scheme` (`light` or `dark`).
+   - `--bg-elevated` in particular is not optional: it is forwarded into the TinyMCE iframe by `_syncTinyMCEThemeVars()` and backs the image-download button background. A theme missing it renders that button transparent.
    - Keep numbers and hover/active states neutral unless the theme intentionally uses color.
    - The markdown toolbar and the TinyMCE toolbar both share `color-mix(in srgb, var(--accent) 10%, var(--bg))`. Setting a sensible `--accent` and `--bg` is enough; no extra toolbar work needed.
 
-2. **`app/settingsService.js`** — Add the theme slug to the `validThemes` array at the top of the file.
+2. **`app/settingsService.js`** — Add the theme slug to the `validThemes` array at the top of the file (it is the allowlist that keeps a persisted slug from being normalized back to the default).
 
 3. **`app/templates/shared.js`** — Add `[<slug>, <displayName>]` to `themeOptions` so it appears in the status bar picker and the settings page.
 
@@ -527,15 +671,34 @@ No changes are needed in `pages.js`, `app.js`, or `settings.js`: those all read 
 
 ## Route Notes
 
-Useful route groups in `app/createServer.js`:
+`app/createServer.js` assembles the server and delegates to the handlers in
+`app/routes/*.js`, each of which exports a `handle(url, request, response, ctx)`
+returning `true` when it consumed the request (`app/routes/api.js` additionally
+exports the export handlers and CSS/URL helpers for tests). Route ownership by
+file:
 
-- auth pages and login/logout
-- full page render for `/`
-- fragment routes for nav, notes, editor, preview
-- mobile fragment routes for folders, notes, search, mobile note creation
-- resource upload and resource serving
-- settings save endpoints
-- history endpoints
+| File | Routes |
+|---|---|
+| `app/routes/auth.js` | `/login`, `/login/mfa`, `/logout`, `/heartbeat` |
+| `app/routes/settings.js` | `/settings` (full page), `/settings/profile`, `/settings/password`, `/settings/security`, `/settings/mfa/{setup,verify,disable,cancel}` |
+| `app/routes/admin.js` | `/admin`, `/admin/users`, `/admin/status`, `/admin/security`, `/admin/backups`, `/admin/restore`, `/admin/db-compression`, `/admin/orphaned-resources{,/ids,/cleanup}` |
+| `app/routes/recovery.js` | `/recovery`, `/recovery/login`, `/recovery/logout`, `/recovery/status`, `/recovery/backups`, `/recovery/restore` |
+| `app/routes/fragments.js` | `/fragments/nav`, `/fragments/folders` (POST) and `/fragments/folders/:id` (PUT/DELETE), `/fragments/folder-notes`, `/fragments/notes` (POST), `/fragments/notes/:id` (DELETE), `/fragments/notes/:id/restore`, `/fragments/editor/:id` (GET fragment, **PUT autosave**), `/fragments/preview`, `/fragments/search`, `/fragments/trash/empty`, `/fragments/shares/inbox`, `/fragments/shares/:id` |
+| `app/routes/mobile.js` | `/fragments/mobile/folders`, `/fragments/mobile/notes`, `/fragments/mobile/notes/new`, `/fragments/mobile/search` |
+| `app/routes/history.js` | `/fragments/history/:noteId`, `/fragments/history-snapshot/:id`, `/fragments/history/:noteId/restore/:snapshotId` |
+| `app/routes/resources.js` | `/resources/:id` (GET/HEAD serve, DELETE), `/fragments/upload` |
+| `app/routes/shares.js` | `/api/web/shares` (GET/POST), `/api/web/shares/:id` (GET/DELETE), `/api/web/shares/:id/invites` (GET/POST), `/api/web/shares/:id/leave` (POST), `/api/web/shares/invites/:id` (PATCH/DELETE), accept/reject actions, `/api/web/users/search` |
+| `app/routes/api.js` | `/api/web/{client-log,settings,theme,me,folders,notes,vaults,ai/*}`, `/api/export/{docx,pdf,html}` |
+
+A few contracts worth remembering:
+
+- The editor autosave `PUT /fragments/editor/:id` also sets the
+  `X-Note-Updated-Time` / `X-Note-Conflict` response headers the client relies on
+  (see "Plaintext save identity guard").
+- Mobile note creation is driven by response headers such as `X-Mobile-Note-Id`,
+  consumed in `htmx:afterRequest`.
+- History restore returns `editorFragment` **inline** (target = the editor
+  container) with OOB swaps, not just the status bar.
 
 If a UI action appears broken, check:
 1. Which endpoint it hits
@@ -626,20 +789,34 @@ To find out *why* a note is non-idempotent, round-trip its stored body offline:
 Known-lossy constructs that are **by design** and will always re-baseline (do not "fix" them by adding markers):
 
 - an indented ` ``` ` fence loses its indent (HTML cannot carry fence indentation)
-- a blank line after an ATX heading is collapsed by `_applyHeadingSpacing()`
 - encrypted/vault note wrappers strip HTML comments — irrelevant in practice, since locked notes never load plaintext into TinyMCE
+
+Heading-gap blank lines around ATX headings are no longer lossy: `tinymceToMarkdown(html, prevMd)` keeps Turndown's natural spacing and only falls back to the authored markdown (`prevMd`, what `#note-body` already held for the note) when the fresh conversion differs from it purely in heading-gap shape — collapsing both with `_applyHeadingSpacing()` yields the same text. Authored blank lines around headings survive the switch; untouched compact notes don't gain a phantom "Edited"/save; a real edit always wins (and one-time re-spaces a compact heading note). Do not reintroduce the unconditional `headingGapRe`/`headingLeadRe` collapse in `tinymceToMarkdown()` — it ate blank lines the user typed around headings (reported: add a blank line under a heading in markdown mode, switch to rendered and back, it was gone, and the collapsed body was saved). `_applyHeadingSpacing()` remains for the authored-gap comparator and the legacy preview path (`htmlToMarkdown`). Coverage: `tests/appRuntime.test.js` heading-gap round-trip tests + `playwright-tests/heading-gap-roundtrip.spec.js`.
 
 ## Verification
 
 - Run tests: `npm test`
+- Browser E2E: `npm run test:ui` (needs a live dev stack + admin env vars, see below)
 - Build image: `npm run docker:build`
 - Sidecar-only compose: `npm run docker:up`
 - Full example compose: `npm run docker:up:full`
+- Full example compose built from source: `npm run docker:up:build` (uses `docker-compose.example-full-build.yml`)
+- Dev stack: `npm run docker:up:dev` / `./scripts/rebuild-dev.sh` (see "Development Stack")
+- Rebuild PWA assets: `npm run generate:pwa-assets`
 
 ### Playwright credentials
 
 - Tests NEVER hardcode credentials. `playwright-tests/helpers.js` resolves the admin account from the environment in this order: `PLAYWRIGHT_ADMIN_EMAIL` → `PLAYWRIGHT_EMAIL` → `JOPLOCK_ADMIN_EMAIL` (and the `*_PASSWORD` equivalents). The dev container sets `JOPLOCK_ADMIN_*`, so the useful tests work against it out of the box.
 - `login()` calls `requireCredentials()` and fails loudly if none are set. Admin-only specs (`resource-lifecycle`, `auth-rate-limit`) use `hasAdminCredentials()` to `test.skip` when unset. `helpers.js` exports `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`hasAdminCredentials` so specs share one source of truth.
+
+### Playwright helper robustness (do not simplify these away)
+
+The shared helpers absorb races in the app's two-phase htmx settling, not test flakiness:
+
+- `setNoteBody()` clicks whichever markdown toggle is **visible** (`#editor-panel #markdown-toggle:visible`, `#mobile-editor-body #markdown-toggle:visible`, `#mobile-md-toggle:visible`). The mobile shell hides the editor fragment's own MD toggle and shows the header `#mobile-md-toggle` from `pages.js`; a locator that does not filter on `:visible` can click a hidden element and silently inject into a textarea TinyMCE then overwrites.
+- `setNoteTitle()` waits for the note-creation swaps to land, then sets the title and **verifies it stuck**, retrying up to 8 times. The creation response re-renders the editor with server state (`Untitled note`) after the form first appears, wiping an early title injection.
+- `deleteNotebook()` waits for the `#nav-panel` swap to settle and retries the delete while a stale/duplicated folder row is still present.
+- When adding a helper, prefer a shared one in `helpers.js` over a per-spec local; delete helpers only after confirming no spec imports them.
 
 ### Playwright data cleanup (do not leave notes/notebooks/resources behind)
 
@@ -717,6 +894,11 @@ Recommended inner loop:
 
 ## Recently Completed Work
 
+- **Rich-mode uploads now insert through the live editor**: uploading from the modal or the older `#file-upload` picker in rendered mode used to target the hidden `#note-body` textarea, which TinyMCE's own lazy sync overwrote before the debounced save fired — the attachment silently vanished. `_captureUploadInsertTarget()` now captures a TinyMCE caret range (`{mode:'tinymce', rng}`) when the host is visible and the editor is not read-only, and `_insertResourceIntoTinyMCEFromMarkdown()` rebuilds the `<img>`/`<a>` from the saved `![](:/id)` markdown, inserts it with the same `_tinyMCEBlockAttachmentHtml()` padding as drag-drop, and syncs `#note-body` immediately. All three rich-mode insert paths call `_endTinyMCEPostLoadWindow()` so the insert is treated as a real edit instead of post-load echo (otherwise the reconcile re-baselines the hash and the save sees "unchanged"). Read-only (mobile rendered) keeps the textarea/CM fallback. See "Upload behavior" above.
+- **flushSave uses `keepalive: true`**: the unload-time flush (visibilitychange, tab close, note-switch navigation) was being aborted mid-flight — Chromium sent a truncated request with no `Cookie` header (401) and the pending edits were lost. Pinned by `tests/saveIdentityGuard.test.js`.
+- **Image download buttons restored in rendered mode**: `initTinyMCEImageDownloadButtons()` injects them into the TinyMCE body (the old `#note-preview` host is dead), with `data-mce-bogus="all"` + `_stripTinymceDownloadChrome()` keeping them out of saved markdown and every export, and `_anchorRectInHostDoc()` translating iframe rects for the resource-action sheet. Coverage: `tests/tinymceImageDownload.test.js`.
+- **Heading-gap blank lines survive a rendered round-trip**: `tinymceToMarkdown(html, prevMd)` no longer unconditionally collapses blank lines around ATX headings; it only prefers the authored markdown when the fresh conversion differs purely in heading-gap shape. Fixes "typed a blank line under a heading, switched to rendered and back, it was gone (and the collapsed body got saved)" without reintroducing phantom "Edited" on untouched compact notes. Coverage: `tests/appRuntime.test.js` + `playwright-tests/heading-gap-roundtrip.spec.js`.
+- **Playwright helper hardening**: `setNoteBody()` clicks the visible markdown toggle (`#mobile-md-toggle` in the mobile shell), `setNoteTitle()` verifies the title sticks across the creation re-render (8 retries), `deleteNotebook()` retries through a mid-swap duplicated nav row. See "Playwright helper robustness" above.
 - **Vault simplification — notes cannot leave vaults or create conflict copies**: removed `confirmMoveOutOfVault` mechanism. Vault notes now have immutable `parentId` — the server rejects any PUT that changes a vault note's folder. The folder select is `disabled` for vault notes and stays disabled after unlock. The folder-change handler reduces to a single branch: plain→vault (encrypt on move). Conflict copies of vault notes are blocked entirely because ciphertext is note-id-bound. All vault→plain and vault→vault move paths are removed (previously guarded by confirm dialogs and the now-deleted `confirmMoveOutOfVault` flag).
 - **Vault chrome refresh on folder change**: `_syncEditorVaultChrome(noteId, inVault, unlocked)` in `public/app.js` injects/removes the lock-toggle button in `.editor-titlebar` when moving into/out of a vault. Called from `_doEncryptNoteInVault` (plain → vault).
 - **/ask user-visible reason in vault notes**: typing `/ask …` and pressing Enter in a vault note previously fell through silently to a newline, which looked broken. Now `_notifyAskDisabledInVault()` fires a one-shot alert per note explaining that `/ask` is disabled to protect vault plaintext from third-party AI providers. Guard logic (`askDisabledForActiveNote()`) unchanged; only the UX around the "disabled" case changed.

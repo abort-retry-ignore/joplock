@@ -46,11 +46,12 @@ test.describe('rendered-mode in-note search highlight', () => {
 			await createDesktopNote(page, notebook);
 			await setNoteTitle(page, noteTitle);
 
-			// The note opens in rendered (TinyMCE) mode by default. Type the body
-			// directly into the persistent TinyMCE editor so it is real rendered
-			// content. The persistent iframe lives under #tinymce-host (repositioned
-			// over the editor slot), so drive/read it via the tinymce API to avoid
-			// brittle iframe selectors across htmx swaps.
+			// This test pins rendered-mode behaviour; since the dual-mode editor
+			// notes open in markdown by default, switch to rich first. The
+			// persistent iframe lives under #tinymce-host (repositioned over the
+			// editor slot), so drive/read it via the tinymce API to avoid brittle
+			// iframe selectors across htmx swaps.
+			await page.locator('#editor-panel #preview-toggle').click();
 			await page.waitForFunction(() => !!(window.tinymce && window.tinymce.activeEditor && window.tinymce.activeEditor.initialized), null, { timeout: 15000 });
 			const editArea = page.locator('#tinymce-host iframe').contentFrame().locator('body#tinymce');
 			await expect(editArea).toBeVisible({ timeout: 15000 });
@@ -77,6 +78,10 @@ test.describe('rendered-mode in-note search highlight', () => {
 			// Open the matching result — this seeds the pending search term and
 			// applySearchHighlight() runs after the editor settles.
 			await results.first().click();
+			// The result may reopen in markdown (the current open-mode default);
+			// this test pins rendered-mode marks — force rich mode.
+			await page.locator('#editor-panel #preview-toggle').click();
+			await page.waitForTimeout(1200); // past the TinyMCE post-load quiet window
 
 			// Rendered-mode highlight: the term must be wrapped in
 			// mark.search-highlight inside the live TinyMCE body. Read via the

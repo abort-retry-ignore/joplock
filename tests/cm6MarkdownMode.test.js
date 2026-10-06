@@ -484,6 +484,12 @@ function makeTinyMCECtx(selNode) {
 		Promise,
 		FormData: function FormData() { this.append = () => {}; },
 		fetch: () => Promise.resolve({ json: () => Promise.resolve({ resourceId: RID }) }),
+		// _uploadFileToTinyMCE ends the post-load absorption window before
+		// inserting (see _endTinyMCEPostLoadWindow in app.js); the harness
+		// needs the module-level flags it touches.
+		_tinymcePostLoad: false,
+		_tinymcePostLoadUntil: 0,
+		_tinymceUserTypedSinceLoad: false,
 	});
 	vm.runInContext(extractFn('_maxUploadBytes'), ctx);
 	vm.runInContext(extractFn('_fileTooLarge'), ctx);
@@ -493,6 +499,7 @@ function makeTinyMCECtx(selNode) {
 	vm.runInContext('var _MD_BLANK_LINE_P=\'<p class="md-blank-line"><br></p>\';', ctx);
 	vm.runInContext(extractFn('_isBlankLineBlock'), ctx);
 	vm.runInContext(extractFn('_tinyMCEBlockAttachmentHtml'), ctx);
+	vm.runInContext(extractFn('_endTinyMCEPostLoadWindow'), ctx);
 	vm.runInContext(extractFn('_uploadFileToTinyMCE'), ctx);
 	vm.runInContext('function getTA(){return null}function tinymceToMarkdown(h){return h}', ctx);
 	const inserted = [];

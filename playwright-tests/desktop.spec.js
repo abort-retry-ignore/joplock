@@ -599,7 +599,10 @@ test.describe('Desktop UI', () => {
 		await trashRow.locator('.trash-folder-empty').click();
 		await page.locator('#empty-trash-form').evaluate(form => form.requestSubmit());
 		await expect(page.locator('#empty-trash-modal')).toBeHidden();
-		await expect(page.getByRole('button', { name: noteTitle, exact: true })).toHaveCount(0, { timeout: 15000 });
+		// Scope to the desktop nav: the empty-trash response refreshes #nav-panel;
+		// the (hidden) mobile nav keeps a stale copy, which a global locator would
+		// match and count.
+		await expect(page.locator('#nav-panel').getByRole('button', { name: noteTitle, exact: true })).toHaveCount(0, { timeout: 15000 });
 
 		await deleteNotebook(page, folderName);
 		await logout(page);

@@ -16,7 +16,11 @@ const {
 // ── Theme persistence ────────────────────────────────────────────────
 
 test.describe('Theme persistence', () => {
+	// Both tests drive .theme-picker, which lives in the desktop statusbar
+	// (app-statusbar) — the mobile shell has no theme picker, so these run on
+	// the desktop project only.
 	test('theme chosen via setTheme survives page reload', async ({ page }, testInfo) => {
+		test.skip(testInfo.project.name !== 'desktop');
 		await login(page);
 		await page.waitForSelector('.theme-picker');
 
@@ -40,6 +44,7 @@ test.describe('Theme persistence', () => {
 	});
 
 	test('theme chosen in settings survives navigation to main page', async ({ page }, testInfo) => {
+		test.skip(testInfo.project.name !== 'desktop');
 		await login(page);
 
 		await page.goto('/settings');

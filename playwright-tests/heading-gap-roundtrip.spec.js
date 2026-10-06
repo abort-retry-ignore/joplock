@@ -21,6 +21,26 @@ const {
 	waitForSaved,
 } = require('./helpers');
 
+// Optional: a pre-minted sessionId (cookie auth) for environments where the
+// admin account is MFA-protected and interactive login is not possible.
+// When set, login() is skipped and the cookie is injected instead. The session
+// is NOT logged out at the end (logout would delete it from the DB).
+const SESSION_ID = process.env.PLAYWRIGHT_SESSION_ID || '';
+
+async function ensureLogin(page) {
+	if (SESSION_ID) {
+		await page.context().addCookies([{
+			name: 'sessionId',
+			value: SESSION_ID,
+			url: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5445',
+		}]);
+		await page.goto('/');
+		await expect(page.locator('body.app-shell')).toBeVisible({ timeout: 15000 });
+	} else {
+		await login(page);
+	}
+}
+
 async function switchToMarkdown(page) {
 	await page.locator('#editor-panel #markdown-toggle').click();
 	await expect.poll(
@@ -44,14 +64,15 @@ async function getCmText(page) {
 test.describe('Heading blank lines survive mode switches', () => {
 	test.beforeEach(({ page }) => acceptDialogs(page));
 
+	test.skip(!hasAdminCredentials() && !SESSION_ID, 'Set JOPLOCK_ADMIN_EMAIL/JOPLOCK_ADMIN_PASSWORD (or PLAYWRIGHT_ADMIN_*) for this test');
+
 	test('blank line added after a heading survives rendered -> markdown switch', async ({ page }, testInfo) => {
 		test.skip(testInfo.project.name !== 'desktop');
-		test.skip(!hasAdminCredentials(), 'Set JOPLOCK_ADMIN_EMAIL/JOPLOCK_ADMIN_PASSWORD (or PLAYWRIGHT_ADMIN_*) for this test');
 
 		const folder = `pw-hgap-${Date.now()}`;
 
 		try {
-			await login(page);
+			await ensureLogin(page);
 			await createNotebook(page, folder);
 			await createDesktopNote(page, folder);
 			await setNoteBody(page, '# Title\nBody text');
@@ -72,18 +93,17 @@ test.describe('Heading blank lines survive mode switches', () => {
 				.toBe('# Title\n\nBody text');
 		} finally {
 			await teardownTestData(page, { folders: [folder] });
-			await logout(page).catch(() => {});
+			if (!SESSION_ID) await logout(page).catch(() => {});
 		}
 	});
 
 	test('blank line before a heading and untouched compact notes are stable', async ({ page }, testInfo) => {
 		test.skip(testInfo.project.name !== 'desktop');
-		test.skip(!hasAdminCredentials(), 'Set JOPLOCK_ADMIN_EMAIL/JOPLOCK_ADMIN_PASSWORD (or PLAYWRIGHT_ADMIN_*) for this test');
 
 		const folder = `pw-hgap2-${Date.now()}`;
 
 		try {
-			await login(page);
+			await ensureLogin(page);
 			await createNotebook(page, folder);
 			await createDesktopNote(page, folder);
 
@@ -110,7 +130,7 @@ test.describe('Heading blank lines survive mode switches', () => {
 				.toBe('Intro\n\n## Section\nbody');
 		} finally {
 			await teardownTestData(page, { folders: [folder] });
-			await logout(page).catch(() => {});
+			if (!SESSION_ID) await logout(page).catch(() => {});
 		}
 	});
 });

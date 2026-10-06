@@ -476,7 +476,7 @@ function getCM(){return _cmView}
 function cmSyncToTA(){var ta=getTA();if(ta&&_cmView){var md=_cmView.state.doc.toString();if(ta.value!==md){ta.value=md;return true}}return false}
 function cmSetVal(v){if(!_cmView)return;var cur=_cmView.state.doc.toString();if(cur===(v||''))return;_cmView.dispatch({changes:{from:0,to:cur.length,insert:v||''}})}
 function getTinyMCE(){return _tinymceEditor}
-function tinyMCEContent(){return _tinymceEditor?_tinymceEditor.getContent():''}
+function tinyMCEContent(){return _tinymceEditor?_stripTinymceDownloadChrome(_tinymceEditor.getContent()):''}
 function tinyMCESetContent(html){if(_tinymceEditor)_tinymceEditor.setContent(html)}
 function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var _synNoteId=_formNoteId(activeEditorForm());if(_tinymceContentNoteId&&_synNoteId&&_tinymceContentNoteId!==_synNoteId){_log('tinyMCESyncToTA skipped: TinyMCE content belongs to another note',_tinymceContentNoteId,_synNoteId);return false}var host=document.getElementById('tinymce-host');if(!host||!host.classList.contains('tinymce-host-visible')){_log('tinyMCESyncToTA skipped: TinyMCE host not visible');return false}var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html,ta.value);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
 function _isMarkdownModeActive(){return _editorMode==='markdown'||_editorMode==='md'}
@@ -760,6 +760,54 @@ function initTinyMCECodeCopyButtons(editor){
 		pre.insertBefore(btn,pre.firstChild);
 	});
 }
+// Download buttons for Joplin resource images in the rendered (TinyMCE) body.
+// This restores the button that used to live on #note-preview (initResourceImage-
+// DownloadButtons via activatePV): that host is dead — all rendered content now
+// lives in the TinyMCE iframe — so the buttons must be wired here.
+// Serialization contract (mirrors the code-copy button above): the button is
+// textContent='' + data-mce-bogus="all" so TinyMCE's serializer (getContent)
+// drops it entirely — it can never leak into saved markdown, exports, or PDF.
+// Only the positioning wrap span survives getContent; _stripTinymceDownloadChrome
+// unwraps it at every serialization boundary (see below).
+function initTinyMCEImageDownloadButtons(editor){
+	if(!editor||!editor.getBody)return;
+	var body=editor.getBody();
+	if(!body)return;
+	body.querySelectorAll('img.preview-img[data-resource-id]').forEach(function(img){
+		var wrap=img.parentElement;
+		if(!(wrap&&wrap.classList&&wrap.classList.contains('preview-img-download-wrap'))){
+			wrap=editor.getDoc().createElement('span');
+			wrap.className='preview-img-download-wrap';
+			img.parentNode.insertBefore(wrap,img);
+			wrap.appendChild(img);
+		}
+		if(wrap.querySelector('.preview-img-download-btn'))return;
+		var btn=editor.getDoc().createElement('button');
+		btn.type='button';
+		btn.className='preview-img-download-btn';
+		btn.title='Download image';
+		btn.setAttribute('aria-label','Download image');
+		btn.textContent='';
+		btn.setAttribute('contenteditable','false');
+		btn.setAttribute('data-mce-bogus','all');
+		btn.addEventListener('click',function(e){
+			e.preventDefault();
+			e.stopPropagation();
+			var resourceId=img.getAttribute('data-resource-id')||'';
+			if(!resourceId)return;
+			downloadResource(resourceId,btn);
+		});
+		wrap.appendChild(btn);
+	});
+}
+// Unwrap the image-download positioning span from serialized editor HTML.
+// The injected button itself never appears (data-mce-bogus="all"), but the wrap
+// span does; exports (HTML/DOCX/PDF via tinyMCEContent) and the markdown sync
+// (tinymceToMarkdown) must see exactly the pre-injection DOM. The wrap holds
+// only the img (the button is bogus-stripped), so non-greedy unwrap is safe.
+function _stripTinymceDownloadChrome(html){
+	return String(html||'').replace(/<span[^>]*\bclass="[^"]*\bpreview-img-download-wrap\b[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,'$1');
+}
 // Persistent TinyMCE lifecycle: init once on page load, reuse across note swaps.
 // The editor lives in #tinymce-host (outside #editor-panel so htmx swaps don't
 // destroy the iframe). Positioning tracks #tinymce-slot inside the swapped
@@ -812,6 +860,7 @@ function _setTinyMCEContent(html,noteId){
 			// Run after all sync SetContent handlers (codesample plugin) have finished.
 			ensureTinyMCEEditableAfterPre(_tinymceEditor);
 			initTinyMCECodeCopyButtons(_tinymceEditor);
+			initTinyMCEImageDownloadButtons(_tinymceEditor);
 			_applyTinyMCESpellcheck(_tinymceEditor);
 			_dbgline('_setTinyMCEContent post-load done, postLoad still='+_tinymcePostLoad);
 			// Rendered-mode find: content just (re)loaded into the TinyMCE body.
@@ -891,6 +940,11 @@ function _tinyMCEContentFontStyle(){
 		+'pre:hover>.pre-copy-btn{display:inline-block;opacity:1;pointer-events:auto}'
 		+'.pre-copy-btn::after{content:"Copy"}'
 		+'.pre-copy-btn:hover{color:var(--accent);border-color:var(--accent)}'
+		+'.preview-img-download-wrap{position:relative;display:inline-block;max-width:100%}'
+		+'.preview-img-download-wrap .preview-img{margin:0}'
+		+'.preview-img-download-btn{position:absolute;top:8px;right:8px;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;font-size:16px;line-height:1;background:var(--bg-elevated);color:var(--text-heading);border:1px solid var(--border);border-radius:999px;cursor:pointer;z-index:3;opacity:0.28;box-shadow:0 1px 6px rgba(0,0,0,0.28);transition:opacity .18s ease,color .18s ease,border-color .18s ease,background-color .18s ease}'
+		+'.preview-img-download-btn::after{content:"\2B07\FE0F"}'
+		+'.preview-img-download-btn:hover,.preview-img-download-btn:focus,.preview-img-download-btn:active,.preview-img-download-wrap:hover .preview-img-download-btn,.preview-img-download-wrap:focus-within .preview-img-download-btn{opacity:1;color:#fff;border-color:var(--accent);background:var(--accent)}'
 		+'blockquote{border-left:3px solid var(--accent);color:var(--text-dim)}'
 		+'hr{border-color:var(--border)}'
 		+'img{max-width:100%;height:auto;border-radius:6px}'
@@ -901,7 +955,8 @@ function _tinyMCEContentFontStyle(){
 		+'.md-checkbox::before{content:"";display:inline-block;width:16px;height:16px;border:1.5px solid var(--accent);border-radius:3px;flex-shrink:0;background:transparent;box-sizing:border-box}'
 		+'.md-checkbox.checked::before{background:var(--accent);border-color:var(--accent);content:"\\2713";color:var(--bg);font-size:11px;font-weight:bold;line-height:16px;text-align:center}'
 		+'mark.search-highlight{background:#ffe066;color:#111;border-radius:2px;padding:0 1px}'
-		+'mark.search-highlight-active{background:#ff9800;color:#111;border-radius:2px;padding:0 1px}';
+		+'mark.search-highlight-active{background:#ff9800;color:#111;border-radius:2px;padding:0 1px}'
+		+'@media (hover:none),(pointer:coarse){.preview-img-download-btn{opacity:1;width:24px;height:24px;top:6px;right:6px;font-size:14px}}';
 }
 function _syncTinyMCEThemeVars(){
 	if(!_tinymceEditor||!_tinymceEditor.getDoc)return;
@@ -909,7 +964,7 @@ function _syncTinyMCEThemeVars(){
 		var iframeDoc=_tinymceEditor.getDoc();
 		if(!iframeDoc||!iframeDoc.documentElement)return;
 		var rs=getComputedStyle(document.body);
-		var vars=['--bg','--text','--text-dim','--text-heading','--accent','--border','--bg-hover','--toolbar-bg','--scrollbar'];
+		var vars=['--bg','--text','--text-dim','--text-heading','--accent','--border','--bg-hover','--bg-elevated','--toolbar-bg','--scrollbar'];
 		for(var i=0;i<vars.length;i++){
 			var val=rs.getPropertyValue(vars[i]).trim();
 			if(val)iframeDoc.documentElement.style.setProperty(vars[i],val);
@@ -3582,14 +3637,71 @@ function openCodeModal(editPre){var pv=getPV();var cm=getCM();var tmce=(!_isMark
 function submitCode(event){if(event)event.preventDefault();var lang=document.getElementById('code-lang');var l=(lang?lang.value:'');var code=_codeModalCM?_codeModalCM.state.doc.toString():'';var wasTinyMCE=_codeTinyMCE;var bookmark=_codeTinyMCEBookmark;closeCodeModal();if(wasTinyMCE){var ed=getTinyMCE();if(ed){var escapedT=code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');var preHTML='<pre class="language-'+(l||'')+'">'+escapedT+'</pre>';if(_codeEditPre){try{ed.selection.select(_codeEditPre)}catch(_e){}}else{try{if(bookmark&&ed.selection&&ed.selection.moveToBookmark)ed.selection.moveToBookmark(bookmark)}catch(_e2){}}ed.focus();ed.insertContent(preHTML);ed.focus();var _finishTinyMCECode=function(){ensureTinyMCEEditableAfterPre(ed);initTinyMCECodeCopyButtons(ed);tinyMCESyncToTA()};_finishTinyMCECode();setTimeout(_finishTinyMCECode,0);_codeSavedSel=null;_codeSavedRange=null;_codeEditPre=null;_codeTinyMCE=false;_codeTinyMCEBookmark=null;return false}}var pv=getPV();if(pv&&_codeEditPre){var codeEl=_codeEditPre.querySelector('code');if(!codeEl){codeEl=document.createElement('code');_codeEditPre.appendChild(codeEl)}codeEl.textContent=code;codeEl.className=l?'language-'+l:'';if(codeEl.dataset.highlighted)delete codeEl.dataset.highlighted;_codeEditPre=null;initCopyButtons(pv);highlightCodeBlocks(pv);ensureEditableAfterPre(pv);syncPV();pv.focus();return false}if(pv){if(_codeSavedRange){var sel=window.getSelection();sel.removeAllRanges();sel.addRange(_codeSavedRange)}_codeSavedRange=null;var escaped=code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');var cls=l?' class="language-'+l+'"':'';	document.execCommand('insertHTML',false,'<pre'+cls+'><code>'+escaped+'</code></pre>');initCopyButtons(pv);highlightCodeBlocks(pv);ensureEditableAfterPre(pv);syncPV();pv.focus();return false}var cm=getCM();if(cm){var s=_codeSavedSel||cm.state.selection.main;var md='\n```'+l+'\n'+code+'\n```\n';cm.dispatch({changes:{from:s.from,to:s.to,insert:md},selection:{anchor:s.from+md.length}});cm.focus()}_codeSavedSel=null;_codeSavedRange=null;_codeEditPre=null;_codeTinyMCE=false;_codeTinyMCEBookmark=null;return false}
 function insertImg(){var pv=getPV();if(pv){var u=prompt('Image URL:');if(!u)return;document.execCommand('insertHTML',false,'<img src="'+u+'" alt="image" class="preview-img" />');syncPV();pv.focus();return}var u=prompt('Image URL:');if(u)insertTxt('![image]('+u+')')}
 var _uploadInsertTarget=null;
-function _captureUploadInsertTarget(){var pv=getPV();if(pv){var sel=window.getSelection();var range=sel&&sel.rangeCount?sel.getRangeAt(0):null;if(range&&pv.contains(range.commonAncestorContainer))return {mode:'preview',range:range.cloneRange()};var fallback=document.createRange();fallback.selectNodeContents(pv);fallback.collapse(false);return {mode:'preview',range:fallback}}var cm=getCM();if(cm&&isMarkdownVisible()){var s=cm.state.selection.main;return {mode:'cm',from:s.from,to:s.to}}var ta=getTA();if(!ta)return null;var current=ta.value||'';var start=typeof ta.selectionStart==='number'?ta.selectionStart:current.length;var end=typeof ta.selectionEnd==='number'?ta.selectionEnd:start;return {mode:'textarea',start:start,end:end}}
+function _captureUploadInsertTarget(){
+	// Rich (TinyMCE) mode: capture the editor caret. A textarea-target insert
+	// is racy in rich mode — TinyMCE's own lazy sync overwrites the hidden
+	// textarea with its (insert-less) body before the debounced save fires,
+	// silently erasing the upload. Drag-drop already inserts into the editor
+	// directly (_uploadFileToTinyMCE); the picker must do the same.
+	// Read-only editors (mobile default) can't take insertContent — fall
+	// through to the textarea branch there.
+	if(!_isMarkdownModeActive()&&!_tinymceReadonly&&_tinymceEditor&&_tinymceEditor.selection&&_tinymceEditor.selection.getRng){
+		var host=document.getElementById('tinymce-host');
+		if(host&&host.classList.contains('tinymce-host-visible')){
+			var rng=_tinymceEditor.selection.getRng();
+			if(rng)return {mode:'tinymce',rng:rng.cloneRange()};
+		}
+	}
+	var pv=getPV();if(pv){var sel=window.getSelection();var range=sel&&sel.rangeCount?sel.getRangeAt(0):null;if(range&&pv.contains(range.commonAncestorContainer))return {mode:'preview',range:range.cloneRange()};var fallback=document.createRange();fallback.selectNodeContents(pv);fallback.collapse(false);return {mode:'preview',range:fallback}}var cm=getCM();if(cm&&isMarkdownVisible()){var s=cm.state.selection.main;return {mode:'cm',from:s.from,to:s.to}}var ta=getTA();if(!ta)return null;var current=ta.value||'';var start=typeof ta.selectionStart==='number'?ta.selectionStart:current.length;var end=typeof ta.selectionEnd==='number'?ta.selectionEnd:start;return {mode:'textarea',start:start,end:end}}
 function _normalizeUploadInsert(markdown){return (markdown||'').trim()}
 function _buildMarkdownInsert(current,start,end,markdown){var insert=_normalizeUploadInsert(markdown);if(!insert)return null;start=Math.max(0,Math.min(typeof start==='number'?start:current.length,current.length));end=Math.max(start,Math.min(typeof end==='number'?end:start,current.length));var before=current.slice(0,start);var after=current.slice(end);var prefix='';var suffix='';if(before&&before.charAt(before.length-1)!=='\n')prefix='\n';if(after&&after.charAt(0)!=='\n')suffix='\n';return {from:start,to:end,insert:prefix+insert+suffix,caret:start+prefix.length+insert.length}}
 function _setUploadInsertTargetFromTextarea(start,end){_uploadInsertTarget={mode:'textarea',start:start,to:end,end:end}}
 function _insertMarkdownAtTextareaTarget(markdown,target){var ta=getTA();if(!ta)return false;var current=ta.value||'';var insertOp=_buildMarkdownInsert(current,target&&target.start,target&&target.end,markdown);if(!insertOp)return false;var next=current.slice(0,insertOp.from)+insertOp.insert+current.slice(insertOp.to);if(next===current)return false;ta.value=next;ta.selectionStart=ta.selectionEnd=insertOp.caret;ta.dispatchEvent(new Event('input',{bubbles:true}));_setUploadInsertTargetFromTextarea(insertOp.caret,insertOp.caret);return true}
 function _insertMarkdownAtCodeMirrorTarget(markdown,target){var cm=getCM();if(!cm)return false;var current=cm.state.doc.toString();var insertOp=_buildMarkdownInsert(current,target&&target.from,target&&target.to,markdown);if(!insertOp)return false;cm.dispatch({changes:{from:insertOp.from,to:insertOp.to,insert:insertOp.insert},selection:{anchor:insertOp.caret}});cm.focus();_uploadInsertTarget={mode:'cm',from:insertOp.caret,to:insertOp.caret};return true}
 function _insertMarkdownAtPreviewTarget(markdown,target){var pv=getPV();if(!pv)return false;var insert=_normalizeUploadInsert(markdown);if(!insert)return false;var sel=window.getSelection();var range=target&&target.range?target.range.cloneRange():null;if(range&&pv.contains(range.commonAncestorContainer)){sel.removeAllRanges();sel.addRange(range)}else{range=document.createRange();range.selectNodeContents(pv);range.collapse(false);sel.removeAllRanges();sel.addRange(range)}if(!insertPVText(insert))return false;syncPV();var ta=getTA();var current=ta?ta.value||'':'';var idx=current.lastIndexOf(insert);if(idx>=0&&ta){var caret=idx+insert.length;ta.selectionStart=ta.selectionEnd=caret;_setUploadInsertTargetFromTextarea(caret,caret)}return true}
-function _insertUploadedMarkdown(markdown){if(_uploadInsertTarget&&_uploadInsertTarget.mode==='preview'&&getPV())return _insertMarkdownAtPreviewTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='cm'&&getCM()&&isMarkdownVisible())return _insertMarkdownAtCodeMirrorTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='textarea')return _insertMarkdownAtTextareaTarget(markdown,_uploadInsertTarget);_uploadInsertTarget=_captureUploadInsertTarget();if(_uploadInsertTarget&&_uploadInsertTarget.mode==='preview'&&getPV())return _insertMarkdownAtPreviewTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='cm'&&getCM()&&isMarkdownVisible())return _insertMarkdownAtCodeMirrorTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='textarea')return _insertMarkdownAtTextareaTarget(markdown,_uploadInsertTarget);return false}
+// Insert an uploaded resource reference into the live TinyMCE editor.
+// Rich-mode uploads (file picker / upload modal fallback) must go through the
+// editor like the drag-drop path does: a textarea-target insert is erased by
+// TinyMCE's own lazy sync before the debounced save ever fires (see
+// End the post-load absorption window before a programmatic real edit (an
+// upload insert). Otherwise onEdit treats the insert's events as round-trip
+// echo, re-baselines the hash to the inserted content, and the debounced save
+// then sees "hash unchanged" — the upload never reaches the server.
+function _endTinyMCEPostLoadWindow(){
+	_tinymcePostLoad=false;
+	_tinymcePostLoadUntil=0;
+	// The insert is a real edit, not load echo: the post-load reconcile must
+	// treat any residual form-vs-server difference as an edit and save it,
+	// not as "load normalisation" (which would re-baseline the hash and
+	// silently drop the upload).
+	_tinymceUserTypedSinceLoad=true;
+}
+// _captureUploadInsertTarget). Parses `![alt](:/<id>)` and `[label](:/<id>)`.
+function _insertResourceIntoTinyMCEFromMarkdown(markdown,rng){
+	var ed=_tinymceEditor;
+	var md=_normalizeUploadInsert(markdown);
+	if(!ed||!md)return false;
+	var m=md.match(/^!\[([^\]]*)\]\(:\/([0-9a-zA-Z]{32})\)$/)||md.match(/^\[([^\]]*)\]\(:\/([0-9a-zA-Z]{32})\)$/);
+	if(!m)return false;
+	var isImg=md.charAt(0)==='!';
+	var name=(m[1]||'file').replace(/^data-/, '');
+	var id=m[2];
+	var inner=isImg
+		?'<img src="/resources/'+_escapeHtmlAttr(id)+'" data-resource-id="'+_escapeHtmlAttr(id)+'" alt="'+_escapeHtmlAttr(name)+'" />'
+		:'<a href="/resources/'+_escapeHtmlAttr(id)+'" data-resource-id="'+_escapeHtmlAttr(id)+'">'+_escapeHtmlAttr(name)+'</a>';
+	_endTinyMCEPostLoadWindow();
+	if(rng){try{ed.selection.setRng(rng)}catch(_e){}}
+	ed.insertContent(_tinyMCEBlockAttachmentHtml(ed,inner));
+	// Sync the textarea immediately so the source of truth carries the
+	// reference even if onEdit fires asynchronously (mirrors _uploadFileToTinyMCE).
+	var ta=getTA();
+	if(ta){
+		var tmd=tinymceToMarkdown(ed.getContent(),ta.value);
+		if(ta.value!==tmd){ta.value=tmd;ta.dispatchEvent(new Event('input',{bubbles:true}));}
+	}
+	return true;
+}
+function _insertUploadedMarkdown(markdown){if(_uploadInsertTarget&&_uploadInsertTarget.mode==='tinymce'&&_tinymceEditor){var t=_insertResourceIntoTinyMCEFromMarkdown(markdown,_uploadInsertTarget.rng);if(t)return true}if(_uploadInsertTarget&&_uploadInsertTarget.mode==='preview'&&getPV())return _insertMarkdownAtPreviewTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='cm'&&getCM()&&isMarkdownVisible())return _insertMarkdownAtCodeMirrorTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='textarea')return _insertMarkdownAtTextareaTarget(markdown,_uploadInsertTarget);_uploadInsertTarget=_captureUploadInsertTarget();if(_uploadInsertTarget&&_uploadInsertTarget.mode==='tinymce'&&_tinymceEditor){var t2=_insertResourceIntoTinyMCEFromMarkdown(markdown,_uploadInsertTarget.rng);if(t2)return true}if(_uploadInsertTarget&&_uploadInsertTarget.mode==='preview'&&getPV())return _insertMarkdownAtPreviewTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='cm'&&getCM()&&isMarkdownVisible())return _insertMarkdownAtCodeMirrorTarget(markdown,_uploadInsertTarget);if(_uploadInsertTarget&&_uploadInsertTarget.mode==='textarea')return _insertMarkdownAtTextareaTarget(markdown,_uploadInsertTarget);return false}
 function openFilePicker(){_uploadInsertTarget=_captureUploadInsertTarget();var input=document.getElementById('file-upload');if(input)input.click()}
 function handleFilePicker(input){
 	if(!input||!input.files||!input.files.length)return;
@@ -3737,6 +3849,7 @@ function _uploadFileToTinyMCE(file,editor){
 			}
 			// Pad the attachment with a blank (deletable) line before and after so
 			// consecutive attachments stay individually removable in rendered mode.
+			_endTinyMCEPostLoadWindow();
 			editor.insertContent(_tinyMCEBlockAttachmentHtml(editor,inner));
 			// Sync textarea immediately so the source-of-truth (note-body) has
 			// the resource reference even if onEdit fires asynchronously.
@@ -3957,6 +4070,7 @@ function insertUploadedFiles(){
 	var done=_uploadModalFiles.filter(function(e){return e.state==='done'&&e.markdown});
 	if(!done.length)return;
 	if(_tinymceEditor&&_uploadModalInsertRng){
+		_endTinyMCEPostLoadWindow();
 		try{_tinymceEditor.selection.setRng(_uploadModalInsertRng)}catch(e){}
 		var html='';
 		for(var i=0;i<done.length;i++){if(i>0)html+=' ';html+=_mdToTinyMCEInsert(done[i])}
@@ -4154,6 +4268,7 @@ function _restoreProtectedSpace(md){
 function tinymceToMarkdown(html,prevMd){
 	if(!html)return '';
 	html=html.replace(/\u200b/g,'');
+	html=_stripTinymceDownloadChrome(html);
 	// Normalise blank-line markers. TinyMCE strips the <br> from
 	// <p class="md-blank-line"><br></p> on setContent, leaving an empty
 	// <p class="md-blank-line"></p> — which Turndown drops entirely (empty block
@@ -4404,6 +4519,21 @@ function _openResourceLightbox(resourceId){
 	}).catch(function(){_triggerResourceDownload(id)});
 }
 var _resourceActionViewportHandler=null;
+// Anchor rect in TOP-document coordinates. Buttons rendered inside the TinyMCE
+// iframe report rects relative to the iframe's own viewport; the resource-action
+// sheet lives in the host document, so offset by the iframe element's rect.
+function _anchorRectInHostDoc(el){
+	var r=el.getBoundingClientRect();
+	if(el.ownerDocument!==document){
+		var win=el.ownerDocument&&el.ownerDocument.defaultView;
+		var frame=win?win.frameElement:null;
+		if(frame){
+			var fr=frame.getBoundingClientRect();
+			return {left:r.left+fr.left,right:r.right+fr.left,top:r.top+fr.top,bottom:r.bottom+fr.top};
+		}
+	}
+	return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};
+}
 function _positionResourceActions(anchorEl){
 	var s=document.getElementById('resource-action-sheet');
 	if(!s)return;
@@ -4413,7 +4543,7 @@ function _positionResourceActions(anchorEl){
 	var left=12;
 	var bottomLimit=(vv?vv.height:height)||height;
 	var rightLimit=(vv?vv.width:(window.innerWidth||0))||(window.innerWidth||0);
-	var anchorRect=anchorEl&&anchorEl.getBoundingClientRect?anchorEl.getBoundingClientRect():null;
+	var anchorRect=anchorEl&&anchorEl.getBoundingClientRect?_anchorRectInHostDoc(anchorEl):null;
 	if(vv)height=Math.round(vv.height||height);
 	if(!_isStandalonePWA()&&isDesktopMode()){
 		s.style.width='200px';
@@ -4813,7 +4943,13 @@ document.addEventListener('keydown',function(e){var mac=navigator.platform&&navi
 				if(!req){finish(true);return}
 				restoreReq=req.restore||restoreReq;
 				_log('flushSave',req.url);
-				return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body}).then(function(r){
+				// keepalive: this flush usually fires from visibilitychange while the
+				// page is being torn down (note switch via page.goto, tab close). A
+				// plain fetch is aborted mid-flight — Chromium sends a truncated
+				// request (no Cookie header reaches the server → 401) and the pending
+				// title/body changes are silently lost. keepalive lets the request
+				// outlive the document.
+				return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body,keepalive:true}).then(function(r){
 					if(!r.ok)throw new Error('HTTP '+r.status);
 					// The response carries OOB fragments (notably #editor-sync-state with
 					// the new baseUpdatedTime) that htmx would apply for autosave PUTs —
@@ -6637,6 +6773,8 @@ window.openHistoryModal=openHistoryModal;
 window.selectHistorySnapshot=selectHistorySnapshot;
 window.restoreHistorySnapshot=restoreHistorySnapshot;
 window.setEditorMode=setEditorMode;
+window.getTinyMCE=getTinyMCE;
+window.getCM=getCM;
 window.tinyMCEFormat=tinyMCEFormat;
 window.tinyMCEFormatBlock=tinyMCEFormatBlock;
 window.tinyMCEInsertCheckbox=tinyMCEInsertCheckbox;

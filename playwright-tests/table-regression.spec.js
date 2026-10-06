@@ -42,9 +42,9 @@ test.describe('Table rendering regression', () => {
 			// Write table in markdown mode
 			await page.locator('#editor-panel #markdown-toggle').click();
 			await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
-			const ta = page.locator('#editor-panel #note-body');
-			await ta.fill(TABLE_MD);
-			await ta.dispatchEvent('input');
+			// In markdown mode the textarea is a hidden sync target (CodeMirror
+			// owns input) — type through the helper, not fill().
+			await setNoteBody(page, TABLE_MD);
 			await waitForSaved(page);
 			const noteIdA = await page.locator('#editor-panel #note-editor-form').evaluate(form => form.dataset.noteId || '');
 			expect(noteIdA).toBeTruthy();
@@ -81,7 +81,9 @@ test.describe('Table rendering regression', () => {
 			const firstNewCell = page.frameLocator(IFRAME).locator('table tbody tr').first().locator('td').first();
 			await expect(firstNewCell).toBeVisible({ timeout: 5000 });
 			await firstNewCell.click();
-			await page.keyboard.selectAll();
+			// Select only the CELL text (Ctrl+A would select the whole iframe
+			// body and wipe the note); typing then replaces the cell contents.
+			await firstNewCell.selectText();
 			await page.keyboard.type('NEW_TOP');
 
 			// Create second note to switch away
@@ -157,9 +159,9 @@ test.describe('Table rendering regression', () => {
 			// Start with a 4-column table in markdown mode
 			await page.locator('#editor-panel #markdown-toggle').click();
 			await expect(page.locator('#editor-panel .cm-content')).toBeVisible({ timeout: 15000 });
-			const ta = page.locator('#editor-panel #note-body');
-			await ta.fill(TABLE_MD);
-			await ta.dispatchEvent('input');
+			// In markdown mode the textarea is a hidden sync target (CodeMirror
+			// owns input) — type through the helper, not fill().
+			await setNoteBody(page, TABLE_MD);
 			await waitForSaved(page);
 			const noteId = await page.locator('#editor-panel #note-editor-form').evaluate(form => form.dataset.noteId || '');
 			expect(noteId).toBeTruthy();

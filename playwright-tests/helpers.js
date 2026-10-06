@@ -31,7 +31,6 @@ function requireCredentials() {
 
 const slug = prefix => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const desktopEditor = page => page.locator('#editor-panel #note-editor-form');
-const mobileEditor = page => page.locator('#mobile-editor-body #note-editor-form');
 
 async function login(page) {
 	requireCredentials();
@@ -65,7 +64,9 @@ async function setNoteBody(page, body) {
 	// content the next time it syncs, silently discarding the injected
 	// text. Force markdown mode first so CodeMirror (which keeps
 	// #note-body in sync on every edit) is always the one driving input.
-	const mdToggle = page.locator('#editor-panel #markdown-toggle, #mobile-editor-body #markdown-toggle').first();
+	// The mobile shell hides the editor fragment's own MD toggle and shows the
+	// header #mobile-md-toggle instead - click whichever is actually visible.
+	const mdToggle = page.locator('#editor-panel #markdown-toggle:visible, #mobile-editor-body #markdown-toggle:visible, #mobile-md-toggle:visible').first();
 	if (await mdToggle.count()) await mdToggle.click();
 	const cmContent = page.locator('#editor-panel .cm-content, #mobile-editor-body .cm-content').first();
 	await expect(cmContent).toBeVisible();
@@ -76,19 +77,33 @@ async function setNoteBody(page, body) {
 }
 
 async function setNoteTitle(page, title) {
+	// The note-creation response can settle in two phases: right after the form
+	// first appears, a follow-up swap re-renders the editor with server state
+	// (title back to "Untitled note"), wiping an early injected title. Wait for
+	// the swaps to land, then set the title and VERIFY it sticks, retrying if a
+	// late swap clobbers it.
 	const hiddenInput = page.locator('#editor-panel .editor-title-hidden, #mobile-editor-body .editor-title-hidden').first();
-	await expect(hiddenInput).toHaveCount(1);
-	await hiddenInput.evaluate((el, value) => {
-		el.value = value;
-		el.dispatchEvent(new Event('input', { bubbles: true }));
-	}, title);
 	const titleDiv = page.locator('#editor-panel .editor-title, #mobile-editor-body .editor-title').first();
-	if (await titleDiv.count()) {
-		await titleDiv.evaluate((el, value) => {
-			el.textContent = value;
+	await page.waitForTimeout(1000);
+	for (let attempt = 0; attempt < 8; attempt++) {
+		await hiddenInput.evaluate((el, value) => {
+			el.value = value;
 			el.dispatchEvent(new Event('input', { bubbles: true }));
 		}, title);
+		if (await titleDiv.count()) {
+			await titleDiv.evaluate((el, value) => {
+				el.textContent = value;
+				el.dispatchEvent(new Event('input', { bubbles: true }));
+			}, title);
+		}
+		try {
+			await expect(hiddenInput).toHaveValue(title, { timeout: 800 });
+			return;
+		} catch {
+			// A late swap re-rendered the editor; set the title again.
+		}
 	}
+	throw new Error(`setNoteTitle: title did not stick for ${JSON.stringify(title)}`);
 }
 
 async function createNotebook(page, title) {
@@ -101,13 +116,25 @@ async function createNotebook(page, title) {
 }
 
 async function deleteNotebook(page, folderName) {
-	const folderTitle = page.locator('.nav-folder-title', { hasText: folderName }).first();
-	await expect(folderTitle).toBeVisible();
-	const row = folderTitle.locator('xpath=ancestor::div[contains(@class,"nav-folder-row")]').first();
-	await row.click({ button: 'right' });
-	await expect(page.locator('#folder-context-menu')).toBeVisible();
-	await page.getByRole('button', { name: 'Delete notebook' }).click();
-	await expect(page.locator('.nav-folder-title', { hasText: folderName })).toHaveCount(0, { timeout: 15000 });
+	// If a nav-affecting action (empty trash, note move) ran just before, the
+	// #nav-panel swap may still be settling and can transiently duplicate or
+	// leave a stale folder row; retry the delete until the row is really gone.
+	await page.waitForTimeout(1500);
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const folderTitle = page.locator('#nav-panel .nav-folder-title', { hasText: folderName }).first();
+		if (!(await folderTitle.count())) return;
+		const row = folderTitle.locator('xpath=ancestor::div[contains(@class,"nav-folder-row")]').first();
+		await row.click({ button: 'right' });
+		await expect(page.locator('#folder-context-menu')).toBeVisible();
+		await page.getByRole('button', { name: 'Delete notebook' }).click();
+		try {
+			await expect(page.locator('#nav-panel .nav-folder-title', { hasText: folderName })).toHaveCount(0, { timeout: 4000 });
+			return;
+		} catch {
+			// Transient nav state (mid-swap duplicate); retry the delete.
+		}
+	}
+	throw new Error(`deleteNotebook: folder still present after retries: ${folderName}`);
 }
 
 async function trashDesktopNote(page) {
@@ -182,12 +209,6 @@ async function openMobileFolder(page, folderName) {
 	await row.click();
 	await expect(page.locator('#mobile-notes-screen.mobile-screen-active')).toBeVisible();
 	await expect(page.locator('#mobile-notes-title')).toContainText(folderName);
-}
-
-async function openMobileNote(page, noteTitle) {
-	await page.getByRole('button', { name: new RegExp(noteTitle) }).click();
-	await expect(page.locator('#mobile-editor-screen.mobile-screen-active')).toBeVisible();
-	await expect(mobileEditor(page)).toBeVisible();
 }
 
 // Best-effort id of the note currently open in the editor (desktop or mobile),
@@ -327,19 +348,6 @@ async function shareNotebookWithEmail(page, folderTitle, email) {
 	await expect(page.locator('.share-person-email', { hasText: email })).toBeVisible({ timeout: 15000 });
 }
 
-async function shareNotebookWithAccess(page, folderTitle, email, canWrite = true) {
-	await openShareModalForNotebook(page, folderTitle);
-	await page.locator('#share-invite-email').fill(email);
-	await page.locator('#share-invite-btn').click();
-	await expect(page.locator('.share-person-email', { hasText: email })).toBeVisible({ timeout: 15000 });
-	if (!canWrite) {
-		const row = page.locator('.share-person-row', { has: page.locator('.share-person-email', { hasText: email }) });
-		const cb = row.locator('.share-can-write-cb');
-		if (await cb.isChecked()) await cb.uncheck();
-		await page.waitForTimeout(300);
-	}
-}
-
 async function closeShareDialog(page) {
 	await page.locator('#share-modal button:has-text("Close")').click();
 	await expect(page.locator('#share-modal')).toBeHidden({ timeout: 5000 });
@@ -350,21 +358,6 @@ async function leaveSharedNotebook(page, folderTitle) {
 	await page.locator('#share-leave-btn').click();
 	await page.waitForTimeout(500);
 	await expect(page.locator('#share-modal')).toBeHidden({ timeout: 5000 });
-}
-
-async function createNoteInFolder(page, folderTitle, noteTitle, body) {
-	const folder = page.locator(`.nav-folder[data-folder-title="${folderTitle}"]`);
-	const addBtn = folder.locator('.nav-folder-add');
-	await addBtn.click();
-	await page.waitForTimeout(500);
-	await setNoteTitle(page, noteTitle);
-	await setNoteBody(page, body);
-	await waitForSaved(page);
-}
-
-async function verifyNoteBodyContains(page, text) {
-	const body = page.locator('#note-body');
-	await expect(body).toContainText(text, { timeout: 10000 });
 }
 
 async function verifyEditorReadOnly(page) {
@@ -419,7 +412,6 @@ module.exports = {
 	ensureMobileFoldersScreen,
 	openDesktopNote,
 	openMobileFolder,
-	openMobileNote,
 	openSettings,
 	openShareModalForNotebook,
 	getActiveNoteId,
@@ -432,11 +424,8 @@ module.exports = {
 	SHARE_READER_EMAIL,
 	SHARE_READER_PASSWORD,
 	shareNotebookWithEmail,
-	shareNotebookWithAccess,
 	closeShareDialog,
 	leaveSharedNotebook,
-	createNoteInFolder,
-	verifyNoteBodyContains,
 	verifyEditorReadOnly,
 	verifyEditorEditable,
 	toggleShareCanWrite,

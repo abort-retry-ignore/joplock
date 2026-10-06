@@ -35,7 +35,9 @@ test.describe('Auto-title in rendered (TinyMCE) mode', () => {
 			await createNotebook(page, folder);
 			await createDesktopNote(page, folder);
 
-			// New notes open in rich/render mode by default on desktop.
+			// Since the dual-mode editor, notes open in markdown mode by default;
+			// this test pins rendered-mode auto-title, so switch to rich first.
+			await page.locator('#editor-panel #preview-toggle').click();
 			await expect(page.locator('iframe.tox-edit-area__iframe')).toBeVisible({ timeout: 15000 });
 			// TinyMCE has an 800ms post-load "quiet window" after content is set
 			// during which onEdit() intentionally no-ops (absorbs mceFocus/

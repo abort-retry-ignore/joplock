@@ -169,8 +169,8 @@ test('flushSave keeps baseUpdatedTime in sync (raw fetch would otherwise desync 
 	// stale base, trips the server conflict guard, and the user sees
 	// "A newer version of this note exists on the server" after merely
 	// switching views/tabs (visibilitychange -> flushSave).
-	const idx = appSrc.indexOf("return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body})");
-	assert.ok(idx !== -1, 'flushSave fetch not found');
+	const idx = appSrc.indexOf("return fetch(req.url,{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:req.body,keepalive:true})");
+	assert.ok(idx !== -1, 'flushSave fetch not found (must use keepalive:true so the unload-time flush survives page teardown)');
 	const block = appSrc.slice(idx, idx + 2200);
 	assert.ok(block.includes("X-Note-Updated-Time"), 'flushSave must read the X-Note-Updated-Time response header');
 	assert.ok(block.includes("X-Note-Conflict") , 'flushSave must detect the X-Note-Conflict header');

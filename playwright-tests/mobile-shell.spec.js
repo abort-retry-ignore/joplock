@@ -36,8 +36,10 @@ test.describe('Mobile shell UI', () => {
 		await waitForSaved(page);
 
 		await page.locator('#mobile-preview-toggle').click();
-		await expect(page.locator('#mobile-editor-body #note-preview')).toBeVisible();
-		await expect(page.locator('#mobile-editor-body #note-preview')).toContainText(`${projectName} body update`);
+		// Rendered mode = persistent TinyMCE iframe (app-shell #tinymce-host); the
+		// old #note-preview pane is gone.
+		await expect(page.locator('iframe.tox-edit-area__iframe')).toBeVisible();
+		await expect(page.frameLocator('iframe.tox-edit-area__iframe').locator('body')).toContainText(`${projectName} body update`);
 
 		await page.locator('#mobile-editor-back').click();
 		await expect(page.locator('#mobile-notes-screen.mobile-screen-active')).toBeVisible();
@@ -67,7 +69,11 @@ test.describe('Mobile shell UI', () => {
 		await expect(page.locator('#mobile-folders-body')).toContainText(projectName, { timeout: 10000 });
 		await page.locator('#mobile-folders-body .mobile-note-row', { hasText: projectName }).first().click();
 		await expect(page.locator('#mobile-editor-screen.mobile-screen-active')).toBeVisible();
-		await expect(page.locator('#mobile-editor-body #note-preview')).toContainText(projectName);
+		// The note reopens in whichever mode it was last viewed in; in this flow
+		// it comes back in rendered (TinyMCE) mode with the search highlight
+		// applied. #tinymce-host is app-shell level (positioned over
+		// #tinymce-slot), not a descendant of #mobile-editor-body.
+		await expect(page.frameLocator('iframe.tox-edit-area__iframe').locator('body')).toContainText(projectName, { timeout: 15000 });
 
 		await openSettings(page);
 		await page.locator('[data-tab="appearance"]').click();

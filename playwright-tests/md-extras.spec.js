@@ -207,6 +207,21 @@ test.describe('Markdown mode extras', () => {
 		await page.screenshot({ path: 'test-results/mdx-download-chip.png' });
 	});
 
+	test('rendered mode image download button shows the arrow glyph (not mis-escaped CSS text)', async ({ page }) => {
+		await setDoc(page, 'Pic:\n\n');
+		await dropFile(page, { name: 'glyph.png', mime: 'image/png', data: IMG_B64 });
+		await expect(page.locator('#editor-panel .cm-jl-img img').first()).toBeVisible({ timeout: 15000 });
+		await waitForSaved(page);
+		await page.locator('#editor-panel #preview-toggle').click();
+		const frame = page.frameLocator('iframe.tox-edit-area__iframe');
+		await expect(frame.locator('img.preview-img').first()).toBeVisible({ timeout: 15000 });
+		const content = await frame.locator('.preview-img-download-btn').first().evaluate(
+			btn => btn.ownerDocument.defaultView.getComputedStyle(btn, '::after').content,
+		);
+		// A single-backslash JS string once produced "\u0002B07FE0F" here (box glyph + literal text).
+		expect(content).toBe('"\u2b07\ufe0f"');
+	});
+
 	test('clicking a preview selects its source so Delete removes the image', async ({ page }) => {
 		await setDoc(page, 'Top\n\n');
 		await dropFile(page, { name: 'del.png', mime: 'image/png', data: IMG_B64 });

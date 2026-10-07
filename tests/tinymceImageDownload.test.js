@@ -248,3 +248,21 @@ test('_anchorRectInHostDoc offsets rects coming from inside an iframe', () => {
 	const passthrough = vm.runInContext('_anchorRectInHostDoc(hostBtn)', ctx);
 	assert.deepEqual({ ...passthrough }, { left: 5, right: 15, top: 6, bottom: 16 });
 });
+// Regression: the arrow glyph is injected as CSS `content:"\2B07\FE0F"` inside
+// a single-quoted JS string. With ONE backslash JS reads `\2` as an octal escape
+// (U+0002) and drops the backslash before `F`, so the browser rendered a
+// missing-glyph box followed by the literal text "B07FE0F" on every image.
+// The emitted CSS must contain real backslashes.
+test('TinyMCE content style emits a real CSS escape for the download arrow', () => {
+	const ctx = vm.createContext({
+		document: { body: {} },
+		getComputedStyle: () => ({ getPropertyValue: () => '', fontFamily: 'sans-serif' }),
+		isMobileShellMode: () => false,
+	});
+	vm.runInContext(extractFn('_tinyMCEContentFontStyle'), ctx);
+	const css = vm.runInContext('_tinyMCEContentFontStyle()', ctx);
+	const rule = css.match(/\.preview-img-download-btn::after\{[^}]*\}/);
+	assert.ok(rule, 'download button ::after rule must be present');
+	assert.equal(rule[0], '.preview-img-download-btn::after{content:"\\2B07\\FE0F"}', JSON.stringify(rule[0]));
+	assert.ok(!/[\u0000-\u0008]/.test(css), 'content style must not contain control characters from mis-escaped CSS');
+});

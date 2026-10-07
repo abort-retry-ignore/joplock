@@ -519,6 +519,25 @@
 			return null;
 		}
 
+		// Download affordance shared by image previews and attachment chips; the
+		// host decides what "download" means (action sheet on desktop / PWA,
+		// direct download on mobile web) exactly like the rendered-mode button.
+		function downloadButton(cls, title, id) {
+			var b = el('button', cls);
+			b.type = 'button';
+			b.title = title;
+			b.setAttribute('aria-label', title);
+			b.setAttribute('contenteditable', 'false');
+			b.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); });
+			b.addEventListener('dblclick', function (e) { e.stopPropagation(); });
+			b.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				if (hooks.downloadResource) hooks.downloadResource(id, b);
+			});
+			return b;
+		}
+
 		// -- image preview widget (block, under the source line) --------------
 
 		class ImageRowWidget extends WidgetType {
@@ -548,8 +567,10 @@
 					}
 					var handle = el('span', 'cm-jl-img-handle');
 					handle.title = 'Drag to resize \u00b7 double-click to reset';
+					var dl = downloadButton('cm-jl-img-dl', 'Download image', ref.id);
 					fig.appendChild(img);
 					fig.appendChild(handle);
+					fig.appendChild(dl);
 					var broken = function () {
 						fig.className = 'cm-jl-img broken';
 						fig.textContent = '\u26a0 Image unavailable';
@@ -646,6 +667,8 @@
 				chip.setAttribute('data-kind', kindCache[id] || 'unknown');
 				chip.appendChild(el('span', 'cm-jl-chip-icon'));
 				chip.appendChild(el('span', 'cm-jl-chip-label', this.text || id));
+				// Shown only once the target resolves to an attachment (CSS on data-kind).
+				chip.appendChild(downloadButton('cm-jl-chip-dl', 'Download attachment', id));
 				if (!kindCache[id]) resolveKind(id).then(function (k) { chip.setAttribute('data-kind', k); });
 				chip.addEventListener('mousedown', function (e) { e.preventDefault(); });
 				chip.addEventListener('click', function (e) {
@@ -852,7 +875,7 @@
 							dom.appendChild(el('div', 'cm-jl-tip-sub', 'Note link'));
 						} else if (info && info.kind === 'resource') {
 							dom.appendChild(el('div', 'cm-jl-tip-title', '\ud83d\udcce ' + (info.filename || hit.text)));
-							dom.appendChild(el('div', 'cm-jl-tip-sub', (info.mime || 'Attachment') + ' \u00b7 click to open'));
+							dom.appendChild(el('div', 'cm-jl-tip-sub', (info.mime || 'Attachment') + ' \u00b7 click to open, \u2b07 to download'));
 						} else {
 							dom.appendChild(el('div', 'cm-jl-tip-title', hit.text || hit.id));
 							dom.appendChild(el('div', 'cm-jl-tip-sub', 'Link target not found'));

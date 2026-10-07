@@ -3278,6 +3278,7 @@ function _cmExtraHooks(){
 	return {
 		fetchResourceBlob:function(id){return _fetchResourceBlob(id).then(function(r){return r.blob})},
 		openResource:function(id){_openResourceLightbox(id)},
+		downloadResource:function(id,anchor){downloadResource(id,anchor)},
 		openNote:_openNoteById,
 		resolveLinkInfo:_resolveInternalLink,
 		copyText:_copyTextToClipboard,

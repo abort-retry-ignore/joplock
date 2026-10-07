@@ -263,6 +263,35 @@ test('chips: render for [text](:/id), click opens note vs attachment by resolved
 	h.view.destroy();
 });
 
+test('download buttons: image previews and attachment chips call the host download hook without opening/selecting', async () => {
+	const downloads = [];
+	const opened = [];
+	const h = mount('![pic](:/' + ID + ')\n\nsee [spec.pdf](:/' + ID2 + ')\n', ALL, {
+		downloadResource: (id, anchor) => downloads.push([id, anchor && anchor.className]),
+		openResource: id => opened.push(id),
+		resolveLinkInfo: () => Promise.resolve({ kind: 'resource', filename: 'spec.pdf' }),
+	});
+	await tick(20);
+	const imgDl = h.q('.cm-jl-img .cm-jl-img-dl');
+	assert.equal(imgDl.length, 1);
+	assert.equal(imgDl[0].getAttribute('aria-label'), 'Download image');
+	const before = doc(h);
+	imgDl[0].dispatchEvent(new h.w.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+	imgDl[0].dispatchEvent(new h.w.MouseEvent('click', { bubbles: true, cancelable: true }));
+	assert.deepEqual(downloads, [[ID, 'cm-jl-img-dl']]);
+	assert.equal(doc(h), before, 'downloading must not edit the note');
+	assert.equal(h.view.state.selection.main.empty, true, 'and must not select the image source like a click on the preview does');
+
+	const chipDl = h.q('.cm-jl-chip .cm-jl-chip-dl');
+	assert.equal(chipDl.length, 1);
+	assert.equal(h.q('.cm-jl-chip')[0].getAttribute('data-kind'), 'resource');
+	chipDl[0].dispatchEvent(new h.w.MouseEvent('click', { bubbles: true, cancelable: true }));
+	await tick(20);
+	assert.deepEqual(downloads[1], [ID2, 'cm-jl-chip-dl']);
+	assert.deepEqual(opened, [], 'the download button must not also open the lightbox');
+	h.view.destroy();
+});
+
 test('code fences: line decorations + Copy button copies only the code', () => {
 	const copied = [];
 	const h = mount('intro\n\n```js\nconst a = 1;\n  indented();\n```\n\n```\nsecond\n```\n', ALL, { copyText: (t, cb) => { copied.push(t); cb(true); } });

@@ -1824,6 +1824,38 @@ body.editor-markdown-mode .editor-toolbar {
 .cm-host .cm-jl-img.resizing img { outline: 2px solid var(--accent); }
 @media (hover: none) { .cm-host .cm-jl-img-handle { opacity: 0.85; width: 22px; height: 22px; right: -9px; bottom: -9px; } }
 
+/* Download buttons (same look as the rendered-mode image button) */
+.cm-host .cm-jl-img-dl {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	font-size: 16px;
+	line-height: 1;
+	color: var(--text-heading);
+	background: var(--bg-elevated);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+	cursor: pointer;
+	opacity: 0.28;
+	z-index: 2;
+	transition: opacity 0.18s ease, color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+.cm-host .cm-jl-img-dl::after,
+.cm-host .cm-jl-chip-dl::after { content: "\2B07\FE0F"; }
+.cm-host .cm-jl-img:hover .cm-jl-img-dl,
+.cm-host .cm-jl-img-dl:hover,
+.cm-host .cm-jl-img-dl:focus { opacity: 1; color: #fff; border-color: var(--accent); background: var(--accent); }
+.cm-host .cm-jl-img.broken .cm-jl-img-dl,
+.cm-host .cm-jl-img.loading .cm-jl-img-dl { display: none; }
+@media (hover: none) { .cm-host .cm-jl-img-dl { opacity: 0.9; width: 32px; height: 32px; } }
+
 /* Attachment / note-link chips (replace `[text](:/id)`) */
 .cm-host .cm-jl-chip {
 	display: inline-flex;
@@ -1843,6 +1875,24 @@ body.editor-markdown-mode .editor-toolbar {
 	max-width: 26em;
 }
 .cm-host .cm-jl-chip:hover { border-color: var(--accent); background: var(--bg-active); }
+.cm-host .cm-jl-chip-dl {
+	display: none;
+	align-items: center;
+	justify-content: center;
+	width: 1.5em;
+	height: 1.5em;
+	margin: 0 -4px 0 0;
+	padding: 0;
+	font-size: 0.85em;
+	line-height: 1;
+	color: var(--text-dim);
+	background: transparent;
+	border: 0;
+	border-radius: 999px;
+	cursor: pointer;
+}
+.cm-host .cm-jl-chip[data-kind="resource"] .cm-jl-chip-dl { display: inline-flex; }
+.cm-host .cm-jl-chip-dl:hover { color: #fff; background: var(--accent); }
 .cm-host .cm-jl-chip-label { overflow: hidden; text-overflow: ellipsis; }
 .cm-host .cm-jl-chip-icon::before { content: "\1F517"; font-size: 0.9em; }
 .cm-host .cm-jl-chip[data-kind="resource"] .cm-jl-chip-icon::before { content: "\1F4CE"; }

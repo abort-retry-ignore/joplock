@@ -169,6 +169,44 @@ test.describe('Markdown mode extras', () => {
 		await expect.poll(() => getDoc(page), { timeout: 5000 }).toMatch(/!\[pic\.png\]\(:\/[0-9a-f]{32}\)/);
 	});
 
+	test('images and attachments can be downloaded from markdown mode like in rendered mode', async ({ page }) => {
+		await setDoc(page, 'Files:\n\n');
+		await dropFile(page, { name: 'dl-pic.png', mime: 'image/png', data: IMG_B64 });
+		await dropFile(page, { name: 'dl-sheet.pdf', mime: 'application/pdf', data: PDF_B64 });
+
+		const img = page.locator('#editor-panel .cm-jl-img img').first();
+		await expect(img).toBeVisible({ timeout: 15000 });
+		const chip = page.locator('#editor-panel .cm-jl-chip').first();
+		await expect(chip).toHaveAttribute('data-kind', 'resource', { timeout: 15000 });
+
+		// Image preview: hover reveals the button; clicking it opens the Save sheet.
+		await page.locator('#editor-panel .cm-jl-img').first().hover();
+		const imgBtn = page.locator('#editor-panel .cm-jl-img-dl').first();
+		await expect(imgBtn).toBeVisible();
+		await imgBtn.click();
+		await expect(page.locator('#resource-action-sheet')).toBeVisible();
+		const [imgDownload] = await Promise.all([
+			page.waitForEvent('download'),
+			page.locator('#resource-action-sheet').getByRole('button', { name: 'Save' }).click(),
+		]);
+		expect(imgDownload.suggestedFilename()).toBe('dl-pic.png');
+		await page.screenshot({ path: 'test-results/mdx-download-image.png' });
+
+		// Attachment chip: the arrow inside the chip downloads, the chip itself opens it.
+		await chip.hover();
+		const chipBtn = chip.locator('.cm-jl-chip-dl');
+		await expect(chipBtn).toBeVisible();
+		await chipBtn.click();
+		await expect(page.locator('#resource-action-sheet')).toBeVisible();
+		const [pdfDownload] = await Promise.all([
+			page.waitForEvent('download'),
+			page.locator('#resource-action-sheet').getByRole('button', { name: 'Save' }).click(),
+		]);
+		expect(pdfDownload.suggestedFilename()).toBe('dl-sheet.pdf');
+		expect(await getDoc(page)).toMatch(/!\[dl-pic\.png\]/); // note untouched by downloading
+		await page.screenshot({ path: 'test-results/mdx-download-chip.png' });
+	});
+
 	test('clicking a preview selects its source so Delete removes the image', async ({ page }) => {
 		await setDoc(page, 'Top\n\n');
 		await dropFile(page, { name: 'del.png', mime: 'image/png', data: IMG_B64 });

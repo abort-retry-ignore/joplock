@@ -222,6 +222,50 @@ test.describe('Markdown mode extras', () => {
 		expect(content).toBe('"\u2b07\ufe0f"');
 	});
 
+	test('Export note works in markdown mode: .md, .html, .docx and .pdf', async ({ page }) => {
+		test.setTimeout(150000);
+		await setDoc(page, '# Export me\n\nBody with **bold** text.\n\n- [x] done\n- [ ] todo\n\n');
+		await dropFile(page, { name: 'export-pic.png', mime: 'image/png', data: IMG_B64 });
+		await expect(page.locator('#editor-panel .cm-jl-img img')).toBeVisible({ timeout: 15000 });
+		await waitForSaved(page);
+
+		const readDownload = async (itemText) => {
+			await page.locator('#editor-panel #export-note-btn').click();
+			const menu = page.locator('#export-menu');
+			await expect(menu).toBeVisible();
+			// Every format is offered while in markdown mode.
+			await expect(menu.locator('button', { hasText: /Markdown|HTML|Word|PDF/ })).toHaveCount(4);
+			const [download] = await Promise.all([
+				page.waitForEvent('download', { timeout: 90000 }),
+				menu.locator('button', { hasText: itemText }).click(),
+			]);
+			const file = await download.path();
+			return { name: download.suggestedFilename(), data: fs.readFileSync(file) };
+		};
+
+		const md = await readDownload('Markdown');
+		expect(md.name).toMatch(/\.md$/);
+		expect(md.data.toString('utf8')).toContain('# Export me');
+
+		const html = await readDownload('HTML');
+		expect(html.name).toMatch(/\.html$/);
+		const htmlText = html.data.toString('utf8');
+		expect(htmlText).toContain('<h1>Export me</h1>');
+		expect(htmlText).toContain('data:image/png;base64,');
+		expect(htmlText).not.toMatch(/:\/[0-9a-f]{32}/);
+
+		const docx = await readDownload('Word');
+		expect(docx.name).toMatch(/\.docx$/);
+		expect(docx.data.subarray(0, 2).toString()).toBe('PK');
+		expect(docx.data.includes(Buffer.from('word/media/'))).toBe(true); // the image is embedded
+
+		const pdf = await readDownload('PDF');
+		expect(pdf.name).toMatch(/\.pdf$/);
+		expect(pdf.data.subarray(0, 5).toString()).toBe('%PDF-');
+		expect(pdf.data.length).toBeGreaterThan(2000);
+		await page.screenshot({ path: 'test-results/mdx-export.png' });
+	});
+
 	test('clicking a preview selects its source so Delete removes the image', async ({ page }) => {
 		await setDoc(page, 'Top\n\n');
 		await dropFile(page, { name: 'del.png', mime: 'image/png', data: IMG_B64 });
@@ -471,6 +515,12 @@ test.describe('Markdown mode extras (mobile shell)', () => {
 			await expect(status).toBeVisible();
 			const sb = await status.boundingBox();
 			expect(sb.y + sb.height).toBeLessThanOrEqual(page.viewportSize().height + 1);
+			// Export is reachable from the mobile editor menu in markdown mode too.
+			await page.locator('#mobile-editor-menu-btn').click();
+			await expect(page.locator('#mobile-ctx-export')).toBeVisible();
+			await page.locator('#mobile-ctx-export').click();
+			await expect(page.locator('#export-menu')).toBeVisible();
+			await expect(page.locator('#export-menu #export-pdf-btn')).toBeVisible();
 			await page.screenshot({ path: 'test-results/mdx-mobile.png' });
 		} finally {
 			await teardownTestData(page, { titlePrefixes: ['pw-mdx-mobile'] });

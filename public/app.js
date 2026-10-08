@@ -481,7 +481,7 @@ function tinyMCESetContent(html){if(_tinymceEditor)_tinymceEditor.setContent(htm
 function tinyMCESyncToTA(){var ta=getTA();if(ta&&_tinymceEditor){var _synNoteId=_formNoteId(activeEditorForm());if(_tinymceContentNoteId&&_synNoteId&&_tinymceContentNoteId!==_synNoteId){_log('tinyMCESyncToTA skipped: TinyMCE content belongs to another note',_tinymceContentNoteId,_synNoteId);return false}var host=document.getElementById('tinymce-host');if(!host||!host.classList.contains('tinymce-host-visible')){_log('tinyMCESyncToTA skipped: TinyMCE host not visible');return false}var html=_tinymceEditor.getContent();var md=tinymceToMarkdown(html,ta.value);if(ta.value!==md){ta.value=md;ta.dispatchEvent(new Event('input',{bubbles:true}));return true}}return false}
 function _isMarkdownModeActive(){return _editorMode==='markdown'||_editorMode==='md'}
 
-/* ---------------- Note export (rendered mode only): MD / HTML / DOCX / PDF ---------------- */
+/* ---------------- Note export (both modes): MD / HTML / DOCX / PDF ---------------- */
 function _downloadBlob(blob,filename){
 	var url=URL.createObjectURL(blob);
 	var a=document.createElement('a');
@@ -511,11 +511,6 @@ function toggleExportMenu(anchorEl){
 			||document.getElementById('mobile-editor-menu-btn');
 	}
 	if(!menu||!btn)return;
-	var mdMode=_isMarkdownModeActive();
-	['#export-html-btn','#export-docx-btn','#export-pdf-btn'].forEach(function(sel){
-		var b=menu.querySelector(sel);
-		if(b)b.style.display=mdMode?'none':'';
-	});
 	if(!menu.hidden){menu.hidden=true;return}
 	menu.hidden=false;
 	var r=btn.getBoundingClientRect();
@@ -541,15 +536,29 @@ document.addEventListener('click',function(e){
 });
 window.addEventListener('scroll',closeExportMenu,true);
 window.addEventListener('resize',closeExportMenu);
+// What to send to the HTML / DOCX / PDF exporters. Rendered mode sends the
+// TinyMCE HTML. Markdown mode sends the markdown itself (format:'markdown'); the
+// server renders it with renderMarkdown() — the same renderer rendered mode loads
+// its body from — so images, attachments, tables, checkboxes and code blocks come
+// out identical in both modes.
+function _exportSource(){
+	if(_isMarkdownModeActive()){
+		cmSyncToTA();
+		var ta=getTA();
+		return {content:ta?ta.value:'',format:'markdown'};
+	}
+	return {content:tinyMCEContent(),format:'html'};
+}
 function exportNoteAsMarkdown(){
+	cmSyncToTA();
 	var ta=getTA();
 	var md=ta?ta.value:'';
 	_downloadBlob(new Blob([md],{type:'text/markdown'}),_exportFilenameBase()+'.md');
 }
 function exportNoteAsHtml(){
-	if(_isMarkdownModeActive()){alert('HTML export is only available in rendered mode. Switch to rendered mode to export.');return}
-	var html=tinyMCEContent();
-	if(!html){alert('Nothing to export.');return}
+	var src=_exportSource();
+	var html=src.content;
+	if(!html||!String(html).trim()){alert('Nothing to export.');return}
 	var title=document.querySelector('.editor-title')?.textContent||document.getElementById('note-title')?.value||'note';
 	var theme='earth';
 	var classes=(document.body.className||'').split(/\s+/);
@@ -558,18 +567,17 @@ function exportNoteAsHtml(){
 	}
 	var btn=document.getElementById('export-note-btn');
 	if(btn){btn.disabled=true;btn.style.opacity='0.5'}
-	fetch('/api/export/html',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:html,title:title,theme:theme})})
+	fetch('/api/export/html',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:html,format:src.format,title:title,theme:theme})})
 	.then(function(r){if(!r.ok)throw new Error('Export failed: '+r.status);return r.blob()})
 	.then(function(blob){var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=(title.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,80)||'note')+'.html';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)})
 	.catch(function(err){console.error('HTML export failed:',err);alert('HTML export failed: '+err.message)})
 	.finally(function(){if(btn){btn.disabled=false;btn.style.opacity=''}});
 }
 function exportNoteAsDocx(){
-	if(_isMarkdownModeActive()){alert('DOCX export is only available in rendered mode. Switch to rendered mode to export.');return}
-	var html=tinyMCEContent();
-	if(!html){alert('Nothing to export.');return}
-	var format='html';
-	var content=html;
+	var src=_exportSource();
+	if(!src.content||!String(src.content).trim()){alert('Nothing to export.');return}
+	var format=src.format;
+	var content=src.content;
 	var title=document.querySelector('.editor-title')?.textContent||document.getElementById('note-title')?.value||'note';
 	var btn=document.getElementById('export-note-btn');
 	if(btn){btn.disabled=true;btn.style.opacity='0.5'}
@@ -580,11 +588,10 @@ function exportNoteAsDocx(){
 	.finally(function(){if(btn){btn.disabled=false;btn.style.opacity=''}});
 }
 function exportNoteAsPdf(){
-	if(_isMarkdownModeActive()){alert('PDF export is only available in rendered mode. Switch to rendered mode to export.');return}
-	var html=tinyMCEContent();
-	if(!html){alert('Nothing to export.');return}
-	var format='html';
-	var content=html;
+	var src=_exportSource();
+	if(!src.content||!String(src.content).trim()){alert('Nothing to export.');return}
+	var format=src.format;
+	var content=src.content;
 	var title=document.querySelector('.editor-title')?.textContent||document.getElementById('note-title')?.value||'note';
 	var btn=document.getElementById('export-note-btn');
 	if(btn){btn.disabled=true;btn.style.opacity='0.5'}
@@ -5195,7 +5202,7 @@ function confirmLogout(event){
 		var moveBtn=document.getElementById('mobile-ctx-move');
 		var delBtn=document.getElementById('mobile-ctx-delete');
 		if(titleEl)titleEl.textContent=noteTitle||'Untitled';
-		if(exportBtn)exportBtn.style.display=(opts.isEditorContext&&!_isMarkdownModeActive())?'':'none';
+		if(exportBtn)exportBtn.style.display=opts.isEditorContext?'':'none';
 		if(metaEl){
 			var mbody=document.getElementById('mobile-editor-body');
 			var metaSrc=mbody?mbody.querySelector('#note-meta'):null;

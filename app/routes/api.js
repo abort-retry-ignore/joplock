@@ -971,14 +971,18 @@ const handleExportDocx = async (url, request, response, ctx) => {
 			response.end(JSON.stringify({ error: 'content is required' }));
 			return true;
 		}
-		const inputFormat = format === 'html' ? 'html' : 'markdown';
+		// format 'markdown' (sent by markdown mode) is rendered with the same
+		// renderMarkdown() as rendered mode / the PDF export, so Joplin `:/id`
+		// images and attachment links resolve instead of reaching pandoc raw.
+		// Any other value keeps the legacy pandoc-native markdown input.
+		const renderedFromMarkdown = format === 'markdown';
+		const inputFormat = format === 'html' || renderedFromMarkdown ? 'html' : 'markdown';
 
 		// Pre-process HTML the same way as PDF: strip dead resource links and
 		// inline resource images as base64 data URIs so pandoc can embed them.
-		// Markdown input is left unchanged — pandoc handles it natively.
-		let processedContent = content;
+		let processedContent = renderedFromMarkdown ? renderMarkdown(content) : content;
 		if (inputFormat === 'html') {
-			processedContent = stripResourceLinks(content);
+			processedContent = stripResourceLinks(processedContent);
 			processedContent = await inlineResourceImages(processedContent, auth.user.id, ctx.itemService);
 		}
 
@@ -1200,7 +1204,8 @@ const handleExportPdf = async (url, request, response, ctx) => {
 // ---------------------------------------------------------------------------
 // POST /api/export/html — single self-contained HTML file: inlined theme CSS,
 // base64 images, base64 attachment links. No pandoc needed — the source is
-// already TinyMCE-rendered HTML.
+// TinyMCE-rendered HTML (rendered mode) or markdown rendered server-side with
+// renderMarkdown() (markdown mode, format:'markdown').
 // ---------------------------------------------------------------------------
 
 const escapeHtmlAttr = value => `${value || ''}`
@@ -1219,13 +1224,15 @@ const handleExportHtml = async (url, request, response, ctx) => {
 			return true;
 		}
 		const body = await parseBody(request);
-		const { content, title } = body;
-		if (!content) {
+		const { content: rawContent, title, format } = body;
+		if (!rawContent) {
 			response.writeHead(400, { 'Content-Type': 'application/json' });
 			response.end(JSON.stringify({ error: 'content is required' }));
 			return true;
 		}
 		const theme = /^[a-z0-9-]{1,40}$/.test(`${body.theme || ''}`) ? body.theme : 'earth';
+		// Markdown mode sends markdown; render it like rendered mode / PDF do.
+		const content = format === 'markdown' ? renderMarkdown(rawContent) : rawContent;
 
 		const imagedHtml = await inlineResourceImages(content, auth.user.id, ctx.itemService);
 		const inlinedHtml = await inlineResourceLinks(imagedHtml, auth.user.id, ctx.itemService);

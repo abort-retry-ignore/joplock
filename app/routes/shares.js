@@ -475,6 +475,15 @@ const handle = async (url, request, response, ctx) => {
 					WHERE COALESCE(${shareIdOf('i.')}, '') = $1
 				)`, [shareId]).catch(() => null);
 				await database.query(`DELETE FROM share_users WHERE share_id = $1`, [shareId]).catch(() => null);
+				// Clear the dead share id from the owner's notebook tree (the notebook, every
+				// sub-notebook and their notes), as Joplin's own client does when unsharing.
+				// Left behind, Joplin Server answers any later write of those items with
+				// "share not found" (422), so they could no longer be edited or trashed.
+				const stale = await database.query(
+					`SELECT i.jop_id FROM items i WHERE i.owner_id = $1 AND COALESCE(${shareIdOf('i.')}, '') = $2`,
+					[auth.user.id, shareId],
+				).catch(() => ({ rows: [] }));
+				await setShareOnItems(database, auth.user.id, (stale.rows || []).map(r => r.jop_id), '').catch(() => null);
 			}
 			sendJson(response, result.statusCode, result.statusCode >= 200 && result.statusCode < 300 ? { ok: true } : jsonResult(result));
 		} catch (e) {

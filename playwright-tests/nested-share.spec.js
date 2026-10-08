@@ -143,6 +143,16 @@ test.describe('nested notebooks and sharing', () => {
 			}).toBe(false);
 			const afterNotes = await visibleNoteIds(readerPage);
 			expect(afterNotes.has(nRoot) || afterNotes.has(nLeaf)).toBe(false);
+
+			// 6. The owner's tree no longer carries the dead share id, so everything is
+			//    editable again (Joplin Server answers a write that names a deleted share
+			//    with "share not found" / 422).
+			const ownerFolders = (await api(ownerPage, 'GET', '/api/web/folders')).data.items;
+			for (const id of [root, sub, leaf, fresh]) expect(ownerFolders.find(f => f.id === id).shareId || '', `share id cleared on ${id}`).toBe('');
+			const rename = await api(ownerPage, 'PUT', `/api/web/folders/${sub}`, { title: `${base}-sub-renamed` });
+			expect(rename.status, rename.text).toBe(200);
+			const trashed = await api(ownerPage, 'DELETE', `/fragments/notes/${nLeaf}`);
+			expect(trashed.status, trashed.text).toBe(200);
 		} finally {
 			await teardownTestData(ownerPage, { folderPrefixes: [base] });
 		}

@@ -33,5 +33,5 @@ test('shareIdOf() only decodes notes and folders and honours a table alias', () 
 
 test('every share fan-out / revoke query goes through shareIdOf()', () => {
 	const uses = src.match(/\$\{shareIdOf\([^)]*\)\}/g) || [];
-	assert.equal(uses.length, 4, 'populateUserItems, notebook lookup, stop-sharing cleanup and remove-invitee cleanup');
+	assert.equal(uses.length, 5, 'populateUserItems, notebook lookup, stop-sharing user_items cleanup, stop-sharing share_id clearing and remove-invitee cleanup');
 });

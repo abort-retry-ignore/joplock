@@ -9,6 +9,7 @@ const {
 	stripMarkdownForTitle,
 	svgLockClosed,
 } = require('./shared');
+const { flattenFolderTree, rollupCounts } = require('../items/folderTree');
 
 const mobileFoldersFragment = (folders, countsOrNotes) => {
 	// Accept either a Map (counts) or legacy notes array
@@ -26,17 +27,33 @@ const mobileFoldersFragment = (folders, countsOrNotes) => {
 			notesByFolder.set(key, (notesByFolder.get(key) || 0) + 1);
 		}
 	}
+	// Inline expandable tree. Every row is rendered; rows below the top level
+	// start `hidden` and the client (mobileApplyFolderTree in app.js) reveals the
+	// ones whose ancestors are all expanded, using the saved expansion state.
+	// Counts include sub-notebooks (like Joplin) so a collapsed parent is honest.
+	const realFolders = (folders || []).filter(f => !f.isVirtualAllNotes && f.id !== trashFolderId);
+	const totals = rollupCounts(realFolders, notesByFolder);
+	const flatFolders = flattenFolderTree(realFolders);
+	// Only reserve the chevron gutter when something is actually nested, so a
+	// flat notebook list looks exactly as it did before nesting existed.
+	const anyNested = flatFolders.some(f => f.hasChildren);
+	const togglePlaceholder = anyNested ? '<span class="mobile-folder-toggle mobile-folder-toggle-placeholder"></span>' : '';
 	const allRow = `<button class="mobile-folder-row" onclick="mobilePushNotes('__all__','All Notes')">
+		${togglePlaceholder}
 		<span class="mobile-folder-icon">${allNotesIcon}</span>
 		<span class="mobile-folder-title">All Notes</span>
 		<span class="mobile-folder-count">${allCount}</span>
 		<span class="mobile-folder-add" onclick="mobileNewNoteInFolder('__all__','All Notes',event)">+</span>
 		<span class="mobile-folder-arrow">&#8250;</span>
 	</button>`;
-	const folderRows = (folders || []).filter(f => !f.isVirtualAllNotes && f.id !== trashFolderId).map(f => {
-		const count = notesByFolder.get(f.id) || 0;
+	const folderRows = flatFolders.map(f => {
+		const count = totals.get(f.id) || 0;
 		const vaultIcon = f.isVault ? `<span role="button" tabindex="0" class="vault-folder-lock btn-icon-sm mobile-vault-folder-lock" data-folder-id="${escapeHtml(f.id)}" title="Lock vault" onclick="event.preventDefault();event.stopPropagation();toggleVaultLock('${escapeHtml(f.id)}')">${svgLockClosed}</span>` : '';
-		return `<button class="mobile-folder-row" onclick="mobilePushNotes(${escapeHtml(JSON.stringify(f.id))},${escapeHtml(JSON.stringify(f.title || 'Untitled'))})">
+		const toggle = f.hasChildren
+			? `<span role="button" tabindex="0" class="mobile-folder-toggle" aria-label="Expand or collapse" onclick="mobileToggleFolderRow(${escapeHtml(JSON.stringify(f.id))},event)">&#9656;</span>`
+			: togglePlaceholder;
+		return `<button class="mobile-folder-row${f.hasChildren ? ' has-children' : ''}" data-folder-id="${escapeHtml(f.id)}" data-parent-id="${escapeHtml(f.treeParentId)}" data-depth="${f.depth}" style="--m-depth:${Math.min(f.depth, 4)}"${f.depth ? ' hidden' : ''} onclick="mobilePushNotes(${escapeHtml(JSON.stringify(f.id))},${escapeHtml(JSON.stringify(f.title || 'Untitled'))})">
+			${toggle}
 			<span class="mobile-folder-icon">${folderOutlineIcon}</span>
 			<span class="mobile-folder-title">${escapeHtml(f.title || 'Untitled')}</span>
 			${vaultIcon}

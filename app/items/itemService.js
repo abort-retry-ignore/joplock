@@ -21,6 +21,8 @@ const mapFolderRow = row => {
 		icon: content.icon || '',
 		deletedTime: Number(content.deleted_time || 0),
 		createdTime: Number(content.created_time || row.created_time || 0),
+		userCreatedTime: Number(content.user_created_time || 0),
+		masterKeyId: content.master_key_id || '',
 		updatedTime: Number(row.jop_updated_time || content.updated_time || 0),
 		ownerId: row.owner_id || '',
 		shareId: content.share_id || '',

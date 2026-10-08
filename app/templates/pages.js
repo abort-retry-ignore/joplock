@@ -63,7 +63,7 @@ const layoutPage = (options = {}) => {
 <body class="theme-dark-grey${noteFontFamilyCSS(settings)==="'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace"?' note-body-monospace':''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;">
 	<script>
 	(function(){
-		var keys=['joplock-theme','joplock-nav-collapsed','joplock-nav-folders'];
+		var keys=['joplock-theme','joplock-nav-collapsed','joplock-nav-folders','joplock-mobile-folders'];
 		try{keys.forEach(function(k){localStorage.removeItem(k)})}catch(e){}
 		// Clear any stale vault keys: a fresh login session must never inherit cached vault keys.
 		try{var toRemove=[];for(var i=0;i<sessionStorage.length;i++){var k=sessionStorage.key(i);if(k&&k.startsWith('joplock-vault-key-'))toRemove.push(k)}toRemove.forEach(function(k){sessionStorage.removeItem(k)})}catch(e){}
@@ -387,7 +387,7 @@ const loggedOutPage = () => `<!DOCTYPE html>
 		window.toggleLogoutDetail=function(step){var el=document.getElementById('logout-detail-'+step);if(!el)return;el.classList.toggle('open')}
 		async function run(){
 			mark('session','done');
-			var keys=['joplock-theme','joplock-nav-collapsed','joplock-nav-folders','joplock-clean-md','joplock-settings-tab'];
+			var keys=['joplock-theme','joplock-nav-collapsed','joplock-nav-folders','joplock-mobile-folders','joplock-clean-md','joplock-settings-tab'];
 			try{keys.forEach(function(k){localStorage.removeItem(k)})}catch(e){}
 			// Clear vault keys from sessionStorage so re-login requires re-entering vault passwords
 			try{var toRemove=[];for(var i=0;i<sessionStorage.length;i++){var k=sessionStorage.key(i);if(k&&k.startsWith('joplock-vault-key-'))toRemove.push(k)}toRemove.forEach(function(k){sessionStorage.removeItem(k)})}catch(e){}

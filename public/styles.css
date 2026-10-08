@@ -757,6 +757,18 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	cursor: pointer;
 }
 
+/* Nested notebooks: each level indents by 14px (capped server-side at 8
+ * levels via --nav-depth). Every collapse/expand rule below uses the child
+ * combinator, because a descendant selector would let a collapsed child's
+ * state leak into an expanded parent (and vice versa). */
+.nav-folder > .nav-folder-row {
+	padding-left: calc(8px + var(--nav-depth, 0) * 14px);
+}
+
+.nav-folder-children { display: block; }
+
+.nav-folder.collapsed > .nav-folder-children { display: none; }
+
 .nav-folder-toggle {
 	width: 18px;
 	height: 18px;
@@ -772,7 +784,7 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 
 .nav-folder-toggle-placeholder { visibility: hidden; }
 
-.nav-folder.collapsed .nav-folder-toggle { transform: rotate(0deg); }
+.nav-folder.collapsed > .nav-folder-row > .nav-folder-toggle { transform: rotate(0deg); }
 
 .nav-folder-title {
 	flex: 1;
@@ -821,10 +833,10 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 	border-top: 0;
 }
 
-.nav-folder.collapsed .nav-folder-notes { display: none; }
+.nav-folder.collapsed > .nav-folder-notes { display: none; }
 
 .nav-folder-notes .notelist-item {
-	padding: 7px 10px 7px 34px;
+	padding: 7px 10px 7px calc(34px + var(--nav-depth, 0) * 14px);
 	border-bottom: none;
 	background: transparent;
 }
@@ -3142,7 +3154,8 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	.nav-panel-header { padding: 10px; gap: 5px; }
 	.nav-items { padding: 8px; }
 	.nav-folder-row { padding: 8px; }
-	.nav-folder-notes .notelist-item { padding: 8px 10px 8px 32px; }
+	.nav-folder > .nav-folder-row { padding-left: calc(8px + var(--nav-depth, 0) * 14px); }
+	.nav-folder-notes .notelist-item { padding: 8px 10px 8px calc(32px + var(--nav-depth, 0) * 14px); }
 	.editor-titlebar {
 		padding: 6px 8px 6px 62px;
 		gap: 4px;
@@ -3446,6 +3459,25 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 		text-align: left;
 	}
 	.mobile-folder-row:active { background: var(--bg-hover); }
+	/* display:flex above beats the UA [hidden] rule, so restate it. */
+	.mobile-folder-row[hidden] { display: none; }
+	/* Nested notebooks: indent per level (capped at 4 by the server). */
+	.mobile-folder-row { padding-left: calc(16px + var(--m-depth, 0) * 18px); }
+	/* Chevron is its own 44px-tall tap target; the row itself still opens the notes. */
+	.mobile-folder-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		width: 28px;
+		align-self: stretch;
+		margin: -14px 0 -14px -8px;
+		color: var(--text-muted);
+		font-size: 16px;
+		transition: transform 0.12s;
+	}
+	.mobile-folder-toggle-placeholder { visibility: hidden; }
+	.mobile-folder-row.expanded > .mobile-folder-toggle { transform: rotate(90deg); }
 	.mobile-folder-icon { font-size: 16px; flex-shrink: 0; color: var(--accent); }
 	.mobile-folder-title { flex: 1 1 auto; min-width: 0; }
 	.mobile-folder-count { color: var(--text-muted); font-size: 13px; flex-shrink: 0; }

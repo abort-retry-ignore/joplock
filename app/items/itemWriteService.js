@@ -63,6 +63,11 @@ const serializeFolder = folder => {
 	const now = Date.now();
 	const folderId = folder.id || itemId('2');
 	const parentId = folder.parentId || '';
+	// Preserve creation timestamps and metadata across rewrites. A rename or a
+	// move re-serializes the whole item, so anything not carried here (created
+	// time, icon, master key) would be silently reset on every edit.
+	const createdTime = folder.createdTime || now;
+	const userCreatedTime = folder.userCreatedTime || createdTime;
 
 	return {
 		id: folderId,
@@ -70,16 +75,19 @@ const serializeFolder = folder => {
 		body: `${folder.title || 'Untitled folder'}
 
 id: ${folderId}
-created_time: ${formatTimestamp(now)}
+created_time: ${formatTimestamp(createdTime)}
 updated_time: ${formatTimestamp(now)}
-user_created_time: ${formatTimestamp(now)}
+user_created_time: ${formatTimestamp(userCreatedTime)}
 user_updated_time: ${formatTimestamp(now)}
 encryption_cipher_text:
 encryption_applied: 0
 parent_id: ${parentId}
 is_shared: ${folder.isShared ? 1 : 0}
 share_id: ${folder.shareId || ''}
+master_key_id: ${folder.masterKeyId || ''}
+icon: ${folder.icon || ''}
 user_data: 
+deleted_time: 0
 type_: 2`,
 	};
 };
@@ -243,6 +251,10 @@ const createItemWriteService = options => {
 				parentId: updates.parentId !== undefined ? updates.parentId : existingFolder.parentId,
 				isShared: updates.isShared !== undefined ? updates.isShared : (existingFolder.isShared || false),
 				shareId: updates.shareId !== undefined ? updates.shareId : (existingFolder.shareId || ''),
+				createdTime: existingFolder.createdTime,
+				userCreatedTime: existingFolder.userCreatedTime,
+				icon: existingFolder.icon,
+				masterKeyId: existingFolder.masterKeyId,
 			});
 			await putSerializedItem(sessionId, serialized, requestContext);
 			return { id: serialized.id };

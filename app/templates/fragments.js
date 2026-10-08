@@ -11,6 +11,7 @@ const {
 	svgLockClosed,
 	svgLockOpen,
 } = require('./shared');
+const { buildFolderTree, flattenFolderTree, rollupCounts, folderOptionLabel, folderPathString } = require('../items/folderTree');
 
 
 const noteDomId = (noteId, contextFolderId = '') => {
@@ -20,6 +21,13 @@ const noteDomId = (noteId, contextFolderId = '') => {
 
 const realNotebookOptions = folders => (folders || [])
 	.filter(f => f.id !== trashFolderId && !f.isVirtualAllNotes);
+
+// <option> markup for the notebook pickers: real notebooks only, in tree order,
+// with nesting shown as indentation (an <option> cannot nest) and the full path
+// in the tooltip so same-named notebooks stay distinguishable.
+const notebookOptionsHtml = (folders, selectedId = null) => flattenFolderTree(realNotebookOptions(folders)).map(f =>
+	`<option value="${escapeHtml(f.id)}"${selectedId !== null && f.id === selectedId ? ' selected' : ''}${f.isVault ? ' data-is-vault="1"' : ''} data-depth="${f.depth}" title="${escapeHtml(folderPathString(f.path))}">${escapeHtml(folderOptionLabel(f))}</option>`,
+).join('');
 
 // Column 1: folder list item
 const folderListItem = (folder, selectedFolderId) => {
@@ -172,25 +180,42 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 				${results.map(n => noteListItem(n, selectedNoteId, '__search_results__', selectedNoteContextFolderId)).join('')}
 			</div>
 		</div>`;
-	})() : (folders || []).map(folder => {
-		const folderId = folder.id;
-		const countKey = folder.isVirtualAllNotes ? '__all__' : (folderId === trashFolderId ? '__trash__' : folderId);
-		const count = counts.get(countKey) || folder.noteCount || 0;
-		const isOpen = folderId === selectedFolderId;
-		const isExpandable = count > 0;
-		const isTrash = folderId === trashFolderId;
-		const isAllNotes = !!folder.isVirtualAllNotes;
-		const isVault = !!folder.isVault;
-		// Show vault lock icon if this folder is a vault (unlocked state is client-determined via JS)
-		const vaultIcon = isVault ? `<button type="button" class="vault-folder-lock btn-icon-sm" data-folder-id="${escapeHtml(folderId)}" title="Lock vault" onclick="event.stopPropagation();toggleVaultLock('${escapeHtml(folderId)}')">${svgLockClosed}</button>` : '';
-		const trashIcon = isTrash ? `<button type="button" class="trash-folder-empty btn-icon-sm" title="Empty trash" onclick="event.stopPropagation();openEmptyTrashModal()">&#10005;</button>` : '';
-		const shareIndicator = folder.isShared ? `<span class="nav-share-icon" title="Shared${folder.ownerId ? ' by someone' : ''}">👥</span>` : '';
-		return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}${isVault ? ' nav-folder-vault' : ''}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folder.title || 'Untitled')}" data-selected="${isOpen ? '1' : ''}" data-note-count="${count}"${isAllNotes ? ' data-all-notes="1"' : ''}${isVault ? ' data-is-vault="1"' : ''}>
-			<div class="nav-folder-row"${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folder.title || 'Untitled')}')"`}>
+	})() : (() => {
+		// Rolled-up counts: a collapsed parent shows everything beneath it, like
+		// Joplin. `counts` stays the DIRECT count per folder (it also drives
+		// note pagination), so it is only read here, never replaced.
+		const directCounts = new Map();
+		for (const folder of (folders || [])) {
+			if (folder.isVirtualAllNotes || folder.id === trashFolderId) continue;
+			directCounts.set(folder.id, counts.get(folder.id) || folder.noteCount || 0);
+		}
+		const totals = rollupCounts(folders, directCounts);
+
+		const renderFolder = node => {
+			const folder = node.folder;
+			const folderId = folder.id;
+			const countKey = folder.isVirtualAllNotes ? '__all__' : (folderId === trashFolderId ? '__trash__' : folderId);
+			const directCount = counts.get(countKey) || folder.noteCount || 0;
+			const isTrash = folderId === trashFolderId;
+			const isAllNotes = !!folder.isVirtualAllNotes;
+			const count = (isTrash || isAllNotes) ? directCount : (totals.get(folderId) || 0);
+			const isOpen = folderId === selectedFolderId;
+			const isExpandable = directCount > 0 || node.hasChildren;
+			const isVault = !!folder.isVault;
+			const folderTitle = folder.title || 'Untitled';
+			// Show vault lock icon if this folder is a vault (unlocked state is client-determined via JS)
+			const vaultIcon = isVault ? `<button type="button" class="vault-folder-lock btn-icon-sm" data-folder-id="${escapeHtml(folderId)}" title="Lock vault" onclick="event.stopPropagation();toggleVaultLock('${escapeHtml(folderId)}')">${svgLockClosed}</button>` : '';
+			const trashIcon = isTrash ? `<button type="button" class="trash-folder-empty btn-icon-sm" title="Empty trash" onclick="event.stopPropagation();openEmptyTrashModal()">&#10005;</button>` : '';
+			const shareIndicator = folder.isShared ? `<span class="nav-share-icon" title="Shared${folder.ownerId ? ' by someone' : ''}">👥</span>` : '';
+			const childrenHtml = node.children.length
+				? `<div class="nav-folder-children">${node.children.map(renderFolder).join('')}</div>`
+				: '';
+			return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}${isVault ? ' nav-folder-vault' : ''}${node.hasChildren ? ' nav-folder-has-children' : ''}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folderTitle)}" data-parent-id="${escapeHtml(node.treeParentId)}" data-depth="${node.depth}" style="--nav-depth:${Math.min(node.depth, 8)}" data-selected="${isOpen ? '1' : ''}" data-note-count="${directCount}"${isAllNotes ? ' data-all-notes="1"' : ''}${isVault ? ' data-is-vault="1"' : ''}>
+			<div class="nav-folder-row"${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folderTitle)}')"`}>
 				${isExpandable ? `<button type="button" class="nav-folder-toggle" tabindex="-1" onclick="toggleNavFolder('${escapeHtml(folderId)}')">&#9656;</button>` : '<span class="nav-folder-toggle nav-folder-toggle-placeholder"></span>'}
 				<span class="sidebar-item-icon">${isTrash ? '&#128465;' : (isAllNotes ? allNotesIcon : folderOutlineIcon)}</span>
 				${shareIndicator}
-				<span class="nav-folder-title"${isExpandable ? ` onclick="${isAllNotes ? `toggleNavFolder('${escapeHtml(folderId)}')` : `openNavFolderAndFirstNote('${escapeHtml(folderId)}')`}" style="cursor:pointer"` : ''}>${escapeHtml(folder.title || 'Untitled')}</span>
+				<span class="nav-folder-title"${isExpandable ? ` onclick="${isAllNotes ? `toggleNavFolder('${escapeHtml(folderId)}')` : `openNavFolderAndFirstNote('${escapeHtml(folderId)}')`}" style="cursor:pointer"` : ''} title="${escapeHtml(folderPathString(node.path))}">${escapeHtml(folderTitle)}</span>
 				${vaultIcon}
 				${trashIcon}
 				<span class="sidebar-item-count">${count || ''}</span>
@@ -205,10 +230,14 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 					hx-swap="innerHTML"
 					hx-on:click="event.stopPropagation()">+</button>`)}
 			</div>
+			${childrenHtml}
 			<div class="nav-folder-notes" data-folder-id="${escapeHtml(folderId)}">
 			</div>
 		</div>`;
-	}).join('');
+		};
+
+		return buildFolderTree(folders).map(renderFolder).join('');
+	})();
 
 	const html = `<div class="nav-panel-header">
 		<button type="button" class="nav-toggle-btn" title="Hide panel" onclick="toggleNav()">&#9776;</button>
@@ -283,9 +312,7 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 	}
 	const isOwner = !note.ownerId || note.ownerId === viewerUserId;
 	const readOnly = !!(note.ownerId && viewerUserId && note.ownerId !== viewerUserId && !canWrite);
-	const folderOptions = realNotebookOptions(folders).map(f =>
-		`<option value="${escapeHtml(f.id)}"${f.id === note.parentId ? ' selected' : ''}${f.isVault ? ' data-is-vault="1"' : ''}>${escapeHtml(f.title || 'Untitled')}</option>`,
-	).join('');
+	const folderOptions = notebookOptionsHtml(folders, note.parentId);
 	const encrypted = !!note.isEncrypted;
 	const vaultId = note.vaultId || '';
 	const vaultProtected = !!(encrypted || note.inVault || vaultId);
@@ -421,8 +448,7 @@ const searchResultsFragment = (notes, hasMore = false, nextOffset = 0, query = '
 };
 
 const folderSelectOob = (folders) => {
-	const options = realNotebookOptions(folders)
-		.map(f => `<option value="${escapeHtml(f.id)}"${f.isVault ? ' data-is-vault="1"' : ''}>${escapeHtml(f.title || 'Untitled')}</option>`).join('');
+	const options = notebookOptionsHtml(folders);
 	return `<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="Move to folder" hx-swap-oob="true">${options}</select>`;
 };
 
@@ -442,6 +468,7 @@ module.exports = {
 	folderNotesPageFragment,
 	navigationFragment,
 	realNotebookOptions,
+	notebookOptionsHtml,
 	editorFragment,
 	mobileEditorFragment,
 	autosaveStatusFragment,

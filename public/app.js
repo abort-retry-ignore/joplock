@@ -375,34 +375,68 @@ function deleteFolderFromMenu(){if(!_folderMenuState.id)return;closeFolderContex
 function submitFolderEdit(event){if(event)event.preventDefault();var input=document.getElementById('folder-edit-title');var title=input?input.value.trim():'';if(!_folderMenuState.id||!title)return false;var folderId=_folderMenuState.id;closeFolderModal();if(window.isMobileShellMode&&window.isMobileShellMode()){fetch('/fragments/folders/'+encodeURIComponent(folderId),{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded','hx-request':'true'},body:'title='+encodeURIComponent(title)}).then(function(){htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});var notesTitle=document.getElementById('mobile-notes-title');if(notesTitle&&notesTitle.textContent===_folderMenuState.title)notesTitle.textContent=title})}else{htmx.ajax('PUT','/fragments/folders/'+encodeURIComponent(folderId),{target:'#nav-panel',swap:'innerHTML',values:{title:title}})}return false}
 function navFolderState(){try{return JSON.parse(localStorage.getItem('joplock-nav-folders')||'{}')}catch(e){return {}}}
 function saveNavFolderState(s){localStorage.setItem('joplock-nav-folders',JSON.stringify(s))}
+// Notebooks nest, so a notebook's OWN notes list is its direct .nav-folder-notes
+// child. Never use el.querySelector('.nav-folder-notes[...]'): sub-notebooks are
+// inside el too and would match first.
+function navFolderEl(id){return document.querySelector('.nav-folder[data-folder-id="'+String(id).replace(/"/g,'\\"')+'"]')}
+function navFolderNotesDiv(el){
+	if(!el)return null;
+	for(var i=0;i<el.children.length;i++){
+		var c=el.children[i];
+		if(c.classList.contains('nav-folder-notes')&&c.hasAttribute('data-folder-id'))return c;
+	}
+	return null;
+}
+function navParentFolder(el){return el&&el.parentElement?el.parentElement.closest('.nav-folder'):null}
+// A notebook is visible when none of the notebooks above it is collapsed.
+function navFolderVisible(el){var a=navParentFolder(el);while(a){if(a.classList.contains('collapsed'))return false;a=navParentFolder(a)}return true}
+// Lazy-load a notebook's direct notes the first time it is shown open.
+function navLoadFolderNotes(el){
+	var notesDiv=navFolderNotesDiv(el);
+	if(!notesDiv||notesDiv.getAttribute('data-loaded'))return;
+	// Nothing directly inside (a notebook that only holds sub-notebooks): skip the request.
+	if(el.getAttribute('data-note-count')==='0')return;
+	notesDiv.setAttribute('data-loaded','1');
+	htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(notesDiv.getAttribute('data-folder-id')),{target:notesDiv,swap:'innerHTML'});
+}
+// After a notebook opens, notebooks inside it that were already open (saved state)
+// become visible and need their notes.
+function navLoadOpenDescendants(el){
+	el.querySelectorAll('.nav-folder:not(.collapsed)').forEach(function(d){if(navFolderVisible(d))navLoadFolderNotes(d)});
+}
 function toggleNavFolder(id,force){
-	var el=document.querySelector('.nav-folder[data-folder-id="'+id.replace(/"/g,'\\"')+'"]');
+	var el=navFolderEl(id);
 	if(!el)return;
 	var collapsed=force===undefined?!el.classList.contains('collapsed'):!force;
 	var s=navFolderState();
+	// Any number of notebooks may stay open (it is a tree now). Opening one also
+	// opens the notebooks above it, otherwise it would stay hidden.
 	if(!collapsed){
-		document.querySelectorAll('.nav-folder[data-folder-id]').forEach(function(other){
-			var otherId=other.getAttribute('data-folder-id');
-			if(!otherId||other===el)return;
-			other.classList.add('collapsed');
-			s[otherId]='0';
-		});
+		var anc=navParentFolder(el);
+		while(anc){
+			if(anc.classList.contains('collapsed')){
+				anc.classList.remove('collapsed');
+				s[anc.getAttribute('data-folder-id')]='1';
+				navLoadFolderNotes(anc);
+			}
+			anc=navParentFolder(anc);
+		}
 	}
 	el.classList.toggle('collapsed',collapsed);
 	s[id]=collapsed?'0':'1';saveNavFolderState(s);
-	// Lazy-load notes on first expand
-	if(!collapsed){
-		var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');
-		if(notesDiv&&!notesDiv.getAttribute('data-loaded')){
-			notesDiv.setAttribute('data-loaded','1');
-			var folderId=notesDiv.getAttribute('data-folder-id');
-			htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'});
-		}
-	}
+	if(!collapsed){navLoadFolderNotes(el);navLoadOpenDescendants(el)}
+}
+// Make a notebook (and everything above it) show as open and remember it, e.g.
+// so a freshly created sub-notebook is visible. Works before the nav re-renders.
+function expandNavFolderState(id){
+	var s=navFolderState();s[id]='1';
+	var el=navFolderEl(id);var a=navParentFolder(el);
+	while(a){s[a.getAttribute('data-folder-id')]='1';a=navParentFolder(a)}
+	saveNavFolderState(s);
 }
 function openNavFolderAndFirstNote(id){
 	if(isMobileShellMode())return;
-	var el=document.querySelector('.nav-folder[data-folder-id="'+id.replace(/"/g,'\\"')+'"]');
+	var el=navFolderEl(id);
 	if(!el)return;
 	if(!el.classList.contains('collapsed')){
 		// Folder is already expanded — this must be a real toggle (collapse),
@@ -413,19 +447,21 @@ function openNavFolderAndFirstNote(id){
 		toggleNavFolder(id,false);
 		return;
 	}
-	var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');
+	var notesDiv=navFolderNotesDiv(el);
 	// Capture BEFORE toggling: toggleNavFolder() sets data-loaded="1" itself
 	// (synchronously, before its htmx fetch) whenever it lazy-loads notes, so
 	// checking data-loaded only after the call below can't distinguish
 	// "already loaded from a previous expand" from "just started loading now".
 	var wasLoaded=!!(notesDiv&&notesDiv.getAttribute('data-loaded'));
+	// A notebook with no direct notes never fetches, so there is nothing to wait for.
+	var hasDirectNotes=el.getAttribute('data-note-count')!=='0';
 	toggleNavFolder(id,true);
 	// After notes are loaded, click the first one
 	function clickFirst(){
 		var first=notesDiv&&notesDiv.querySelector('.notelist-item');
 		if(first)first.click();
 	}
-	if(!notesDiv)return;
+	if(!notesDiv||!hasDirectNotes)return;
 	if(wasLoaded){
 		// Notes were already loaded from an earlier expand (e.g. this folder was
 		// last collapsed via the chevron button rather than reloaded) —
@@ -4732,10 +4768,31 @@ function highlightInPreview(pv,term){if(!pv||!term)return;_searchMarks=[];_searc
 function tinymceSearchBody(){var ed=getTinyMCE();if(!ed||!ed.getBody)return null;try{return ed.getBody()}catch(e){return null}}
 function clearTinyMCESearchMarks(){var body=tinymceSearchBody();if(!body)return;var marks=body.querySelectorAll('mark.search-highlight');if(!marks.length)return;var prev=_tinymceSuppressEdits;_tinymceSuppressEdits=true;try{marks.forEach(function(m){var text=(m.ownerDocument||document).createTextNode(m.textContent);m.parentNode.replaceChild(text,m)});body.normalize()}finally{_tinymceSuppressEdits=prev}}
 function highlightInTinyMCE(term){var body=tinymceSearchBody();if(!body||!term){searchNavShow(0,0);return}var prev=_tinymceSuppressEdits;_tinymceSuppressEdits=true;try{highlightInPreview(body,term)}finally{_tinymceSuppressEdits=prev}}
-function initNavPanel(){_log('initNavPanel');var state=navFolderState();var selectedEl=document.querySelector('.nav-folder[data-selected="1"]');var hasSelected=!!selectedEl;var selectedId=selectedEl?selectedEl.getAttribute('data-folder-id'):'';document.querySelectorAll('.nav-folder').forEach(function(el){var id=el.getAttribute('data-folder-id');var selected=el.getAttribute('data-selected')==='1';var isAllNotes=el.getAttribute('data-all-notes')==='1';var open=state[id]===true||state[id]==='1'||state[id]===1;if(state[id]===undefined){// No explicit state: use heuristics
-	if(isAllNotes)open=!hasSelected||(selectedId===id);else if(selected)open=true;else open=false;}// Always trust explicit localStorage state — do not override with data-selected or all-notes heuristics
-	el.classList.toggle('collapsed',!open);// Lazy-load if expanded and not yet loaded
-	if(open){var notesDiv=el.querySelector('.nav-folder-notes[data-folder-id]');if(notesDiv&&!notesDiv.getAttribute('data-loaded')){notesDiv.setAttribute('data-loaded','1');var folderId=notesDiv.getAttribute('data-folder-id');htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(folderId),{target:notesDiv,swap:'innerHTML'})}}})}
+function initNavPanel(){
+	_log('initNavPanel');
+	var state=navFolderState();
+	var selectedEl=document.querySelector('.nav-folder[data-selected="1"]');
+	var hasSelected=!!selectedEl;
+	var selectedId=selectedEl?selectedEl.getAttribute('data-folder-id'):'';
+	// Without saved state the selected notebook opens, and so do the notebooks
+	// above it (otherwise it would be open but hidden inside a collapsed parent).
+	var openByDefault={};
+	if(selectedEl){var a=selectedEl;while(a){openByDefault[a.getAttribute('data-folder-id')]=true;a=navParentFolder(a)}}
+	var all=document.querySelectorAll('.nav-folder');
+	all.forEach(function(el){
+		var id=el.getAttribute('data-folder-id');
+		var isAllNotes=el.getAttribute('data-all-notes')==='1';
+		var open=state[id]===true||state[id]==='1'||state[id]===1;
+		if(state[id]===undefined){
+			// No explicit state: use heuristics
+			if(isAllNotes)open=!hasSelected||(selectedId===id);
+			else open=!!openByDefault[id];
+		}// Always trust explicit localStorage state — do not override with data-selected or all-notes heuristics
+		el.classList.toggle('collapsed',!open);
+	});
+	// Lazy-load notes for notebooks that are open AND visible (not inside a collapsed parent).
+	all.forEach(function(el){if(!el.classList.contains('collapsed')&&navFolderVisible(el))navLoadFolderNotes(el)});
+}
 var _folderSelectValue=null;var _folderSelectNoteId=null;
 var _lastSwapWasEditor=false;var _searchHlTerm='';
 document.body.addEventListener('htmx:beforeSwap',function(e){var sel=document.getElementById('editor-folder-select');var form=document.getElementById('note-editor-form');if(sel){_folderSelectValue=sel.value;_folderSelectNoteId=form?form.getAttribute('hx-put'):''}var target=e.detail&&e.detail.target;_lastSwapWasEditor=!!(target&&(target.id==='editor-panel'||target.id==='mobile-editor-body'));if(_lastSwapWasEditor){/* An editor swap changes which note is active. Cancel any pending debounced autosave timers so they can't fire against a stale captured form after the swap. The encrypted-save path already has an identity guard, but cancelling here is defence-in-depth (and stops the plaintext path from firing wrongly too). */if(typeof _saveTimer!=='undefined'&&_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}if(typeof _saveTitleTimer!=='undefined'&&_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}/* Capture any pending in-note search term now: initEditorPanel clears it, and it may not re-run on same-note reopen. */var pt=(window._pendingNoteSearchTerm||'').trim();var navTerm=(currentListSearchInput()&&currentListSearchInput().value||'').trim();_searchHlTerm=pt||navTerm||'';hideTinyMCEHost();_displayedNoteId='';_tinymceContentNoteId=''}});
@@ -5362,6 +5419,56 @@ function confirmLogout(event){
 			row.addEventListener('contextmenu',function(e){e.preventDefault();mobileFolderCtxOpen(fid,ftitle)});
 		});
 	}
+	// ---- Nested notebooks on the mobile folders screen -------------------------
+	// The server renders every notebook row (children `hidden`); the expansion
+	// state is client-only (localStorage) and applied here. It is NOT the desktop
+	// 'joplock-nav-folders' map: that one means "notes list open", this one means
+	// "sub-notebooks shown".
+	var _MOBILE_FOLDERS_KEY='joplock-mobile-folders';
+	function mobileFolderState(){try{return JSON.parse(localStorage.getItem(_MOBILE_FOLDERS_KEY)||'{}')||{}}catch(e){return {}}}
+	function saveMobileFolderState(s){try{localStorage.setItem(_MOBILE_FOLDERS_KEY,JSON.stringify(s))}catch(e){}}
+	function _mobileFolderOpen(s,id){return s[id]===1||s[id]==='1'||s[id]===true}
+	window.mobileApplyFolderTree=function(container){
+		var root=container||document.getElementById('mobile-folders-body');
+		if(!root)return;
+		var rows=root.querySelectorAll('.mobile-folder-row[data-folder-id]');
+		if(!rows.length)return;
+		var s=mobileFolderState();
+		var byId={};
+		rows.forEach(function(r){byId[r.getAttribute('data-folder-id')]=r});
+		rows.forEach(function(row){
+			var id=row.getAttribute('data-folder-id');
+			row.classList.toggle('expanded',row.classList.contains('has-children')&&_mobileFolderOpen(s,id));
+			// A row shows when every notebook above it is expanded.
+			var visible=true,pid=row.getAttribute('data-parent-id'),guard=0;
+			while(pid&&byId[pid]&&guard++<100){
+				if(!_mobileFolderOpen(s,pid)){visible=false;break}
+				pid=byId[pid].getAttribute('data-parent-id');
+			}
+			row.hidden=!visible;
+		});
+	};
+	window.mobileToggleFolderRow=function(id,event){
+		if(event){event.preventDefault();event.stopPropagation()}
+		var s=mobileFolderState();
+		s[id]=_mobileFolderOpen(s,id)?'0':'1';
+		saveMobileFolderState(s);
+		window.mobileApplyFolderTree();
+	};
+	// Remember that a notebook (and the ones above it) should show open, e.g. so a
+	// just-created sub-notebook is visible after the list reloads.
+	window.mobileExpandFolderState=function(id){
+		var s=mobileFolderState();
+		var row=document.querySelector('#mobile-folders-body .mobile-folder-row[data-folder-id="'+String(id).replace(/"/g,'\\"')+'"]');
+		s[id]='1';
+		var pid=row?row.getAttribute('data-parent-id'):'';var guard=0;
+		while(pid&&guard++<100){
+			s[pid]='1';
+			var prow=document.querySelector('#mobile-folders-body .mobile-folder-row[data-folder-id="'+String(pid).replace(/"/g,'\\"')+'"]');
+			pid=prow?prow.getAttribute('data-parent-id'):'';
+		}
+		saveMobileFolderState(s);
+	};
 	// Search
 	var _mobileSearchTimer=null;
 	window.mobileSearchOpen=function(){
@@ -5624,6 +5731,7 @@ function confirmLogout(event){
 			var fab=document.getElementById('mobile-fab');
 			var editorActive=!!document.querySelector('#mobile-editor-screen.mobile-screen-active');
 			if(fab)fab.style.display=editorActive?'none':'flex';
+			if(t.id==='mobile-folders-body')window.mobileApplyFolderTree(t);
 			wireNoteRowLongPress(t);
 		}
 	});

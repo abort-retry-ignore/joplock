@@ -43,6 +43,8 @@ module.exports = {
 	autosaveStatusFragment: fragments.autosaveStatusFragment,
 	searchResultsFragment: fragments.searchResultsFragment,
 	folderSelectOob: fragments.folderSelectOob,
+	folderPickerOptions: fragments.folderPickerOptions,
+	notebookOptionsHtml: fragments.notebookOptionsHtml,
 
 	// settings page
 	adminUserRow: settings.adminUserRow,

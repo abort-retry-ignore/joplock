@@ -7,7 +7,8 @@ Joplock runs as a sidecar alongside an unmodified Joplin Server instance, sharin
 ### Key Features
 
 - **Full Joplin compatibility** -- desktop, mobile, CLI, and Joplock all work with the same account and data simultaneously
-- **Notebook sharing** -- share a notebook by email with per-recipient read/write access; the sharer keeps ownership, and vault notebooks cannot be shared
+- **Nested notebooks** -- Joplin's notebook hierarchy as a tree on desktop and mobile: create sub-notebooks, move notebooks anywhere (the server refuses moves into their own descendants), and deleting a notebook promotes its sub-notebooks and notes instead of removing them
+- **Notebook sharing** -- share a notebook (with all of its sub-notebooks) by email with per-recipient read/write access; the sharer keeps ownership, and vault notebooks cannot be shared
 - **Low Resource usage** -- minimal memory usage on the client, fast and responsive
 - **Security-first design** -- no private data stored on the client; sessions are cleaned up on logout; per-user settings and admin controls for user management
 - **Client-side encrypted vaults** -- turn any notebook into a vault; notes inside are AES-GCM encrypted in the browser with a PBKDF2-derived key. The server never sees vault passwords. Ciphertext is bound to a specific vault and note id, and the server rejects any write that would land a vault-encrypted body in the wrong note or the wrong vault

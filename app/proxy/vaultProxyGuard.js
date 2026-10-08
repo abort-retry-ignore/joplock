@@ -26,6 +26,7 @@ const { assertVaultNoteBodyEncrypted } = require('../routes/_helpers');
 
 // Item type constants (mirrors Joplin's ModelType enum)
 const MODEL_TYPE_NOTE = 1;
+const MODEL_TYPE_FOLDER = 2;
 
 // 10 MB — well above any realistic note body; protects streaming performance
 // for resource blob writes that share the same proxy path.
@@ -278,6 +279,23 @@ const enforceNoteDelete = async ({ vaultService, itemService, userId, noteId }) 
 	}
 };
 
+/**
+ * A vault is a leaf notebook: ciphertext is bound to the vault folder id, and the
+ * ciphertext/vault checks only look at a note's DIRECT parent. A sub-notebook
+ * created under a vault by an external client would let plaintext notes sit
+ * inside the vault's subtree unchecked, so notebook writes whose parent is a
+ * vault are refused.
+ */
+const enforceFolderWrite = async ({ vaultService, userId, parsedParentId }) => {
+	if (!vaultService || !userId || !parsedParentId) return;
+	const vault = await vaultService.getVaultByFolderId(userId, parsedParentId).catch(() => null);
+	if (vault) {
+		const err = new Error('Vault notebooks cannot contain notebooks.');
+		err.statusCode = 403;
+		throw err;
+	}
+};
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -385,8 +403,17 @@ const inspectAndGuard = async (request, strippedPathname, ctx) => {
 		}
 
 		const typeNum = parseInt(parsed.meta.type_ || '0', 10);
+		if (typeNum === MODEL_TYPE_FOLDER) {
+			try {
+				await enforceFolderWrite({ vaultService, userId, parsedParentId: parsed.meta.parent_id || null });
+			} catch (err) {
+				log(`vault proxy guard: blocked PUT ${strippedPathname} — ${err.message}`);
+				return { action: 'reject', status: err.statusCode || 403, message: err.message };
+			}
+			return { action: 'allow', buffer };
+		}
 		if (typeNum !== MODEL_TYPE_NOTE) {
-			// Not a note (folder, resource, etc.) — allow without vault check
+			// Not a note or folder (resource, etc.) — allow without vault check
 			return { action: 'allow', buffer };
 		}
 
@@ -433,6 +460,15 @@ const inspectAndGuard = async (request, strippedPathname, ctx) => {
 			if (!parsed) continue;
 
 			const typeNum = parseInt(parsed.meta.type_ || '0', 10);
+			if (typeNum === MODEL_TYPE_FOLDER) {
+				try {
+					await enforceFolderWrite({ vaultService, userId, parsedParentId: parsed.meta.parent_id || null });
+				} catch (err) {
+					log(`vault proxy guard: blocked batch PUT item ${batchItem.name} — ${err.message}`);
+					return { action: 'reject', status: err.statusCode || 403, message: err.message };
+				}
+				continue;
+			}
 			if (typeNum !== MODEL_TYPE_NOTE) continue;
 
 			const parsedParentId = parsed.meta.parent_id || null;
@@ -466,4 +502,5 @@ module.exports = {
 	inspectAndGuard,
 	BUFFER_CAP_BYTES,
 	MODEL_TYPE_NOTE,
+	MODEL_TYPE_FOLDER,
 };

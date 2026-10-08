@@ -276,6 +276,39 @@ test('inspectAndGuard: single PUT folder item (type_ 2) is allowed without vault
 	assert.equal(result.action, 'allow');
 });
 
+test('inspectAndGuard: single PUT of a notebook under a vault is rejected (a vault is a leaf)', async () => {
+	const folder = serializeFolder({ id: 'subfolder0000000000000000000001', title: 'Sneaky', parentId: VAULT_FOLDER_ID });
+	const { buffer, contentType } = buildMultipartBuffer('file', folder.body);
+	const path = '/api/items/root:/subfolder0000000000000000000001.md:/content';
+	const req = makeRequest('PUT', path, buffer, { 'content-type': contentType });
+	const result = await inspectAndGuard(req, path, makeCtx());
+	assert.equal(result.action, 'reject');
+	assert.equal(result.status, 403);
+	assert.match(result.message, /Vault notebooks cannot contain notebooks/);
+});
+
+test('inspectAndGuard: single PUT of a notebook under an ordinary notebook (nesting) is allowed', async () => {
+	const folder = serializeFolder({ id: 'subfolder0000000000000000000002', title: 'Fine', parentId: NON_VAULT_FOLDER_ID });
+	const { buffer, contentType } = buildMultipartBuffer('file', folder.body);
+	const path = '/api/items/root:/subfolder0000000000000000000002.md:/content';
+	const req = makeRequest('PUT', path, buffer, { 'content-type': contentType });
+	const result = await inspectAndGuard(req, path, makeCtx());
+	assert.equal(result.action, 'allow');
+});
+
+test('inspectAndGuard: batch PUT containing a notebook under a vault is rejected', async () => {
+	const ok = serializeFolder({ id: 'subfolder0000000000000000000003', title: 'Fine', parentId: '' });
+	const bad = serializeFolder({ id: 'subfolder0000000000000000000004', title: 'Sneaky', parentId: VAULT_FOLDER_ID });
+	const batchBody = JSON.stringify({ items: [
+		{ name: 'root:/subfolder0000000000000000000003.md:', body: ok.body },
+		{ name: 'root:/subfolder0000000000000000000004.md:', body: bad.body },
+	] });
+	const req = makeRequest('PUT', '/api/batch_items', Buffer.from(batchBody), { 'content-type': 'application/json' });
+	const result = await inspectAndGuard(req, '/api/batch_items', makeCtx());
+	assert.equal(result.action, 'reject');
+	assert.equal(result.status, 403);
+});
+
 test('inspectAndGuard: single PUT body over cap streams through without inspection', async () => {
 	// Build a request stream that exceeds BUFFER_CAP_BYTES
 	const bigChunk = Buffer.alloc(BUFFER_CAP_BYTES + 1, 0x41);

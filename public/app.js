@@ -364,15 +364,118 @@ function _reconcileSaveStateAfterModeSwitch(){
 function renderNoteMeta(){var src=document.getElementById('note-meta');var mobileBody=document.getElementById('mobile-editor-body');if(isMobileShellMode()&&mobileBody){src=mobileBody.querySelector('#note-meta')||src}var target;if(isMobileShellMode()){target=src}else{target=document.getElementById('status-note-meta');if(src&&target){target.setAttribute('data-created-time',src.getAttribute('data-created-time')||'0');target.setAttribute('data-updated-time',src.getAttribute('data-updated-time')||'0')}}if(!target)return;var c=Number(target.getAttribute('data-created-time')||0),u=Number(target.getAttribute('data-updated-time')||0);if(!c&&!u){target.textContent='';return}var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var fmt=function(ts){if(!ts)return '';var d=new Date(ts);return String(d.getDate()).padStart(2,'0')+'-'+months[d.getMonth()]+'-'+String(d.getFullYear()).slice(-2)};target.textContent='Created '+fmt(c)+' | Edited '+fmt(u)}
 var _folderMenuState={id:'',title:''};
 function closeFolderContextMenu(){var menu=document.getElementById('folder-context-menu');if(menu)menu.hidden=true}
-function openFolderContextMenu(event,id,title){if(event){event.preventDefault();event.stopPropagation()}var menu=document.getElementById('folder-context-menu');if(!menu)return false;_folderMenuState={id:id,title:title};menu.hidden=false;menu.style.left=(event.clientX||16)+'px';menu.style.top=(event.clientY||16)+'px';return false}
+function openFolderContextMenu(event,id,title){if(event){event.preventDefault();event.stopPropagation()}var menu=document.getElementById('folder-context-menu');if(!menu)return false;_folderMenuState={id:id,title:title};menu.hidden=false;_syncFolderMenuForVault(menu,id);menu.style.left=(event.clientX||16)+'px';menu.style.top=(event.clientY||16)+'px';return false}
 function closeFolderModal(){var modal=document.getElementById('folder-modal');var backdrop=document.getElementById('folder-modal-backdrop');if(modal)modal.hidden=true;if(backdrop)backdrop.hidden=true}
 function openFolderModal(){var input=document.getElementById('folder-edit-title');var modal=document.getElementById('folder-modal');var backdrop=document.getElementById('folder-modal-backdrop');if(modal&&modal.parentNode!==document.body)document.body.appendChild(modal);if(backdrop&&backdrop.parentNode!==document.body)document.body.appendChild(backdrop);if(input)input.value=_folderMenuState.title||'';if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false;closeFolderContextMenu();if(input)input.focus()}
 function openEmptyTrashModal(){var modal=document.getElementById('empty-trash-modal');var backdrop=document.getElementById('empty-trash-modal-backdrop');if(modal&&modal.parentNode!==document.body)document.body.appendChild(modal);if(backdrop&&backdrop.parentNode!==document.body)document.body.appendChild(backdrop);if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false}
 function closeEmptyTrashModal(){var modal=document.getElementById('empty-trash-modal');var backdrop=document.getElementById('empty-trash-modal-backdrop');if(modal)modal.hidden=true;if(backdrop)backdrop.hidden=true}
 function submitEmptyTrash(event){if(event)event.preventDefault();closeEmptyTrashModal();htmx.ajax('POST','/fragments/trash/empty',{target:'#nav-panel',swap:'innerHTML'});return false}
 function editFolderFromMenu(){if(!_folderMenuState.id)return;openFolderModal()}
-function deleteFolderFromMenu(){if(!_folderMenuState.id)return;closeFolderContextMenu();if(confirm('Delete notebook "'+(_folderMenuState.title||'Untitled')+'"?')){htmx.ajax('DELETE','/fragments/folders/'+encodeURIComponent(_folderMenuState.id),{target:'#nav-panel',swap:'innerHTML'})}}
+function deleteFolderFromMenu(){if(!_folderMenuState.id)return;closeFolderContextMenu();deleteFolderWithConfirm(_folderMenuState.id,_folderMenuState.title)}
 function submitFolderEdit(event){if(event)event.preventDefault();var input=document.getElementById('folder-edit-title');var title=input?input.value.trim():'';if(!_folderMenuState.id||!title)return false;var folderId=_folderMenuState.id;closeFolderModal();if(window.isMobileShellMode&&window.isMobileShellMode()){fetch('/fragments/folders/'+encodeURIComponent(folderId),{method:'PUT',headers:{'Content-Type':'application/x-www-form-urlencoded','hx-request':'true'},body:'title='+encodeURIComponent(title)}).then(function(){htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});var notesTitle=document.getElementById('mobile-notes-title');if(notesTitle&&notesTitle.textContent===_folderMenuState.title)notesTitle.textContent=title})}else{htmx.ajax('PUT','/fragments/folders/'+encodeURIComponent(folderId),{target:'#nav-panel',swap:'innerHTML',values:{title:title}})}return false}
+// ---- Nested notebooks: create / move / delete ------------------------------
+// Plain text of a server error fragment ("<div ...>Error: msg</div>").
+function _fragmentErrorText(html){
+	try{var t=(new DOMParser().parseFromString(html||'','text/html').body.textContent||'').replace(/^\s*Error:\s*/,'').trim();return t||'Request failed'}
+	catch(e){return 'Request failed'}
+}
+// fetch wrapper for the notebook fragment routes; rejects with the server's message.
+function _folderRequest(method,url,formBody){
+	return fetch(url,{method:method,headers:{'Content-Type':'application/x-www-form-urlencoded','hx-request':'true'},body:formBody===undefined?undefined:formBody}).then(function(r){
+		if(r.status===401){window.location.assign('/logout');return Promise.reject(new Error('Session expired'))}
+		return r.text().then(function(t){if(!r.ok)throw new Error(_fragmentErrorText(t));return t});
+	});
+}
+// Load the notebook <option>s (tree order, indented) into a <select>.
+//   exclude: notebook (and its descendants) that cannot be chosen; selected: preselect
+function loadFolderOptions(select,exclude,selected){
+	if(!select)return Promise.resolve();
+	return fetch('/fragments/folder-options?exclude='+encodeURIComponent(exclude||'')+'&selected='+encodeURIComponent(selected||''),{headers:{'hx-request':'true'}}).then(function(r){
+		if(!r.ok)throw new Error('Could not load notebooks');
+		return r.text();
+	}).then(function(html){select.innerHTML=html;if(selected)select.value=selected});
+}
+// Parent notebook id of a notebook as currently drawn (desktop nav or mobile list).
+function _folderParentIdFromDom(id){
+	var q=String(id).replace(/"/g,'\\"');
+	var row=document.querySelector('#mobile-folders-body .mobile-folder-row[data-folder-id="'+q+'"]');
+	if(row&&isMobileShellMode())return row.getAttribute('data-parent-id')||'';
+	var el=navFolderEl(id);
+	if(el)return el.getAttribute('data-parent-id')||'';
+	return row?(row.getAttribute('data-parent-id')||''):'';
+}
+function _folderHasChildrenInDom(id){
+	var q=String(id).replace(/"/g,'\\"');
+	var row=document.querySelector('#mobile-folders-body .mobile-folder-row[data-folder-id="'+q+'"]');
+	if(row&&isMobileShellMode())return row.classList.contains('has-children');
+	var el=navFolderEl(id);
+	return !!(el&&el.classList.contains('nav-folder-has-children'));
+}
+function _folderIsVaultInDom(id){
+	var el=navFolderEl(id);
+	if(el)return el.getAttribute('data-is-vault')==='1';
+	return !!document.querySelector('.vault-folder-lock[data-folder-id="'+String(id).replace(/"/g,'\\"')+'"]');
+}
+// A vault is a top-level leaf: it cannot hold sub-notebooks or be moved.
+function _syncFolderMenuForVault(menu,id){
+	var isVault=_folderIsVaultInDom(id);
+	menu.querySelectorAll('[data-not-for-vault]').forEach(function(b){b.hidden=isVault});
+}
+function _afterFolderChange(origin,selectedFolderId){
+	if(origin==='mobile'||(isMobileShellMode()&&document.getElementById('mobile-folders-body')&&origin!=='desktop')){
+		htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'});
+		return;
+	}
+	htmx.ajax('GET','/fragments/nav?withSelect=1'+(selectedFolderId?'&folderId='+encodeURIComponent(selectedFolderId):''),{target:'#nav-panel',swap:'innerHTML'});
+}
+function _expandFolderState(id){
+	if(!id)return;
+	if(typeof window.mobileExpandFolderState==='function')window.mobileExpandFolderState(id);
+	expandNavFolderState(id);
+}
+function newSubfolderFromMenu(){var id=_folderMenuState.id;if(!id)return;closeFolderContextMenu();openNewFolderModal('',id)}
+function moveFolderFromMenu(){if(!_folderMenuState.id)return;closeFolderContextMenu();openMoveFolderModal()}
+function closeMoveFolderModal(){
+	var modal=document.getElementById('move-folder-modal');var backdrop=document.getElementById('move-folder-modal-backdrop');
+	if(modal){modal.hidden=true;delete modal.dataset.currentParent}
+	if(backdrop)backdrop.hidden=true;
+}
+function openMoveFolderModal(){
+	var id=_folderMenuState.id;if(!id)return;
+	var modal=document.getElementById('move-folder-modal');var backdrop=document.getElementById('move-folder-modal-backdrop');
+	var sel=document.getElementById('move-folder-parent');var err=document.getElementById('move-folder-error');var title=document.getElementById('move-folder-title');
+	if(!modal||!sel)return;
+	var current=_folderParentIdFromDom(id);
+	if(title)title.textContent='Move "'+(_folderMenuState.title||'Untitled')+'"';
+	if(err)err.textContent='';
+	sel.disabled=true;sel.innerHTML='<option value="">Loading\u2026</option>';
+	modal.dataset.currentParent=current;
+	modal.hidden=false;if(backdrop)backdrop.hidden=false;
+	loadFolderOptions(sel,id,current).then(function(){sel.disabled=false;sel.focus()}).catch(function(e){if(err)err.textContent=e.message||'Could not load notebooks'});
+}
+function submitMoveFolder(event){
+	if(event)event.preventDefault();
+	var id=_folderMenuState.id;
+	var modal=document.getElementById('move-folder-modal');var sel=document.getElementById('move-folder-parent');var err=document.getElementById('move-folder-error');
+	if(!id||!sel||sel.disabled)return false;
+	var parentId=sel.value;
+	if(parentId===(modal&&modal.dataset.currentParent||'')){closeMoveFolderModal();return false}
+	if(err)err.textContent='';
+	_folderRequest('PUT','/fragments/folders/'+encodeURIComponent(id),'parentId='+encodeURIComponent(parentId)).then(function(){
+		closeMoveFolderModal();
+		_expandFolderState(parentId);
+		_afterFolderChange('',id);
+	}).catch(function(e){if(err)err.textContent=e.message||'Move failed'});
+	return false;
+}
+function deleteFolderWithConfirm(id,title){
+	var nested=_folderHasChildrenInDom(id);
+	var msg='Delete notebook "'+(title||'Untitled')+'"?'+(nested?'\n\nIts sub-notebooks and notes move up to the parent notebook (or General).':'');
+	if(!confirm(msg))return;
+	_folderRequest('DELETE','/fragments/folders/'+encodeURIComponent(id)).then(function(){
+		_afterFolderChange('','');
+	}).catch(function(e){alert(e.message||'Delete failed')});
+}
 function navFolderState(){try{return JSON.parse(localStorage.getItem('joplock-nav-folders')||'{}')}catch(e){return {}}}
 function saveNavFolderState(s){localStorage.setItem('joplock-nav-folders',JSON.stringify(s))}
 // Notebooks nest, so a notebook's OWN notes list is its direct .nav-folder-notes
@@ -4456,7 +4559,7 @@ function mountMarkdownEditor(content){
 		if(_cmView.focus)_cmView.focus();
 	}
 }
-document.addEventListener('keydown',function(e){if(e.key==='Escape'){_log('esc:keydown editorMode='+_editorMode+' marks='+_searchMarks.length+' cmMarks='+(_cmSearchMatches?_cmSearchMatches.length:0));var resViewer=document.getElementById('resource-viewer');if(resViewer&&!resViewer.hidden){_log('esc:resource-viewer visible, closing');_closeResourceViewer();return}if(resViewer)_log('esc:resource-viewer hidden, skip');var codeModal=document.getElementById('code-modal');if(codeModal&&!codeModal.hidden){_log('esc:code-modal visible, closing');closeCodeModal();return}var exportMenu=document.getElementById('export-menu');if(exportMenu&&!exportMenu.hidden){closeExportMenu();return}closeFolderContextMenu();closeFolderModal();closeLinkModal();closeNewFolderModal();closeVaultModal();closeHistoryModal();closeEmptyTrashModal();var bar=document.getElementById('search-nav-bar');_log('esc:bar exists='+!!bar+' hidden='+(bar?bar.hidden:'n/a')+' sesActive='+_searchSessionActive()+' navSearchVal='+((document.getElementById('nav-search')||{}).value||''));if(bar&&!bar.hidden){_log('esc:dismissing search-nav-bar');searchNavDismiss();return}if(_searchSessionActive()){_log('esc:session active, dismissing');searchNavDismiss();return}var navSearch=document.getElementById('nav-search');if(navSearch&&navSearch.value){_log('esc:clearing nav-search field');navSearch.value='';htmx.trigger(navSearch,'search-submit');return}_log('esc:no handler matched, fallthrough')}if(!getTA()&&!getPV()&&!getCM())return;if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='Space'){e.preventDefault();requestManualProseCompletion();return}if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();wrapSel('**','**')}if((e.ctrlKey||e.metaKey)&&e.key==='i'){e.preventDefault();wrapSel('*','*')}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();if(_editorMode==='preview'&&_searchMarks.length){searchNavStep(1)}else{applySearchHighlight()}}});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){_log('esc:keydown editorMode='+_editorMode+' marks='+_searchMarks.length+' cmMarks='+(_cmSearchMatches?_cmSearchMatches.length:0));var resViewer=document.getElementById('resource-viewer');if(resViewer&&!resViewer.hidden){_log('esc:resource-viewer visible, closing');_closeResourceViewer();return}if(resViewer)_log('esc:resource-viewer hidden, skip');var codeModal=document.getElementById('code-modal');if(codeModal&&!codeModal.hidden){_log('esc:code-modal visible, closing');closeCodeModal();return}var exportMenu=document.getElementById('export-menu');if(exportMenu&&!exportMenu.hidden){closeExportMenu();return}closeFolderContextMenu();closeFolderModal();closeMoveFolderModal();closeLinkModal();closeNewFolderModal();closeVaultModal();closeHistoryModal();closeEmptyTrashModal();var bar=document.getElementById('search-nav-bar');_log('esc:bar exists='+!!bar+' hidden='+(bar?bar.hidden:'n/a')+' sesActive='+_searchSessionActive()+' navSearchVal='+((document.getElementById('nav-search')||{}).value||''));if(bar&&!bar.hidden){_log('esc:dismissing search-nav-bar');searchNavDismiss();return}if(_searchSessionActive()){_log('esc:session active, dismissing');searchNavDismiss();return}var navSearch=document.getElementById('nav-search');if(navSearch&&navSearch.value){_log('esc:clearing nav-search field');navSearch.value='';htmx.trigger(navSearch,'search-submit');return}_log('esc:no handler matched, fallthrough')}if(!getTA()&&!getPV()&&!getCM())return;if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='Space'){e.preventDefault();requestManualProseCompletion();return}if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();wrapSel('**','**')}if((e.ctrlKey||e.metaKey)&&e.key==='i'){e.preventDefault();wrapSel('*','*')}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();if(_editorMode==='preview'&&_searchMarks.length){searchNavStep(1)}else{applySearchHighlight()}}});
 document.addEventListener('click',function(e){var menu=document.getElementById('folder-context-menu');if(menu&&!menu.hidden&&!menu.contains(e.target))closeFolderContextMenu()});
 function highlightCodeBlocks(container){if(!window.hljs||!container)return;container.querySelectorAll('pre code[class*="language-"]').forEach(function(el){if(el.dataset.highlighted)return;window.hljs.highlightElement(el)})}
 function ensureEditableAfterPre(pv){if(!pv)return;var pres=pv.querySelectorAll('pre');pres.forEach(function(pre){var next=pre.nextElementSibling;if(!next){var p=document.createElement('p');p.innerHTML='<br>';p.dataset.pvTrail='1';pv.appendChild(p)}})}
@@ -5374,6 +5477,11 @@ function confirmLogout(event){
 		if(titleEl)titleEl.textContent=_folderCtxTitle;
 		if(renameBtn)renameBtn.onclick=function(){mobileFolderCtxRename()};
 		if(delBtn)delBtn.onclick=function(){mobileFolderCtxDelete()};
+		var addSubBtn=document.getElementById('mobile-folder-ctx-add-sub');
+		var moveBtn=document.getElementById('mobile-folder-ctx-move');
+		var vaultRow=_folderIsVaultInDom(folderId);
+		if(addSubBtn){addSubBtn.hidden=vaultRow;addSubBtn.onclick=function(){var id=_folderCtxId;window.mobileFolderCtxClose();openNewFolderModal('mobile',id)}}
+		if(moveBtn){moveBtn.hidden=vaultRow;moveBtn.onclick=function(){_folderMenuState={id:_folderCtxId,title:_folderCtxTitle};window.mobileFolderCtxClose();openMoveFolderModal()}}
 		if(backdrop)backdrop.style.display='';
 		if(sheet)sheet.style.display='';
 	}
@@ -5393,9 +5501,11 @@ function confirmLogout(event){
 		if(!_folderCtxId)return;
 		var id=_folderCtxId,title=_folderCtxTitle;
 		window.mobileFolderCtxClose();
-		if(!confirm('Delete notebook "'+(title||'Untitled')+'"?'))return;
-		fetch('/fragments/folders/'+encodeURIComponent(id),{method:'DELETE',headers:{'hx-request':'true'}})
-			.then(function(){htmx.ajax('GET','/fragments/mobile/folders',{target:'#mobile-folders-body',swap:'innerHTML'})});
+		var nested=_folderHasChildrenInDom(id);
+		if(!confirm('Delete notebook "'+(title||'Untitled')+'"?'+(nested?'\n\nIts sub-notebooks and notes move up to the parent notebook (or General).':'')))return;
+		_folderRequest('DELETE','/fragments/folders/'+encodeURIComponent(id))
+			.then(function(){_afterFolderChange('mobile','')})
+			.catch(function(e){alert(e.message||'Delete failed')});
 	}
 	function wireFolderRowLongPress(container){
 		if(!container)return;
@@ -6814,7 +6924,7 @@ function closeNewFolderModal(){
 	if(modal)delete modal.dataset.origin;
 }
 
-function openNewFolderModal(origin){
+function openNewFolderModal(origin,parentId){
 	var modal=document.getElementById('new-folder-modal');
 	var backdrop=document.getElementById('new-folder-modal-backdrop');
 	var titleInput=document.getElementById('new-folder-title');
@@ -6823,6 +6933,12 @@ function openNewFolderModal(origin){
 	var vaultFields=document.getElementById('new-vault-fields');
 	var pwInput=document.getElementById('new-vault-password');
 	var confirmInput=document.getElementById('new-vault-confirm');
+	var parentSel=document.getElementById('new-folder-parent');
+	if(parentSel){
+		parentSel.disabled=false;
+		parentSel.innerHTML='<option value="">Top level</option>';
+		loadFolderOptions(parentSel,'',parentId||'').catch(function(){});
+	}
 	if(titleInput)titleInput.value='';
 	if(errEl)errEl.textContent='';
 	if(isVaultCheck)isVaultCheck.checked=false;
@@ -6850,6 +6966,9 @@ function refreshAfterFolderCreate(origin){
 function toggleNewFolderVault(checked){
 	var fields=document.getElementById('new-vault-fields');
 	if(fields)fields.style.display=checked?'':'none';
+	// A vault is always a top-level notebook.
+	var parentSel=document.getElementById('new-folder-parent');
+	if(parentSel){if(checked)parentSel.value='';parentSel.disabled=!!checked}
 }
 
 async function submitNewFolderModal(event){
@@ -6865,10 +6984,14 @@ async function submitNewFolderModal(event){
 		var errEl=document.getElementById('new-vault-error');
 		var title=(titleInput?titleInput.value:'').trim();
 		if(!title){if(errEl)errEl.textContent='Notebook name is required.';return}
-		htmx.ajax('POST','/fragments/folders',{target:origin==='mobile'?'#mobile-folders-body':'#nav-panel',swap:'none',values:{title:title}}).then(function(){
+		var parentSel=document.getElementById('new-folder-parent');
+		var parentId=parentSel&&!parentSel.disabled?parentSel.value:'';
+		_folderRequest('POST','/fragments/folders','title='+encodeURIComponent(title)+'&parentId='+encodeURIComponent(parentId)).then(function(){
+			// Make sure the new sub-notebook is visible where it was created.
+			_expandFolderState(parentId);
+			closeNewFolderModal();
 			refreshAfterFolderCreate(origin);
-		});
-		closeNewFolderModal();
+		}).catch(function(e){if(errEl)errEl.textContent=e.message||'Could not create notebook'});
 	}
 }
 
@@ -6877,6 +7000,10 @@ async function submitNewFolderModal(event){
 	window.closeNav=closeNav;
 	window.toggleNav=toggleNav;
 	window.toggleNavFolder=toggleNavFolder;
+	window.newSubfolderFromMenu=newSubfolderFromMenu;
+	window.moveFolderFromMenu=moveFolderFromMenu;
+	window.closeMoveFolderModal=closeMoveFolderModal;
+	window.submitMoveFolder=submitMoveFolder;
 	window.openNavFolderAndFirstNote=openNavFolderAndFirstNote;
 	window.openFolderContextMenu=openFolderContextMenu;
 	window.editFolderFromMenu=editFolderFromMenu;

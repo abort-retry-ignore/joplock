@@ -102,6 +102,72 @@ Use this guide when working in this repository.
 | Unit tests | `tests/shareAccess.test.js`, `tests/shareProxyGuard.test.js`, `tests/shareWriteGuards.test.js` |
 | Playwright tests | `playwright-tests/share-modal.spec.js`, `playwright-tests/share-access.spec.js`, `playwright-tests/share-revoke-move.spec.js` |
 
+## Nested Notebooks
+
+Joplin notebooks nest via the folder's `parent_id`. Joplock renders, creates, moves and deletes them on desktop and mobile. There is **no schema change** and no sidecar table: the tree is just `jop_parent_id` on the shared `items` rows, so Joplin desktop/mobile/CLI see exactly the same hierarchy.
+
+### Where the logic lives
+
+| Concern | File |
+|---|---|
+| Pure tree helpers (build/flatten/descendants/ancestors/roll-up counts/`canNestUnder`/option labels) | `app/items/folderTree.js` |
+| Create / move / delete / share-eligibility rules, shared by fragment + JSON routes | `app/items/folderOps.js` (`ctx.folderOps`, built in `createServer.js`) |
+| Subtree share stamping, recipient grant/revoke | `app/routes/shares.js` (`collectSubtreeItems`, `setShareOnItems`, `createShareSync`) |
+| Sync-proxy guard (no notebooks under a vault) | `app/proxy/vaultProxyGuard.js` (`enforceFolderWrite`) |
+| Desktop tree markup | `navigationFragment` in `app/templates/fragments.js` |
+| Mobile tree markup | `mobileFoldersFragment` in `app/templates/mobile.js` |
+| Pickers | `notebookOptionsHtml` (editor select), `folderPickerOptions` + `GET /fragments/folder-options` (move / new-notebook modals) |
+| Tests | `tests/folderTree.test.js`, `tests/folderOps.test.js`, `tests/folderRoutes.test.js`, `tests/nestedFoldersUi.test.js`, `playwright-tests/nested-folders.spec.js`, `playwright-tests/nested-share.spec.js` |
+
+### Tree semantics (keep them)
+
+- **Siblings keep input order.** `foldersByUserId` already orders by case-folded title; `folderTree` never re-sorts, so flat lists and the virtual "All Notes"/"Trash" rows come out unchanged.
+- **Defensive like Joplin's `buildTree`:** a folder whose parent is not visible (not shared with this user, deleted) is shown at the top level; a parent cycle never loops (first folder of the cycle in list order becomes a root); depth is capped at `MAX_DEPTH`. Every folder always appears.
+- **Counts:** the nav and mobile list show **rolled-up** counts (a collapsed parent is honest). `counts` from `folderNoteCountsByUserId` stays the **direct** count and still drives note pagination (`/fragments/folder-notes`), `data-note-count`, and "does this notebook have notes to fetch". Selecting a parent lists only its own notes; "All Notes" is the aggregate.
+- Sub-notebooks sort/render **before** the notebook's own notes.
+
+### Desktop DOM contract (easy to break)
+
+```
+.nav-folder[data-folder-id][data-parent-id][data-depth][style=--nav-depth:N]
+  > .nav-folder-row
+  > .nav-folder-children        (only when it has sub-notebooks; contains more .nav-folder)
+  > .nav-folder-notes[data-folder-id]   (this notebook's OWN notes, lazy loaded)
+```
+
+- **Never** use `el.querySelector('.nav-folder-notes…')` or descendant CSS (`.nav-folder.collapsed .x`) on a notebook: sub-notebooks are inside it and would match first / leak collapse state. Use `navFolderNotesDiv(el)` (direct child) and the child combinator in CSS (`.nav-folder.collapsed > .nav-folder-notes`).
+- **Multi-expand, no accordion.** Any number of notebooks can be open. Opening one also opens the notebooks above it (`toggleNavFolder`). `initNavPanel` trusts saved state; with no saved state the selected notebook **and its ancestors** open. Notes are lazy-loaded only for notebooks that are open **and visible** (`navFolderVisible`); expanding a parent loads already-open descendants (`navLoadOpenDescendants`). A notebook with 0 direct notes never requests a notes page.
+- Saved state is `localStorage['joplock-nav-folders']` (notes-list open).
+
+### Mobile contract
+
+- The folders screen is an **inline expandable tree** (not drill-down), so `mobileBack` and the 3-screen stack are untouched. Rows carry `data-folder-id/-parent-id/-depth` and `--m-depth`; rows below the top level render `hidden` and `mobileApplyFolderTree()` reveals them from `localStorage['joplock-mobile-folders']` (sub-notebooks shown; separate from the desktop key). `.mobile-folder-row[hidden]` needs its own CSS rule because `display:flex` beats the UA `[hidden]`.
+- The chevron (`.mobile-folder-toggle`) is its own tap target and stops propagation; the row tap still calls `mobilePushNotes(id,title)`. **Keep the `mobilePushNotes("id","title")` onclick format**: `wireFolderRowLongPress` parses it. The chevron gutter is only rendered when something is nested.
+- Long-press sheet gained "New sub-notebook" and "Move notebook…". The note-move sheet (`mobileCtxMove`) reuses the editor `<select>`'s option text, so the tree indentation carries over.
+- Both expansion keys are cleared on logout (`pages.js`).
+
+### Rules enforced server side (`folderOps`)
+
+- **Structure:** not into itself or a descendant (mirrors Joplin's `canNestUnder`). Same-parent move is a no-op.
+- **Delete = promote.** Sub-notebooks move up to the deleted notebook's parent; its notes move to that parent (top level: the existing top-level "General", created if missing). Deleting never deletes notes or sub-notebooks. (Old behaviour moved every note to General and orphaned sub-notebooks.)
+- **Vaults are top-level leaves.** Cannot contain notebooks, cannot be moved, cannot be created nested (`POST /api/web/vaults` refuses a nested notebook or one with children), cannot end up in a share. The new-notebook modal disables the parent picker when "vault" is ticked. The sync proxy rejects (403) a notebook PUT whose parent is a vault, so an external Joplin client cannot hang plaintext notebooks under a vault.
+- **Sharing:**
+  - Only the owner creates/moves/deletes inside a share (recipients get 403).
+  - A **share root stays top level** (Joplin's rule): moving one under anything is refused ("Stop sharing…"); sharing a nested notebook **lifts it to the top level first** (`prepareForShare`; the share dialog says so); a notebook already inside a share cannot be shared again; a subtree containing a vault cannot be shared.
+  - `ensureShareIdsOnNotebook` now stamps the **whole subtree** (every sub-notebook and the notes directly in each), writing `share_id`/`is_shared` into the item JSON **and** the `jop_share_id` column (falls back to JSON only if a server lacks the column). Creating a sub-notebook in a share inherits it; moving a subtree into/out of a share re-stamps it and grants/revokes recipient `user_items` (`createShareSync.setSubtreeShare`).
+  - Recipient access keeps the existing Joplock convention: `user_items.item_id` holds the **`jop_id`** (Joplin Server's own fan-out uses `items.id`, which `itemAccessExpression` does not read).
+- `updateFolder` now preserves `created_time`, `user_created_time`, `icon` and `master_key_id` (a rename/move used to reset them).
+
+### Endpoints
+
+- `PUT /fragments/folders/:id` and `PUT /api/web/folders/:id` accept `title` and/or `parentId` (`''` = top level; both in one write). `POST /fragments/folders` and `POST /api/web/folders` accept `parentId`. `DELETE` promotes.
+- `GET /fragments/folder-options?exclude=<id>&selected=<id>` → `<option>`s in tree order; the excluded subtree, vaults and foreign shares are `disabled`.
+- `GET /fragments/nav?folderId=<id>&withSelect=1` highlights/opens a notebook and refreshes the open note's notebook `<select>` (used after a move).
+
+### Known pre-existing sharing gaps (not caused by nesting; not fixed here)
+
+Verified live while building this: a **note created in a shared notebook after the share** is not visible to a Joplock recipient, and a **note moved out of a share stays visible** to the recipient (the note write paths never call grant/revoke; only folder operations do). Fixing means calling `createShareSync.setItemsShare` from the note create/move paths.
+
 ## Core Rules
 
 1. Do not modify Joplin Server source for Joplock features unless explicitly approved.
@@ -251,6 +317,7 @@ Important subareas:
 - `app/items/itemService.js` — DB reads for folders, notes, search, resources (+ `ensureIndexes()`)
 - `app/items/itemWriteService.js` — note/folder/resource serialization and upstream writes
 - `app/items/shareAccess.js` — share ownership / `can_write` resolution shared by the fragment, API, and proxy guards
+- `app/items/folderTree.js` — pure nested-notebook tree helpers; `app/items/folderOps.js` — create/move/delete/share-eligibility rules (see Nested Notebooks)
 - `app/settingsService.js` — Joplock-owned settings table access (user settings, `__app__` admin row, TOTP seeds)
 - `app/historyService.js` — note history snapshots in `joplock_history` (ring buffer per note)
 - `app/vaultService.js` — vault metadata CRUD in `joplock_vaults`
@@ -522,7 +589,7 @@ These screens are shown/hidden by inline JS in `layoutPage()` using class change
 
 ### Mobile navigation behavior
 
-- Folder-first flow: folders -> notes -> editor
+- Folder-first flow: folders -> notes -> editor (the folders screen is an inline expandable tree for nested notebooks; see Nested Notebooks)
 - Search has its own mobile header state
 - Mobile note creation uses dedicated fragment endpoints and server headers to drive the next UI step
 - The floating action button is only a mobile affordance; desktop should stay unaffected
@@ -686,12 +753,12 @@ file:
 | `app/routes/settings.js` | `/settings` (full page), `/settings/profile`, `/settings/password`, `/settings/security`, `/settings/mfa/{setup,verify,disable,cancel}` |
 | `app/routes/admin.js` | `/admin`, `/admin/users`, `/admin/status`, `/admin/security`, `/admin/backups`, `/admin/restore`, `/admin/db-compression`, `/admin/orphaned-resources{,/ids,/cleanup}` |
 | `app/routes/recovery.js` | `/recovery`, `/recovery/login`, `/recovery/logout`, `/recovery/status`, `/recovery/backups`, `/recovery/restore` |
-| `app/routes/fragments.js` | `/fragments/nav`, `/fragments/folders` (POST) and `/fragments/folders/:id` (PUT/DELETE), `/fragments/folder-notes`, `/fragments/notes` (POST), `/fragments/notes/:id` (DELETE), `/fragments/notes/:id/restore`, `/fragments/editor/:id` (GET fragment, **PUT autosave**), `/fragments/preview`, `/fragments/search`, `/fragments/trash/empty`, `/fragments/shares/inbox`, `/fragments/shares/:id` |
+| `app/routes/fragments.js` | `/fragments/nav`, `/fragments/folder-options`, `/fragments/folders` (POST) and `/fragments/folders/:id` (PUT title/parentId, DELETE promotes), `/fragments/folder-notes`, `/fragments/notes` (POST), `/fragments/notes/:id` (DELETE), `/fragments/notes/:id/restore`, `/fragments/editor/:id` (GET fragment, **PUT autosave**), `/fragments/preview`, `/fragments/search`, `/fragments/trash/empty`, `/fragments/shares/inbox`, `/fragments/shares/:id` |
 | `app/routes/mobile.js` | `/fragments/mobile/folders`, `/fragments/mobile/notes`, `/fragments/mobile/notes/new`, `/fragments/mobile/search` |
 | `app/routes/history.js` | `/fragments/history/:noteId`, `/fragments/history-snapshot/:id`, `/fragments/history/:noteId/restore/:snapshotId` |
 | `app/routes/resources.js` | `/resources/:id` (GET/HEAD serve, DELETE), `/fragments/upload` |
 | `app/routes/shares.js` | `/api/web/shares` (GET/POST), `/api/web/shares/:id` (GET/DELETE), `/api/web/shares/:id/invites` (GET/POST), `/api/web/shares/:id/leave` (POST), `/api/web/shares/invites/:id` (PATCH/DELETE), accept/reject actions, `/api/web/users/search` |
-| `app/routes/api.js` | `/api/web/{client-log,settings,theme,me,folders,notes,vaults,ai/*}`, `/api/export/{docx,pdf,html}` |
+| `app/routes/api.js` | `/api/web/{client-log,settings,theme,me,folders (+ PUT /:id move/rename),notes,vaults,ai/*}`, `/api/export/{docx,pdf,html}` |
 
 A few contracts worth remembering:
 
@@ -826,7 +893,7 @@ The shared helpers absorb races in the app's two-phase htmx settling, not test f
 
 - **Tests must not leave data in the shared Joplin DB.** Every spec that creates notebooks/notes/resources must clean them up.
 - Use `teardownTestData(page, { folders, folderPrefixes, titlePrefixes, noteIds })` from `helpers.js` in a `finally` block. It permanently removes the matching notes (trash + purge via `DELETE /fragments/notes/:id` twice), deletes the folders, empties trash, and cleans orphaned resources. It is best-effort (never throws), so it is safe in `finally` even after a failed assertion.
-  - Prefer `{ folders: [folder] }` — purges every note inside the notebook *then* deletes the notebook. (Plain `deleteNotebook()` is NOT enough on its own: the app moves a deleted notebook's notes to **General** rather than removing them, so they leak.)
+  - Prefer `{ folders: [folder] }` — purges every note inside the notebook *then* deletes the notebook. (Plain `deleteNotebook()` is NOT enough on its own: deleting a notebook never deletes its notes — they move to the parent notebook, or **General** at the top level — so they leak.)
   - For notes created outside a dedicated notebook (e.g. mobile "New note" in **All Notes**), capture the id with `getActiveNoteId(page)` and pass `{ noteIds: [id] }`.
 - A suite-wide safety net runs automatically: `playwright.config.js` `globalTeardown` (`playwright-tests/global-teardown.js`) logs in once after the whole run and purges any leftover test-prefixed folders/notes + orphaned resources (folder name prefixes like `pw-`, `dnd-`, `esc-`, `search-`, `upload-`, `res-lifecycle-`, and known test note-title prefixes). Keep those prefix lists in sync when you add new test naming.
 - Cleanup relies on `GET /api/web/notes/headers` returning `parentId` (added for this), `DELETE /api/web/folders/:id`, `DELETE /fragments/notes/:id` (trash then purge), `POST /fragments/trash/empty`, and `POST /admin/orphaned-resources/cleanup`.
@@ -898,6 +965,7 @@ Recommended inner loop:
 
 ## Recently Completed Work
 
+- **Nested notebooks**: Joplin's `parent_id` hierarchy now renders as a tree on desktop (multi-expand, rolled-up counts, ancestors open) and mobile (inline expandable tree), with create-under-parent, move (tree picker), delete-promotes, whole-subtree sharing, and vaults as top-level leaves. `app/items/folderTree.js` + `app/items/folderOps.js`; see "Nested Notebooks" above and `plans/nested-folders.md`. `updateFolder` also stopped resetting `created_time`/`icon`.
 - **Rich-mode uploads now insert through the live editor**: uploading from the modal or the older `#file-upload` picker in rendered mode used to target the hidden `#note-body` textarea, which TinyMCE's own lazy sync overwrote before the debounced save fired — the attachment silently vanished. `_captureUploadInsertTarget()` now captures a TinyMCE caret range (`{mode:'tinymce', rng}`) when the host is visible and the editor is not read-only, and `_insertResourceIntoTinyMCEFromMarkdown()` rebuilds the `<img>`/`<a>` from the saved `![](:/id)` markdown, inserts it with the same `_tinyMCEBlockAttachmentHtml()` padding as drag-drop, and syncs `#note-body` immediately. All three rich-mode insert paths call `_endTinyMCEPostLoadWindow()` so the insert is treated as a real edit instead of post-load echo (otherwise the reconcile re-baselines the hash and the save sees "unchanged"). Read-only (mobile rendered) keeps the textarea/CM fallback. See "Upload behavior" above.
 - **flushSave uses `keepalive: true`**: the unload-time flush (visibilitychange, tab close, note-switch navigation) was being aborted mid-flight — Chromium sent a truncated request with no `Cookie` header (401) and the pending edits were lost. Pinned by `tests/saveIdentityGuard.test.js`.
 - **Image download buttons restored in rendered mode**: `initTinyMCEImageDownloadButtons()` injects them into the TinyMCE body (the old `#note-preview` host is dead), with `data-mce-bogus="all"` + `_stripTinymceDownloadChrome()` keeping them out of saved markdown and every export, and `_anchorRectInHostDoc()` translating iframe rects for the resource-action sheet. Coverage: `tests/tinymceImageDownload.test.js`.

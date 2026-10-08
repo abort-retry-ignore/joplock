@@ -24,27 +24,8 @@ const createdNoteFallback = (created, parentId, title = 'Untitled note', body = 
 	deletedTime: 0,
 });
 
-const moveFolderNotesToGeneral = async (userId, sessionId, folderId, itemService, itemWriteService, requestContext) => {
-	const sourceFolder = await itemService.folderByUserIdAndJopId(userId, folderId);
-	if (!sourceFolder) {
-		const error = new Error('Notebook not found.');
-		error.statusCode = 404;
-		throw error;
-	}
-	let generalFolder = (await itemService.foldersByUserId(userId)).find(f => !f.deletedTime && f.id !== folderId && f.title === 'General');
-	if (!generalFolder) {
-		const created = await itemWriteService.createFolder(sessionId, { title: 'General', parentId: '' }, requestContext);
-		generalFolder = { id: created.id, title: 'General' };
-	}
-	const notes = await itemService.notesByUserId(userId, { folderId });
-	for (const note of notes) {
-		await itemWriteService.updateNote(sessionId, note, { parentId: generalFolder.id }, requestContext);
-	}
-	return { sourceFolder, generalFolder, movedCount: notes.length };
-};
-
 const handle = async (url, request, response, ctx) => {
-	const { sendHtml, authenticatedUser, itemService, itemWriteService,
+	const { sendHtml, authenticatedUser, itemService, itemWriteService, folderOps,
 		historyService, upstreamRequestContext, navData, userSettings, saveLastNoteState,
 		plainNoteTitle, vaultService } = ctx;
 
@@ -116,7 +97,35 @@ const handle = async (url, request, response, ctx) => {
 					return true;
 				}
 			}
-			sendHtml(response, 200, templates.shareDialog(notebookId, folder.title || 'Untitled', isOwner, shareId));
+			let nested = false;
+			if (isOwner) {
+				const eligibility = await folderOps.shareEligibility({ user: auth.user, folderId: notebookId });
+				if (eligibility.containsVault) {
+					sendHtml(response, 400, '<div class="empty-hint">Notebooks containing a vault cannot be shared.</div>');
+					return true;
+				}
+				if (eligibility.insideShare) {
+					sendHtml(response, 400, '<div class="empty-hint">This notebook is inside a shared notebook, so it is already shared with it. Share settings belong to the top-level notebook.</div>');
+					return true;
+				}
+				nested = eligibility.nested;
+			}
+			sendHtml(response, 200, templates.shareDialog(notebookId, folder.title || 'Untitled', isOwner, shareId, nested));
+		} catch (error) {
+			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
+		}
+		return true;
+	}
+
+	// GET /fragments/folder-options — <option> list of notebooks for the move /
+	// new-notebook pickers. ?exclude=<id> greys out that notebook and its
+	// descendants (a notebook cannot be moved under itself); ?selected=<id>.
+	if (url.pathname === '/fragments/folder-options' && request.method === 'GET') {
+		try {
+			const auth = await authenticatedUser(request);
+			if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return true; }
+			const entries = await folderOps.pickerEntries({ user: auth.user, excludeId: url.searchParams.get('exclude') || '' });
+			sendHtml(response, 200, templates.folderPickerOptions(entries, { selectedId: url.searchParams.get('selected') || '' }));
 		} catch (error) {
 			sendHtml(response, error.statusCode || 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 		}
@@ -131,7 +140,7 @@ const handle = async (url, request, response, ctx) => {
 			const body = await parseBody(request);
 			const title = `${body.title || ''}`.trim();
 			if (!title) { sendHtml(response, 400, '<div class="empty-hint">Folder title is required.</div>'); return true; }
-			await itemWriteService.createFolder(auth.user.sessionId, { title, parentId: body.parentId || '' }, upstreamRequestContext(request));
+			await folderOps.createFolder({ user: auth.user, title, parentId: body.parentId || '', requestContext: upstreamRequestContext(request) });
 			const { folders: fFolders, counts: fCounts } = await navData(auth.user.id);
 			sendHtml(response, 200, templates.navigationFragment(fFolders, fCounts, '', '') + templates.folderSelectOob(fFolders));
 		} catch (error) {
@@ -146,8 +155,7 @@ const handle = async (url, request, response, ctx) => {
 			const auth = await authenticatedUser(request);
 			if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return true; }
 			const folderId = decodeURIComponent(url.pathname.slice('/fragments/folders/'.length));
-			await moveFolderNotesToGeneral(auth.user.id, auth.user.sessionId, folderId, itemService, itemWriteService, upstreamRequestContext(request));
-			await itemWriteService.deleteFolder(auth.user.sessionId, folderId, upstreamRequestContext(request));
+			await folderOps.deleteFolder({ user: auth.user, folderId, requestContext: upstreamRequestContext(request) });
 			const { folders: dfFolders, counts: dfCounts } = await navData(auth.user.id);
 			sendHtml(response, 200, templates.navigationFragment(dfFolders, dfCounts, '', '') + templates.folderSelectOob(dfFolders));
 		} catch (error) {
@@ -163,12 +171,19 @@ const handle = async (url, request, response, ctx) => {
 			if (auth.error) { sendHtml(response, 401, '<div class="empty-hint">Session expired.</div>'); return true; }
 			const folderId = decodeURIComponent(url.pathname.slice('/fragments/folders/'.length));
 			const body = await parseBody(request);
+			const hasTitle = Object.prototype.hasOwnProperty.call(body, 'title');
+			const hasParent = Object.prototype.hasOwnProperty.call(body, 'parentId');
 			const title = `${body.title || ''}`.trim();
 			if (!folderId) { sendHtml(response, 404, '<div class="empty-hint">Folder not found.</div>'); return true; }
-			if (!title) { sendHtml(response, 400, '<div class="empty-hint">Folder title is required.</div>'); return true; }
+			if ((hasTitle || !hasParent) && !title) { sendHtml(response, 400, '<div class="empty-hint">Folder title is required.</div>'); return true; }
 			const existingFolder = await itemService.folderByUserIdAndJopId(auth.user.id, folderId);
 			if (!existingFolder) { sendHtml(response, 404, '<div class="empty-hint">Folder not found.</div>'); return true; }
-			await itemWriteService.updateFolder(auth.user.sessionId, existingFolder, { title }, upstreamRequestContext(request));
+			if (hasParent) {
+				// Move (optionally with a rename in the same write).
+				await folderOps.moveFolder({ user: auth.user, folderId, targetParentId: body.parentId || '', title: hasTitle ? title : undefined, requestContext: upstreamRequestContext(request) });
+			} else {
+				await itemWriteService.updateFolder(auth.user.sessionId, existingFolder, { title }, upstreamRequestContext(request));
+			}
 			const { folders: ufFolders, counts: ufCounts } = await navData(auth.user.id);
 			sendHtml(response, 200, templates.navigationFragment(ufFolders, ufCounts, folderId, '') + templates.folderSelectOob(ufFolders));
 		} catch (error) {
@@ -187,7 +202,11 @@ const handle = async (url, request, response, ctx) => {
 			const data = await navData(auth.user.id);
 			const notesOrCounts = query ? mapNavNotes(await itemService.searchNotes(auth.user.id, query)) : data.counts;
 			// /fragments/nav returns the fragment directly (not OOB), so use navigationFragment
-			sendHtml(response, 200, templates.navigationFragment(data.folders, notesOrCounts, '', '', rawQuery));
+			// ?folderId= highlights (and opens the path to) a notebook, e.g. one that was
+			// just moved; ?withSelect=1 also refreshes the open note's notebook <select>.
+			const selectedFolder = url.searchParams.get('folderId') || '';
+			const selectRefresh = url.searchParams.get('withSelect') === '1' ? templates.folderSelectOob(data.folders) : '';
+			sendHtml(response, 200, templates.navigationFragment(data.folders, notesOrCounts, selectedFolder, '', rawQuery) + selectRefresh);
 		} catch (error) {
 			sendHtml(response, 500, `<div class="empty-hint">Error: ${templates.escapeHtml(error.message || `${error}`)}</div>`);
 		}

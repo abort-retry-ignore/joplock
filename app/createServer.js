@@ -24,6 +24,7 @@ const routeResources = require('./routes/resources');
 const routeFragments = require('./routes/fragments');
 const routeMobile = require('./routes/mobile');
 const routeShares = require('./routes/shares');
+const { createFolderOps } = require('./items/folderOps');
 const routeApi = require('./routes/api');
 const { handleExportDocx, handleExportPdf, handleExportHtml } = routeApi;
 
@@ -128,6 +129,14 @@ const createServer = options => {
 		const allFolders = [allNotesFolder(counts.get('__all__') || 0)].concat(markedFolders, [trashFolder(counts.get('__trash__') || 0)]);
 		return { folders: allFolders, counts, vaultIds };
 	};
+
+	// Notebook create/move/delete rules shared by the fragment and JSON routes.
+	const folderOps = createFolderOps({
+		itemService,
+		itemWriteService,
+		vaultService,
+		shareSync: database ? routeShares.createShareSync({ itemService, database }) : null,
+	});
 
 	const upstreamRequestContext = _request => ({
 		host: configuredServerPublicUrl.host,
@@ -337,6 +346,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 			templates,
 			authenticatedUser,
 			navData,
+			folderOps,
 			userSettings,
 			saveLastNoteState,
 			plainNoteTitle,

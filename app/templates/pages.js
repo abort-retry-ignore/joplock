@@ -10,7 +10,7 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20261005mdextras';
+const ASSET_VERSION = '20261008nestedfolders';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';
@@ -227,6 +227,8 @@ const layoutPage = (options = {}) => {
 	<div class="mobile-ctx-sheet" id="mobile-folder-ctx-sheet" style="display:none">
 		<div class="mobile-ctx-title" id="mobile-folder-ctx-title"></div>
 		<button class="mobile-ctx-btn" id="mobile-folder-ctx-rename">&#9998; Rename notebook</button>
+		<button class="mobile-ctx-btn" id="mobile-folder-ctx-add-sub">&#10133; New sub-notebook</button>
+		<button class="mobile-ctx-btn" id="mobile-folder-ctx-move">&#8599; Move notebook&hellip;</button>
 		<button class="mobile-ctx-btn" id="mobile-folder-ctx-delete">&#128465; Delete notebook</button>
 		<button class="mobile-ctx-btn mobile-ctx-btn-cancel" onclick="mobileFolderCtxClose()">Cancel</button>
 	</div>
@@ -262,6 +264,8 @@ const layoutPage = (options = {}) => {
 				<input type="checkbox" id="new-folder-is-vault" onchange="toggleNewFolderVault(this.checked)" /> Make this a vault (encrypted notebook)
 			</label>
 			<input type="text" id="new-folder-title" class="login-input" placeholder="Notebook name" required autocomplete="off" />
+			<label class="folder-parent-label" for="new-folder-parent">Inside</label>
+			<select id="new-folder-parent" class="login-input folder-parent-select" title="Where to create the notebook"><option value="">Top level</option></select>
 			<div id="new-vault-fields" style="display:none">
 				<p class="lock-modal-warning" style="margin-top:0.5rem">\u26A0\uFE0F This password cannot be changed. If forgotten, encrypted notes cannot be recovered.</p>
 				<input type="password" id="new-vault-password" class="login-input" placeholder="Vault password" autocomplete="off" />
@@ -271,6 +275,20 @@ const layoutPage = (options = {}) => {
 			<div class="folder-modal-actions">
 				<button type="button" class="btn btn-sm btn-secondary" onclick="closeNewFolderModal()">Cancel</button>
 				<button type="submit" class="btn btn-sm btn-primary">Create</button>
+			</div>
+		</form>
+	</div>
+	<!-- Move notebook modal (tree picker; options come from /fragments/folder-options) -->
+	<div class="folder-modal-backdrop" id="move-folder-modal-backdrop" hidden onclick="closeMoveFolderModal()"></div>
+	<div class="folder-modal" id="move-folder-modal" hidden>
+		<form class="folder-modal-card" id="move-folder-form" onsubmit="submitMoveFolder(event)">
+			<h3 class="folder-modal-title" id="move-folder-title">Move notebook</h3>
+			<label class="folder-parent-label" for="move-folder-parent">Move into</label>
+			<select id="move-folder-parent" class="login-input folder-parent-select"></select>
+			<div class="lock-modal-error" id="move-folder-error"></div>
+			<div class="folder-modal-actions">
+				<button type="button" class="btn btn-sm btn-secondary" onclick="closeMoveFolderModal()">Cancel</button>
+				<button type="submit" class="btn btn-sm btn-primary">Move</button>
 			</div>
 		</form>
 	</div>

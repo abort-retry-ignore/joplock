@@ -3,6 +3,7 @@
 const { randomBytes } = require('crypto');
 const { sendJson, parseBody } = require('./_helpers');
 const { requestUpstream } = require('../items/itemWriteService');
+const { subtreeIds } = require('../items/folderTree');
 
 const STATUS_WAITING = 0;
 const STATUS_ACCEPTED = 1;
@@ -65,37 +66,57 @@ const autoAcceptShareUser = async (database, shareUserId) => {
 	await database.query(`UPDATE share_users SET status = $1 WHERE id = $2`, [STATUS_ACCEPTED, shareUserId]);
 };
 
+// Every notebook at or below `rootFolderId` and every note directly inside any of
+// them (trashed notes included: they keep their share membership until purged).
+// Notebooks nest, so a share covers the whole subtree, not just direct children.
+const collectSubtreeItems = async (itemService, database, ownerId, rootFolderId) => {
+	const folders = await itemService.foldersByUserId(ownerId);
+	const folderIds = subtreeIds(folders, rootFolderId);
+	const result = await database.query(
+		`SELECT jop_id FROM items WHERE owner_id = $1 AND jop_type = 1 AND jop_parent_id = ANY($2::text[])`,
+		[ownerId, folderIds],
+	);
+	return { folderIds, noteIds: (result.rows || []).map(r => r.jop_id).filter(Boolean) };
+};
+
+// Stamp (or, with shareId '', clear) share_id/is_shared on notes and notebooks.
+//
+// Written straight into the item JSON because re-serializing a note through the
+// sidecar would rewrite fields we do not model. `jop_share_id` is the column the
+// Joplin Server share service reads, so it is kept in step with the JSON; if a
+// server version lacks the column we fall back to the JSON alone.
+const setShareOnItems = async (database, ownerId, itemIds, shareId) => {
+	if (!database || !itemIds || !itemIds.length) return;
+	const now = Date.now();
+	const jsonSet = `convert_to(
+		jsonb_set(jsonb_set(convert_from(content,'UTF8')::jsonb, '{share_id}', $2::jsonb), '{is_shared}', $3::jsonb)::text,
+		'UTF8'
+	)`;
+	const shareJson = JSON.stringify(shareId || '');
+	const sharedJson = JSON.stringify(shareId ? 1 : 0);
+	try {
+		await database.query(
+			`UPDATE items SET content = ${jsonSet}, jop_share_id = $5, updated_time = $4
+			 WHERE jop_id = ANY($1::text[]) AND jop_type IN (1, 2) AND owner_id = $6`,
+			[itemIds, shareJson, sharedJson, now, shareId || '', ownerId],
+		);
+	} catch (error) {
+		if (!error || error.code !== '42703') throw error; // undefined_column
+		await database.query(
+			`UPDATE items SET content = ${jsonSet}, updated_time = $4
+			 WHERE jop_id = ANY($1::text[]) AND jop_type IN (1, 2) AND owner_id = $5`,
+			[itemIds, shareJson, sharedJson, now, ownerId],
+		);
+	}
+};
+
 const ensureShareIdsOnNotebook = async (ctx, auth, notebookId, shareId) => {
 	const { itemService, database } = ctx;
+	if (!database) return;
 	const folder = await itemService.folderByUserIdAndJopId(auth.user.id, notebookId);
 	if (!folder) return;
-	if (!folder.shareId || folder.shareId !== shareId || !folder.isShared) {
-		if (database) {
-			await database.query(`
-				UPDATE items SET
-					content = convert_to(
-						jsonb_set(jsonb_set(convert_from(content,'UTF8')::jsonb, '{share_id}', $3::jsonb), '{is_shared}', '1'::jsonb)::text,
-						'UTF8'
-					),
-					updated_time = $4
-				WHERE jop_id = $1 AND jop_type = 2 AND owner_id = $2
-			`, [notebookId, auth.user.id, JSON.stringify(shareId), Date.now()]).catch(() => null);
-		}
-	}
-	// Update all notes in the notebook
-	const notes = await itemService.notesByUserId(auth.user.id, { folderId: notebookId, deleted: 'all' });
-	const noteIds = notes.map(n => n.jopId || n.jop_id || n.id).filter(Boolean);
-	if (noteIds.length && database) {
-		await database.query(`
-			UPDATE items SET
-				content = convert_to(
-					jsonb_set(jsonb_set(convert_from(content,'UTF8')::jsonb, '{share_id}', $2::jsonb), '{is_shared}', '1'::jsonb)::text,
-					'UTF8'
-				),
-				updated_time = $3
-			WHERE jop_id = ANY($1::text[]) AND jop_type = 1 AND owner_id = $4
-		`, [noteIds, JSON.stringify(shareId), Date.now(), auth.user.id]).catch(() => null);
-	}
+	const { folderIds, noteIds } = await collectSubtreeItems(itemService, database, auth.user.id, notebookId);
+	await setShareOnItems(database, auth.user.id, folderIds.concat(noteIds), shareId);
 };
 
 const populateUserItems = async (database, recipientUserId, ownerId, shareId, notebookId) => {
@@ -149,6 +170,56 @@ const populateUserItems = async (database, recipientUserId, ownerId, shareId, no
 	}
 };
 
+const acceptedShareUserIds = async (database, shareId) => {
+	const result = await database.query(
+		`SELECT user_id FROM share_users WHERE share_id = $1 AND status = $2`,
+		[shareId, STATUS_ACCEPTED],
+	).catch(() => ({ rows: [] }));
+	return (result.rows || []).map(r => r.user_id).filter(Boolean);
+};
+
+// Give every accepted recipient of the share access to the notebook's items.
+const grantRecipientAccess = async (database, ownerId, shareId, rootFolderId) => {
+	for (const userId of await acceptedShareUserIds(database, shareId)) {
+		await populateUserItems(database, userId, ownerId, shareId, rootFolderId);
+	}
+};
+
+// Take the given items away from every recipient of the share.
+const revokeRecipientAccess = async (database, shareId, itemIds) => {
+	if (!database || !shareId || !itemIds || !itemIds.length) return;
+	await database.query(
+		`DELETE FROM user_items
+		 WHERE user_id IN (SELECT user_id FROM share_users WHERE share_id = $1)
+		   AND item_id = ANY($2::text[])`,
+		[shareId, itemIds],
+	);
+};
+
+// What folder operations (create/move/delete) call to keep sharing consistent
+// when notebooks or notes cross a share boundary. All methods are no-ops without
+// a database (unit tests with fakes).
+//   shareId          the share the items now belong to ('' = none)
+//   previousShareId  the share they belonged to before ('' = none)
+const createShareSync = ({ itemService, database }) => ({
+	// A notebook and everything beneath it changes share.
+	async setSubtreeShare({ ownerId, folderId, shareId = '', previousShareId = '' }) {
+		if (!database) return;
+		const { folderIds, noteIds } = await collectSubtreeItems(itemService, database, ownerId, folderId);
+		const ids = folderIds.concat(noteIds);
+		await setShareOnItems(database, ownerId, ids, shareId);
+		if (previousShareId && previousShareId !== shareId) await revokeRecipientAccess(database, previousShareId, ids);
+		if (shareId) await grantRecipientAccess(database, ownerId, shareId, folderId);
+	},
+	// Individual items (e.g. notes moved out of a deleted notebook) change share.
+	async setItemsShare({ ownerId, itemIds, shareId = '', previousShareId = '', rootFolderId = '' }) {
+		if (!database || !itemIds || !itemIds.length) return;
+		await setShareOnItems(database, ownerId, itemIds, shareId);
+		if (previousShareId && previousShareId !== shareId) await revokeRecipientAccess(database, previousShareId, itemIds);
+		if (shareId) await grantRecipientAccess(database, ownerId, shareId, rootFolderId);
+	},
+});
+
 const createShareUpstream = async (ctx, sessionId, notebookId) => {
 	// Joplin Server has used both folder_id and notebook_id historically.
 	let result = await upstream(ctx, sessionId, 'POST', '/api/shares', { folder_id: notebookId });
@@ -159,7 +230,7 @@ const createShareUpstream = async (ctx, sessionId, notebookId) => {
 };
 
 const handle = async (url, request, response, ctx) => {
-	const { authenticatedUser, itemService, itemWriteService, database, vaultService, upstreamRequestContext } = ctx;
+	const { authenticatedUser, itemService, itemWriteService, folderOps, database, vaultService, upstreamRequestContext } = ctx;
 	const p = url.pathname;
 	const method = request.method;
 	ctx._request = request;
@@ -178,6 +249,12 @@ const handle = async (url, request, response, ctx) => {
 			if (vaultService) {
 				const vault = await vaultService.getVaultByFolderId(auth.user.id, notebookId).catch(() => null);
 				if (vault) { sendJson(response, 400, { error: 'Vault notebooks cannot be shared' }); return true; }
+			}
+
+			// Notebooks nest: a share root must be top level (Joplin's rule), a notebook
+			// inside a share is already shared, and a vault below cannot be shared.
+			if (folderOps) {
+				await folderOps.prepareForShare({ user: auth.user, folderId: notebookId, requestContext: upstreamRequestContext(request) });
 			}
 
 			// Reuse existing share for this notebook if present.
@@ -580,4 +657,7 @@ const handle = async (url, request, response, ctx) => {
 	return false;
 };
 
-module.exports = { handle, autoAcceptShareUser, STATUS_ACCEPTED, STATUS_WAITING, populateUserItems, ensureShareIdsOnNotebook };
+module.exports = {
+	handle, autoAcceptShareUser, STATUS_ACCEPTED, STATUS_WAITING, populateUserItems, ensureShareIdsOnNotebook,
+	collectSubtreeItems, setShareOnItems, createShareSync, revokeRecipientAccess,
+};

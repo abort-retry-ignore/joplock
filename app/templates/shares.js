@@ -2,12 +2,13 @@
 
 const { escapeHtml } = require('./shared');
 
-const shareDialog = (notebookId, notebookTitle, isOwner = true, shareId = '') => {
+const shareDialog = (notebookId, notebookTitle, isOwner = true, shareId = '', nested = false) => {
 	return `<div class="folder-modal-backdrop" id="share-modal-backdrop" hidden onclick="closeShareDialog()"></div>
 <div class="folder-modal" id="share-modal" hidden data-share-owner="${isOwner ? '1' : '0'}" data-share-id="${escapeHtml(shareId)}">
 	<div class="folder-modal-card" style="min-width:min(420px,92vw)">
 		<h3 class="folder-modal-title">Share &ldquo;${escapeHtml(notebookTitle || 'Untitled')}&rdquo;</h3>
 		${isOwner ? `<p class="lock-modal-warning" style="margin:0 0 12px;opacity:.85">Invite a user by email. Access is granted immediately (no confirmation required).</p>
+		${nested ? '<p class="share-nested-note" style="margin:0 0 12px;opacity:.85;font-size:13px">This notebook is inside another notebook. Sharing it moves it to the top level, together with its sub-notebooks and notes.</p>' : ''}
 		<div class="share-invite-form" style="display:flex;gap:8px;margin-bottom:10px">
 			<input type="email" id="share-invite-email" class="login-input" placeholder="user@example.com" style="flex:1" />
 			<button type="button" class="btn btn-sm btn-primary" id="share-invite-btn" onclick="inviteToShare('${escapeHtml(notebookId)}')">Share</button>

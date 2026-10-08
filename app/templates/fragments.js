@@ -255,6 +255,8 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 	</div><div class="nav-items">${folderSections || '<div class="empty-hint">No notebooks yet</div>'}</div>
 	<div class="folder-context-menu" id="folder-context-menu" hidden>
 		<button type="button" class="folder-context-item" onclick="editFolderFromMenu()">Edit notebook</button>
+		<button type="button" class="folder-context-item" data-not-for-vault="1" onclick="newSubfolderFromMenu()">New sub-notebook</button>
+		<button type="button" class="folder-context-item" data-not-for-vault="1" onclick="moveFolderFromMenu()">Move notebook&hellip;</button>
 		<button type="button" class="folder-context-item" onclick="openShareForFolderFromMenu()">Share</button>
 		<button type="button" class="folder-context-item danger" onclick="deleteFolderFromMenu()">Delete notebook</button>
 	</div>
@@ -447,6 +449,15 @@ const searchResultsFragment = (notes, hasMore = false, nextOffset = 0, query = '
 	return items + loadMore;
 };
 
+// <option>s for the notebook picker endpoint. `entries` come from
+// folderOps.pickerEntries (tree order, with a `disabled` flag).
+const folderPickerOptions = (entries, { selectedId = '', topLabel = 'Top level' } = {}) => {
+	const top = `<option value=""${selectedId ? '' : ' selected'}>${escapeHtml(topLabel)}</option>`;
+	return top + (entries || []).map(e =>
+		`<option value="${escapeHtml(e.id)}"${e.id === selectedId ? ' selected' : ''}${e.disabled ? ' disabled' : ''} data-depth="${e.depth}" title="${escapeHtml(folderPathString(e.path))}">${escapeHtml(folderOptionLabel(e))}</option>`,
+	).join('');
+};
+
 const folderSelectOob = (folders) => {
 	const options = notebookOptionsHtml(folders);
 	return `<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="Move to folder" hx-swap-oob="true">${options}</select>`;
@@ -474,4 +485,5 @@ module.exports = {
 	autosaveStatusFragment,
 	searchResultsFragment,
 	folderSelectOob,
+	folderPickerOptions,
 };

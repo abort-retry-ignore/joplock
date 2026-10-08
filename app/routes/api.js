@@ -5,6 +5,7 @@ const {
 	resolveItemShareAccess, resolveFolderShareState, assertCanWrite, assertOwnerForDestructive, deriveShareFieldsForMove,
 } = require('../items/shareAccess');
 const templates = require('../templates');
+const { flattenFolderTree } = require('../items/folderTree');
 const { AI_PROVIDERS } = require('../settingsService');
 
 const notesForFolder = async (itemService, userId, folderId) => {
@@ -16,27 +17,8 @@ const notesForFolder = async (itemService, userId, folderId) => {
 	return itemService.notesByUserId(userId, { folderId });
 };
 
-const moveFolderNotesToGeneral = async (userId, sessionId, folderId, itemService, itemWriteService, requestContext) => {
-	const sourceFolder = await itemService.folderByUserIdAndJopId(userId, folderId);
-	if (!sourceFolder) {
-		const error = new Error('Notebook not found');
-		error.statusCode = 404;
-		throw error;
-	}
-	let generalFolder = (await itemService.foldersByUserId(userId)).find(f => !f.deletedTime && f.id !== folderId && f.title === 'General');
-	if (!generalFolder) {
-		const created = await itemWriteService.createFolder(sessionId, { title: 'General', parentId: '' }, requestContext);
-		generalFolder = { id: created.id, title: 'General' };
-	}
-	const notes = await itemService.notesByUserId(userId, { folderId });
-	for (const note of notes) {
-		await itemWriteService.updateNote(sessionId, note, { parentId: generalFolder.id }, requestContext);
-	}
-	return { sourceFolder, generalFolder, movedCount: notes.length };
-};
-
 const handle = async (url, request, response, ctx) => {
-	const { authenticatedUser, itemService, itemWriteService, settingsService, upstreamRequestContext, plainNoteTitle, vaultService } = ctx;
+	const { authenticatedUser, itemService, itemWriteService, folderOps, settingsService, upstreamRequestContext, plainNoteTitle, vaultService } = ctx;
 	const normalizeOpenRouterModel = model => `${model || ''}`.trim().replace(/^x-ai\/grok-4-20(?=$|-)/, 'x-ai/grok-4.20');
 	const proseDebugEnabled = `${process.env.DEBUG || ''}`.toLowerCase() === 'true';
 	const getActiveProfileFromSettings = (settings, profileId = '') => {
@@ -282,7 +264,7 @@ const handle = async (url, request, response, ctx) => {
 				const body = await parseBody(request);
 				const title = `${body.title || ''}`.trim();
 				if (!title) { sendJson(response, 400, { error: 'Folder title is required' }); return true; }
-				const created = await itemWriteService.createFolder(auth.user.sessionId, { title, parentId: body.parentId || '' }, upstreamRequestContext(request));
+				const created = await folderOps.createFolder({ user: auth.user, title, parentId: body.parentId || '', requestContext: upstreamRequestContext(request) });
 				const folder = await itemService.folderByUserIdAndJopId(auth.user.id, created.id);
 				sendJson(response, 201, { item: folder });
 			} catch (error) {
@@ -308,9 +290,36 @@ const handle = async (url, request, response, ctx) => {
 			if (auth.error) { sendJson(response, 401, { error: auth.error }); return true; }
 			const folderId = decodeURIComponent(url.pathname.slice('/api/web/folders/'.length));
 			if (!folderId) { sendJson(response, 404, { error: 'Folder not found' }); return true; }
-			await moveFolderNotesToGeneral(auth.user.id, auth.user.sessionId, folderId, itemService, itemWriteService, upstreamRequestContext(request));
-			await itemWriteService.deleteFolder(auth.user.sessionId, folderId, upstreamRequestContext(request));
+			await folderOps.deleteFolder({ user: auth.user, folderId, requestContext: upstreamRequestContext(request) });
 			sendJson(response, 204, {});
+		} catch (error) {
+			sendJson(response, error.statusCode || 500, { error: error.message || `${error}` });
+		}
+		return true;
+	}
+
+	// PUT /api/web/folders/:id — rename and/or move ({ title?, parentId? }; parentId '' = top level)
+	if (url.pathname.startsWith('/api/web/folders/') && request.method === 'PUT') {
+		try {
+			const auth = await authenticatedUser(request);
+			if (auth.error) { sendJson(response, 401, { error: auth.error }); return true; }
+			const folderId = decodeURIComponent(url.pathname.slice('/api/web/folders/'.length));
+			if (!folderId) { sendJson(response, 404, { error: 'Folder not found' }); return true; }
+			const body = await parseBody(request);
+			const hasTitle = Object.prototype.hasOwnProperty.call(body, 'title');
+			const hasParent = Object.prototype.hasOwnProperty.call(body, 'parentId');
+			const title = `${body.title || ''}`.trim();
+			if (!hasTitle && !hasParent) { sendJson(response, 400, { error: 'title or parentId is required' }); return true; }
+			if (hasTitle && !title) { sendJson(response, 400, { error: 'Folder title is required' }); return true; }
+			const existing = await itemService.folderByUserIdAndJopId(auth.user.id, folderId);
+			if (!existing) { sendJson(response, 404, { error: 'Folder not found' }); return true; }
+			if (hasParent) {
+				await folderOps.moveFolder({ user: auth.user, folderId, targetParentId: body.parentId || '', title: hasTitle ? title : undefined, requestContext: upstreamRequestContext(request) });
+			} else {
+				await itemWriteService.updateFolder(auth.user.sessionId, existing, { title }, upstreamRequestContext(request));
+			}
+			const folder = await itemService.folderByUserIdAndJopId(auth.user.id, folderId);
+			sendJson(response, 200, { item: folder });
 		} catch (error) {
 			sendJson(response, error.statusCode || 500, { error: error.message || `${error}` });
 		}
@@ -753,6 +762,13 @@ const handle = async (url, request, response, ctx) => {
 			const folder = await itemService.folderByUserIdAndJopId(auth.user.id, folderId);
 			if (!folder) { sendJson(response, 404, { error: 'Folder not found' }); return true; }
 			if (!vaultService) { sendJson(response, 503, { error: 'Vault service unavailable' }); return true; }
+			// A vault is a top-level notebook without sub-notebooks: ciphertext is bound to
+			// the vault folder and only checked against a note's direct parent.
+			const treeEntry = flattenFolderTree(await itemService.foldersByUserId(auth.user.id)).find(f => f.id === folderId);
+			if (treeEntry && (treeEntry.depth > 0 || treeEntry.hasChildren)) {
+				sendJson(response, 400, { error: 'A vault must be a top-level notebook without sub-notebooks' });
+				return true;
+			}
 			await vaultService.createVault(auth.user.id, folderId, salt, verify);
 			sendJson(response, 201, { item: { folderId, salt } });
 		} catch (error) {

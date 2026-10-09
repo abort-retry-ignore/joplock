@@ -121,14 +121,14 @@ test('moving a notebook INTO a share stamps the subtree and grants recipients', 
 	const r = await w.ops.moveFolder({ user: USER, folderId: 'pkid', targetParentId: 'sub', requestContext: ctx });
 	assert.equal(r.shareChanged, true);
 	assert.deepEqual(w.calls[0], ['updateFolder', 'pkid', { parentId: 'sub', shareId: 'S1', isShared: true }]);
-	assert.deepEqual(w.sync, [['subtree', { ownerId: 'u1', folderId: 'pkid', shareId: 'S1', previousShareId: '' }]]);
+	assert.deepEqual(w.sync.map(x => [x[0], x[1].ownerId, x[1].folderId, x[1].shareId, x[1].previousShareId, x[1].sessionId]), [['subtree', 'u1', 'pkid', 'S1', '', 's1']], 'the session is passed so descendants can be re-saved through the API');
 });
 
 test('moving a notebook OUT of a share clears the subtree and revokes recipients', async () => {
 	const w = world({ folders: sharedTree() });
 	await w.ops.moveFolder({ user: USER, folderId: 'sub', targetParentId: 'private', requestContext: ctx });
 	assert.deepEqual(w.calls[0], ['updateFolder', 'sub', { parentId: 'private', shareId: '', isShared: false }]);
-	assert.deepEqual(w.sync, [['subtree', { ownerId: 'u1', folderId: 'sub', shareId: '', previousShareId: 'S1' }]]);
+	assert.deepEqual(w.sync.map(x => [x[0], x[1].ownerId, x[1].folderId, x[1].shareId, x[1].previousShareId, x[1].sessionId]), [['subtree', 'u1', 'sub', '', 'S1', 's1']]);
 });
 
 test('moving within the same share changes the parent only (no share churn)', async () => {

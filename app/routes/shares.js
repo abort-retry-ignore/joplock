@@ -48,16 +48,21 @@ const inviteesList = data => {
 
 const shareFolderId = share => share && (share.folder_id || share.notebook_id || share.folderId || share.notebookId || '');
 
-// `share_id` of an item, decoded from its JSON content.
+// `share_id` of an item.
+//
+// The authoritative value is the `jop_share_id` COLUMN: Joplin Server moves share_id
+// out of the item JSON on every API save, so the JSON copy is absent or stale for any
+// item that has been edited. The JSON is only a fallback for items stamped directly in
+// the database.
 //
 // `items` also holds binary resource blobs (jop_type 0, e.g. every uploaded
 // image/PDF). Those are not valid UTF-8, so convert_from() raises
-// "invalid byte sequence" and aborts the WHOLE statement — and SQL gives no
+// "invalid byte sequence" and aborts the WHOLE statement - and SQL gives no
 // guarantee that a sibling `jop_type = ...` predicate runs first. The CASE
 // guarantees only note/folder rows are ever decoded. (With an unguarded
 // expression every share fan-out / revoke silently did nothing once the
 // account owned a single uploaded attachment: the callers swallow errors.)
-const shareIdOf = (alias = '') => `(CASE WHEN ${alias}jop_type IN (1, 2) THEN convert_from(${alias}content, 'UTF8')::json->>'share_id' END)`;
+const shareIdOf = (alias = '') => `(COALESCE(NULLIF(${alias}jop_share_id, ''), CASE WHEN ${alias}jop_type IN (1, 2) THEN convert_from(${alias}content, 'UTF8')::json->>'share_id' END))`;
 
 const newId = () => randomBytes(16).toString('hex');
 
@@ -201,24 +206,59 @@ const revokeRecipientAccess = async (database, shareId, itemIds) => {
 // a database (unit tests with fakes).
 //   shareId          the share the items now belong to ('' = none)
 //   previousShareId  the share they belonged to before ('' = none)
-const createShareSync = ({ itemService, database }) => ({
-	// A notebook and everything beneath it changes share.
-	async setSubtreeShare({ ownerId, folderId, shareId = '', previousShareId = '' }) {
-		if (!database) return;
-		const { folderIds, noteIds } = await collectSubtreeItems(itemService, database, ownerId, folderId);
-		const ids = folderIds.concat(noteIds);
-		await setShareOnItems(database, ownerId, ids, shareId);
-		if (previousShareId && previousShareId !== shareId) await revokeRecipientAccess(database, previousShareId, ids);
-		if (shareId) await grantRecipientAccess(database, ownerId, shareId, folderId);
-	},
-	// Individual items (e.g. notes moved out of a deleted notebook) change share.
-	async setItemsShare({ ownerId, itemIds, shareId = '', previousShareId = '', rootFolderId = '' }) {
-		if (!database || !itemIds || !itemIds.length) return;
-		await setShareOnItems(database, ownerId, itemIds, shareId);
-		if (previousShareId && previousShareId !== shareId) await revokeRecipientAccess(database, previousShareId, itemIds);
-		if (shareId) await grantRecipientAccess(database, ownerId, shareId, rootFolderId);
-	},
-});
+const createShareSync = ({ itemService, itemWriteService, database }) => {
+	// Re-save every notebook and note of the subtree THROUGH THE API with the new share
+	// fields. This is what makes stock Joplin clients follow along: Joplin Server only
+	// adds/removes a recipient's copy (and tells their client to delete it) when it
+	// sees a change event with previous_share_id, and only API writes create those.
+	// Direct database writes are silent, so a subtree moved OUT of a share used to
+	// stay in the recipient's Joplin app. Items the API cannot rewrite (Joplin
+	// end-to-end encrypted ones) are left to the database stamping below.
+	const stampThroughApi = async ({ ownerId, folderIds, noteIds, shareId, sessionId, requestContext }) => {
+		if (!itemWriteService || !sessionId) return;
+		const fields = { shareId, isShared: !!shareId };
+		const skipped = [];
+		for (const id of folderIds) {
+			const folder = await itemService.folderByUserIdAndJopId(ownerId, id).catch(() => null);
+			if (!folder || folder.e2ee || (folder.shareId || '') === shareId) continue;
+			try { await itemWriteService.updateFolder(sessionId, folder, fields, requestContext); } catch (error) { skipped.push(error); }
+		}
+		for (const id of noteIds) {
+			const note = await itemService.noteByUserIdAndJopId(ownerId, id, { deleted: 'all' }).catch(() => null);
+			if (!note || note.e2ee || (note.shareId || '') === shareId) continue;
+			try { await itemWriteService.updateNote(sessionId, note, fields, requestContext); } catch (error) { skipped.push(error); }
+		}
+		if (skipped.length) throw skipped[0];
+	};
+
+	return {
+		// A notebook and everything beneath it changes share.
+		async setSubtreeShare({ ownerId, folderId, shareId = '', previousShareId = '', sessionId, requestContext }) {
+			if (!database) return;
+			const { folderIds, noteIds } = await collectSubtreeItems(itemService, database, ownerId, folderId);
+			const ids = folderIds.concat(noteIds);
+			// API first (it compares against the current share), then the database sweep
+			// for anything the API could not write, then Joplock's own recipient rows.
+			let apiError = null;
+			try {
+				await stampThroughApi({ ownerId, folderIds, noteIds, shareId, sessionId, requestContext });
+			} catch (error) { apiError = error; }
+			await setShareOnItems(database, ownerId, ids, shareId);
+			if (previousShareId && previousShareId !== shareId) await revokeRecipientAccess(database, previousShareId, ids);
+			if (shareId) await grantRecipientAccess(database, ownerId, shareId, folderId);
+			if (apiError) throw apiError;
+		},
+		// Individual items (e.g. notes moved out of a deleted notebook) change share. The
+		// caller has already written them through the API; this keeps Joplock's own
+		// recipient rows and the stored JSON in step.
+		async setItemsShare({ ownerId, itemIds, shareId = '', previousShareId = '', rootFolderId = '' }) {
+			if (!database || !itemIds || !itemIds.length) return;
+			await setShareOnItems(database, ownerId, itemIds, shareId);
+			if (previousShareId && previousShareId !== shareId) await revokeRecipientAccess(database, previousShareId, itemIds);
+			if (shareId) await grantRecipientAccess(database, ownerId, shareId, rootFolderId);
+		},
+	};
+};
 
 const createShareUpstream = async (ctx, sessionId, notebookId) => {
 	// Joplin Server has used both folder_id and notebook_id historically.

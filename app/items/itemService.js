@@ -12,6 +12,14 @@ const decodeItemContent = content => {
 	return JSON.parse(raw);
 };
 
+// Joplin Server keeps an item's share id in the `jop_share_id` COLUMN and drops it
+// from the stored JSON as soon as the item is saved through the sync API (any save,
+// by Joplock or a Joplin app). The JSON copy only exists on items Joplock stamped
+// itself and goes stale. Reading only the JSON made a shared item look unshared after
+// its first edit, so the next Joplock edit wrote `share_id: ''` and silently took the
+// note away from every recipient.
+const shareIdOfRow = (row, content) => `${row.jop_share_id || content.share_id || ''}`;
+
 // Items encrypted by Joplin's own end-to-end encryption (not Joplock vaults).
 // The stored content is ciphertext: title/body are empty and rewriting the item
 // from here would replace the ciphertext with plaintext. They are shown as a
@@ -40,8 +48,8 @@ const mapFolderRow = row => {
 		masterKeyId: content.master_key_id || '',
 		updatedTime: Number(row.jop_updated_time || content.updated_time || 0),
 		ownerId: row.owner_id || '',
-		shareId: content.share_id || '',
-		isShared: !!(Number(content.is_shared || 0)),
+		shareId: shareIdOfRow(row, content),
+		isShared: !!(Number(content.is_shared || 0)) || !!shareIdOfRow(row, content),
 	};
 };
 
@@ -93,8 +101,8 @@ const mapNoteRow = row => {
 		createdTime: Number(content.created_time || row.created_time || 0),
 		updatedTime: Number(row.jop_updated_time || content.updated_time || 0),
 		ownerId: row.owner_id || '',
-		shareId: content.share_id || '',
-		isShared: !!(Number(content.is_shared || 0)),
+		shareId: shareIdOfRow(row, content),
+		isShared: !!(Number(content.is_shared || 0)) || !!shareIdOfRow(row, content),
 	};
 };
 
@@ -110,8 +118,8 @@ const mapNoteHeaderRow = row => {
 		deletedTime: Number(row.deleted_time || 0),
 		updatedTime: Number(row.jop_updated_time || 0),
 		ownerId: row.owner_id || '',
-		shareId: row.share_id || '',
-		isShared: !!Number(row.is_shared || 0),
+		shareId: `${row.jop_share_id || row.share_id || ''}`,
+		isShared: !!Number(row.is_shared || 0) || !!(row.jop_share_id || row.share_id),
 	};
 };
 
@@ -176,7 +184,7 @@ const createItemService = database => {
 	return {
 		async foldersByUserId(userId) {
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied, jop_share_id
 				FROM items
 				WHERE jop_type = $2${deletedFilterSql('exclude')} AND ${itemAccessExpression()}
 				ORDER BY LOWER(COALESCE(convert_from(content, 'UTF8')::json->>'title', '')) ASC, created_time ASC
@@ -187,7 +195,7 @@ const createItemService = database => {
 
 		async folderByUserIdAndJopId(userId, folderId) {
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied, jop_share_id
 				FROM items
 				WHERE jop_type = $2 AND jop_id = $3 AND ${itemAccessExpression()}
 				LIMIT 1
@@ -210,7 +218,7 @@ const createItemService = database => {
 			}
 
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied, jop_share_id
 				FROM items
 				${where}
 				ORDER BY jop_updated_time DESC, created_time DESC
@@ -228,6 +236,7 @@ const createItemService = database => {
 					jop_updated_time,
 					owner_id,
 					jop_encryption_applied,
+					jop_share_id,
 					COALESCE(convert_from(content, 'UTF8')::json->>'title', '') AS title,
 					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time,
 					COALESCE(convert_from(content, 'UTF8')::json->>'share_id', '') AS share_id,
@@ -296,6 +305,7 @@ const createItemService = database => {
 					jop_updated_time,
 					owner_id,
 					jop_encryption_applied,
+					jop_share_id,
 					COALESCE(convert_from(content, 'UTF8')::json->>'title', '') AS title,
 					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time,
 					COALESCE(convert_from(content, 'UTF8')::json->>'share_id', '') AS share_id,
@@ -315,9 +325,9 @@ const createItemService = database => {
 			if (!termSql) return [];
 			const limitIdx = 2 + termParams.length + 1;
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied, jop_share_id
 				FROM (
-					SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied,
+					SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied, jop_share_id,
 						${safeJsonExpression("convert_from(content, 'UTF8')")} AS parsed
 					FROM items
 					WHERE jop_type = $2 AND ${itemAccessExpression()}
@@ -335,7 +345,7 @@ const createItemService = database => {
 		async noteByUserIdAndJopId(userId, noteId, options = {}) {
 			const deleted = options.deleted || 'exclude';
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied, jop_share_id
 				FROM items
 				WHERE jop_type = $2 AND jop_id = $3${deletedFilterSql(deleted)} AND ${itemAccessExpression()}
 				LIMIT 1

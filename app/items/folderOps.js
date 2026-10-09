@@ -105,6 +105,7 @@ const createFolderOps = ({ itemService, itemWriteService, vaultService, shareSyn
 			if (shareFields.shareId && shareSync) {
 				await shareSync.setSubtreeShare({
 					ownerId: user.id, folderId: created.id, shareId: shareFields.shareId, previousShareId: '',
+					sessionId: user.sessionId, requestContext,
 				});
 			}
 			return { id: created.id, parentId: parent, ...shareFields };
@@ -168,6 +169,7 @@ const createFolderOps = ({ itemService, itemWriteService, vaultService, shareSyn
 			if (shareChanges && shareSync) {
 				await shareSync.setSubtreeShare({
 					ownerId: user.id, folderId, shareId: newShareId, previousShareId: oldShareId,
+					sessionId: user.sessionId, requestContext,
 				});
 			}
 			return { changed: true, folder: state.folder, shareChanged: shareChanges };
@@ -218,6 +220,7 @@ const createFolderOps = ({ itemService, itemWriteService, vaultService, shareSyn
 				if (childShareId !== newShareId && shareSync) {
 					await shareSync.setSubtreeShare({
 						ownerId: user.id, folderId: child.id, shareId: newShareId, previousShareId: childShareId,
+						sessionId: user.sessionId, requestContext,
 					});
 				}
 			}

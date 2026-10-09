@@ -29,6 +29,8 @@ test('shareIdOf() only decodes notes and folders and honours a table alias', () 
 	const m = /const shareIdOf = \(alias = ''\) => `([^`]+)`;/.exec(src);
 	assert.ok(m, 'shareIdOf helper must exist');
 	assert.match(m[1], /CASE WHEN \$\{alias\}jop_type IN \(1, 2\) THEN convert_from\(\$\{alias\}content, 'UTF8'\)::json->>'share_id' END/);
+	// the authoritative column comes first; the JSON decode stays behind the type guard
+	assert.match(m[1], /^\(COALESCE\(NULLIF\(\$\{alias\}jop_share_id, ''\), CASE WHEN/);
 });
 
 test('every share fan-out / revoke query goes through shareIdOf()', () => {

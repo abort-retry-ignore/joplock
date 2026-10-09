@@ -150,7 +150,7 @@ const serializeResource = resource => {
 				ocr_details: '',
 				ocr_status: 0,
 				ocr_error: '',
-				ocr_driver_id: 0,
+				ocr_driver_id: 1, // Joplin's default (PrintedText); 0 is a legacy quirk it only tolerates
 			},
 			overrides,
 		}),

@@ -150,6 +150,7 @@ test('serializeResource writes the Joplin 3.x OCR fields', () => {
 	const parsed = unserialize(serializeResource({ id: 'r'.repeat(32), title: 'a.png', mime: 'image/png', filename: 'a.png', fileExtension: 'png', size: 10 }).body);
 	for (const key of ['ocr_text', 'ocr_details', 'ocr_status', 'ocr_error', 'ocr_driver_id']) assert.ok(key in parsed, key);
 	assert.equal(parsed.ocr_status, '0');
+	assert.equal(parsed.ocr_driver_id, '1', 'Joplin default (PrintedText), not the legacy 0');
 	assert.equal(parsed.mime, 'image/png');
 	assert.equal(parsed.type_, '4');
 });

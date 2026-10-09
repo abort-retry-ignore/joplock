@@ -173,3 +173,41 @@ test('item reads select the encryption column so E2EE items can be recognised', 
 	await svc.noteHeadersByFolder('u', 'f1');
 	for (const sql of sqls) assert.match(sql, /jop_encryption_applied/);
 });
+
+// ── share id: the column is authoritative ──
+test('share id comes from the jop_share_id column; the JSON copy is only a fallback (it vanishes after the first API save)', () => {
+	const afterApiSave = mapNote(row({ title: 'T', body: 'b' /* no share_id: the server stripped it */ }, { jop_share_id: 'SHARE1' }));
+	assert.equal(afterApiSave.shareId, 'SHARE1');
+	assert.equal(afterApiSave.isShared, true);
+	const dbStamped = mapNote(row({ title: 'T', share_id: 'SHARE2', is_shared: 1 }, { jop_share_id: '' }));
+	assert.equal(dbStamped.shareId, 'SHARE2', 'JSON fallback for items stamped directly in the database');
+	const both = mapNote(row({ title: 'T', share_id: 'STALE' }, { jop_share_id: 'CURRENT' }));
+	assert.equal(both.shareId, 'CURRENT', 'the column wins over a stale JSON value');
+	const none = mapNote(row({ title: 'T' }));
+	assert.equal(none.shareId, '');
+	assert.equal(none.isShared, false);
+	assert.equal(mapFolder(row({ title: 'F' }, { jop_share_id: 'S' })).shareId, 'S');
+	assert.equal(mapHeader({ jop_id: 'n', jop_parent_id: 'f', title: 't', jop_share_id: 'S' }).shareId, 'S');
+});
+
+test('an edit round-trip keeps a shared note shared (the regression: 2nd Joplock edit used to write share_id empty)', () => {
+	const { serializeNote } = require('../app/items/itemWriteService');
+	const shared = mapNote(row({ title: 'T', body: 'b' }, { jop_share_id: 'SHARE1' }));
+	const text = serializeNote({ id: shared.id, title: shared.title, body: 'edited', parentId: shared.parentId, createdTime: 1, isShared: shared.isShared, shareId: shared.shareId, fields: shared.fields }).body;
+	assert.match(text, /^share_id: SHARE1$/m);
+	assert.match(text, /^is_shared: 1$/m);
+});
+
+test('item reads select the share column', async () => {
+	const { createItemService } = require('../app/items/itemService');
+	const sqls = [];
+	const svc = createItemService({ query: async sql => { sqls.push(sql); return { rows: [] }; } });
+	await svc.foldersByUserId('u');
+	await svc.folderByUserIdAndJopId('u', 'f');
+	await svc.notesByUserId('u');
+	await svc.noteByUserIdAndJopId('u', 'n');
+	await svc.noteHeadersByUserId('u');
+	await svc.noteHeadersByFolder('u', 'f1');
+	await svc.searchNotes('u', 'x');
+	for (const sql of sqls) assert.match(sql, /jop_share_id/, sql.slice(0, 90));
+});

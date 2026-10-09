@@ -100,6 +100,19 @@ class Joplock {
 		if (r.status >= 300) throw new Error(`put raw item ${id}: HTTP ${r.status} ${r.text.slice(0, 200)}`);
 	}
 
+	// Upload an attachment the way the browser UI does (POST /fragments/upload).
+	async uploadResource(filename, mime, data) {
+		const boundary = `----jcupload${Date.now()}`;
+		const head = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`);
+		const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+		const r = await this.request('POST', '/fragments/upload', {
+			headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+			raw: Buffer.concat([head, data, tail]),
+		});
+		if (r.status !== 200) throw new Error(`upload failed: ${r.status} ${r.text.slice(0, 200)}`);
+		return r.data.resourceId;
+	}
+
 	// Remove everything whose title starts with the given prefix (best effort).
 	async cleanup(prefix) {
 		try {

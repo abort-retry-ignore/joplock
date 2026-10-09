@@ -135,7 +135,7 @@ const createServer = options => {
 		itemService,
 		itemWriteService,
 		vaultService,
-		shareSync: database ? routeShares.createShareSync({ itemService, database }) : null,
+		shareSync: database ? routeShares.createShareSync({ itemService, itemWriteService, database }) : null,
 	});
 
 	const upstreamRequestContext = _request => ({

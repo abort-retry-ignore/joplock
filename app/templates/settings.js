@@ -231,6 +231,13 @@ const settingsPage = (options = {}) => {
 							</select>
 						</label>
 						<label class="settings-field">
+							<span>Notebook order</span>
+							<select id="settings-folder-sort" class="login-input" onchange="saveSetting('folderSort',this.value)">
+								<option value="alpha"${settings.folderSort !== 'recent' ? ' selected' : ''}>Alphabetical (A&ndash;Z)</option>
+								<option value="recent"${settings.folderSort === 'recent' ? ' selected' : ''}>Most recently updated</option>
+							</select>
+						</label>
+						<label class="settings-field">
 							<span>Display mode</span>
 							<select id="settings-ui-mode" class="login-input" onchange="saveSetting('uiMode',this.value);setTimeout(function(){window.location.reload()},150)">
 								<option value="auto"${(settings.uiMode || 'auto') === 'auto' ? ' selected' : ''}>Auto-detect</option>

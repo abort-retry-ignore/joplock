@@ -5,7 +5,7 @@ const { parseBody, TRASH_FOLDER_ID } = require('./_helpers');
 const templates = require('../templates');
 
 const handle = async (url, request, response, ctx) => {
-	const { sendHtml, authenticatedUser, itemService, itemWriteService, upstreamRequestContext, vaultService } = ctx;
+	const { sendHtml, authenticatedUser, itemService, itemWriteService, upstreamRequestContext, vaultService, orderFoldersForUser } = ctx;
 
 	const markNotesInVaults = async (userId, notes) => {
 		if (!vaultService || !notes || !notes.length) return notes;
@@ -30,7 +30,8 @@ const handle = async (url, request, response, ctx) => {
 				itemService.foldersByUserId(auth.user.id),
 				itemService.folderNoteCountsByUserId(auth.user.id),
 			]);
-			const folders = await markFoldersAsVaults(auth.user.id, rawFolders);
+			const ordered = orderFoldersForUser ? await orderFoldersForUser(auth.user.id, rawFolders) : rawFolders;
+			const folders = await markFoldersAsVaults(auth.user.id, ordered);
 			sendHtml(response, 200, templates.mobileFoldersFragment(folders, counts));
 		} catch {
 			sendHtml(response, 500, '<div class="empty-hint">Error</div>');

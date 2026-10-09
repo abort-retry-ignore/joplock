@@ -129,3 +129,68 @@ test('folderPathString and folderOptionLabel', () => {
 	assert.equal(folderOptionLabel({ title: '', depth: 0 }), 'Untitled');
 	assert.ok(!/ {2}/.test(folderOptionLabel(alpha)), 'indent must not use collapsible ASCII spaces');
 });
+
+// ── ordering ──
+const { sortFoldersByRecent, inAlphabeticalOrder, normalizeFolderSort } = require('../app/items/folderTree');
+
+// alphabetical input, like the SQL gives: Archive, Home, Work(>Projects>Alpha, >Notes), Zoo
+const alphaList = () => [
+	{ id: 'archive', parentId: '', title: 'Archive', createdTime: 1 },
+	{ id: 'home', parentId: '', title: 'Home', createdTime: 1 },
+	{ id: 'notes', parentId: 'work', title: 'Notes', createdTime: 1 },
+	{ id: 'proj', parentId: 'work', title: 'Projects', createdTime: 1 },
+	{ id: 'alpha', parentId: 'proj', title: 'Alpha', createdTime: 1 },
+	{ id: 'work', parentId: '', title: 'Work', createdTime: 1 },
+	{ id: 'zoo', parentId: '', title: 'Zoo', createdTime: 1 },
+];
+const orderOf = list => flattenFolderTree(list).map(f => f.id);
+
+test('recent: newest activity first at every level, parents above their children', () => {
+	const sorted = sortFoldersByRecent(alphaList(), new Map([['home', 50], ['zoo', 90], ['alpha', 70], ['notes', 20], ['archive', 5]]));
+	// top level: zoo(90) > work(subtree 70) > home(50) > archive(5); inside work: proj(70 via alpha) > notes(20)
+	assert.deepEqual(orderOf(sorted), ['zoo', 'work', 'proj', 'alpha', 'notes', 'home', 'archive']);
+});
+
+test('recent: a parent takes the recency of its busiest descendant, but still shows above it', () => {
+	const sorted = sortFoldersByRecent(alphaList(), new Map([['alpha', 1000], ['zoo', 10]]));
+	const flat = flattenFolderTree(sorted);
+	assert.equal(flat[0].id, 'work', 'work rises because alpha (two levels down) is the newest thing');
+	const idx = id => flat.findIndex(f => f.id === id);
+	assert.ok(idx('work') < idx('proj') && idx('proj') < idx('alpha'), 'every notebook stays below its parent');
+	assert.equal(flat[idx('alpha')].depth, 2);
+});
+
+test('recent: ties keep the incoming alphabetical order; nothing-in-it falls back to creation time', () => {
+	const list = alphaList().map(f => ({ ...f, createdTime: f.id === 'zoo' ? 500 : 1 }));
+	const sorted = sortFoldersByRecent(list, new Map());
+	assert.deepEqual(orderOf(sorted), ['zoo', 'archive', 'home', 'work', 'notes', 'proj', 'alpha'], 'zoo is newest by creation; the rest keep alphabetical order');
+	const allEqual = sortFoldersByRecent(alphaList(), new Map());
+	assert.deepEqual(orderOf(allEqual), orderOf(alphaList()), 'with no information the order is unchanged');
+});
+
+test('recent: does not mutate its input and survives odd data (orphans, cycles, no activity map)', () => {
+	const input = alphaList();
+	const snapshot = JSON.stringify(input);
+	sortFoldersByRecent(input, new Map([['zoo', 9]]));
+	assert.equal(JSON.stringify(input), snapshot);
+	const odd = [{ id: 'o', parentId: 'ghost', title: 'O', createdTime: 3 }, { id: 'a', parentId: 'b', title: 'A', createdTime: 1 }, { id: 'b', parentId: 'a', title: 'B', createdTime: 2 }];
+	const out = sortFoldersByRecent(odd, null);
+	assert.deepEqual(out.map(f => f.id).sort(), ['a', 'b', 'o']);
+	assert.deepEqual(sortFoldersByRecent(null, null), []);
+});
+
+test('inAlphabeticalOrder restores the incoming order after a recent sort, and leaves other lists alone', () => {
+	const alpha = alphaList();
+	const recent = sortFoldersByRecent(alpha, new Map([['zoo', 99]]));
+	assert.notDeepEqual(recent.map(f => f.id), alpha.map(f => f.id));
+	assert.deepEqual(inAlphabeticalOrder(recent).map(f => f.id), alpha.map(f => f.id));
+	assert.equal(inAlphabeticalOrder(alpha), alpha, 'a list that was never reordered is returned as is');
+	assert.deepEqual(inAlphabeticalOrder([]), []);
+	assert.equal(inAlphabeticalOrder(null) === null || Array.isArray(inAlphabeticalOrder(null)), true);
+});
+
+test('normalizeFolderSort only accepts the two known values', () => {
+	assert.equal(normalizeFolderSort('recent'), 'recent');
+	assert.equal(normalizeFolderSort('alpha'), 'alpha');
+	for (const v of [undefined, null, '', 'RECENT', 'newest', 1]) assert.equal(normalizeFolderSort(v), 'alpha');
+});

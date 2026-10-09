@@ -500,7 +500,10 @@ function navLoadFolderNotes(el){
 	// Nothing directly inside (a notebook that only holds sub-notebooks): skip the request.
 	if(el.getAttribute('data-note-count')==='0')return;
 	notesDiv.setAttribute('data-loaded','1');
-	htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(notesDiv.getAttribute('data-folder-id')),{target:notesDiv,swap:'innerHTML'});
+	// Tell the server which note is open so its row is highlighted when the nav is re-rendered
+	// (e.g. after switching notebook order), not just when it is clicked.
+	var activeNote=(typeof _activeEditorNoteId==='function')?_activeEditorNoteId():'';
+	htmx.ajax('GET','/fragments/folder-notes?folderId='+encodeURIComponent(notesDiv.getAttribute('data-folder-id'))+(activeNote?'&selectedNoteId='+encodeURIComponent(activeNote):''),{target:notesDiv,swap:'innerHTML'});
 }
 // After a notebook opens, notebooks inside it that were already open (saved state)
 // become visible and need their notes.
@@ -703,6 +706,23 @@ document.addEventListener('dragover',navDragOver);
 document.addEventListener('dragleave',navDragLeave);
 document.addEventListener('drop',navDrop);
 document.addEventListener('dragend',navDragEnd);
+// ---- Notebook order: A-Z <-> most recently updated -------------------------------
+// The order is a per-user setting rendered by the server (sidebar and mobile folders list);
+// pickers stay alphabetical. This is the quick switch next to the notebooks. <body
+// data-folder-sort> drives which label the button shows.
+function toggleFolderSort(){
+	var cur=document.body.getAttribute('data-folder-sort')==='recent'?'recent':'alpha';
+	var next=cur==='recent'?'alpha':'recent';
+	function apply(value){document.body.setAttribute('data-folder-sort',value);try{_cfg.folderSort=value}catch(_e){}}
+	apply(next);
+	var selectedEl=document.querySelector('#nav-panel .nav-folder[data-selected="1"]');
+	var selectedId=selectedEl?selectedEl.getAttribute('data-folder-id'):'';
+	return fetch('/api/web/settings',{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({folderSort:next})}).then(function(r){
+		if(r.status===401){window.location.assign('/logout');return}
+		if(!r.ok)throw new Error('save failed');
+		_afterFolderChange('',selectedId);
+	}).catch(function(){apply(cur);alert('Could not change the notebook order')});
+}
 function getTA(){return queryActiveEditor('#note-body')}
 function getPV(){var pv=queryActiveEditor('#note-preview');return pv&&pv.style.display!=='none'?pv:null}
 function isMarkdownVisible(){var host=queryActiveEditor('#cm-host');return !!(host&&host.style.display!=='none')}
@@ -7125,6 +7145,7 @@ async function submitNewFolderModal(event){
 	window.closeNav=closeNav;
 	window.toggleNav=toggleNav;
 	window.toggleNavFolder=toggleNavFolder;
+	window.toggleFolderSort=toggleFolderSort;
 	window.newSubfolderFromMenu=newSubfolderFromMenu;
 	window.moveFolderFromMenu=moveFolderFromMenu;
 	window.closeMoveFolderModal=closeMoveFolderModal;

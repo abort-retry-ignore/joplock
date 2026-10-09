@@ -282,6 +282,26 @@ const createItemService = database => {
 			return counts;
 		},
 
+		// When each notebook last had note activity: Map(folderId -> ms), over live, non-conflict
+		// notes the user can access. Uses the note's user_updated_time (what Joplin's own
+		// "updated date" notebook sort uses; Joplock only moves it on a real edit), falling back
+		// to the row's updated time for notes that have none. Only needed for the "most recent"
+		// notebook order.
+		async folderActivityByUserId(userId) {
+			const result = await database.query(`
+				SELECT jop_parent_id AS folder_id,
+					MAX(COALESCE(NULLIF((convert_from(content, 'UTF8')::json->>'user_updated_time')::bigint, 0), jop_updated_time, 0)) AS latest
+				FROM items
+				WHERE jop_type = $2
+				  AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) = 0${conflictFilterSql()}
+				  AND ${itemAccessExpression()}
+				GROUP BY jop_parent_id
+			`, [userId, MODEL_TYPE_NOTE]);
+			const activity = new Map();
+			for (const row of result.rows) activity.set(row.folder_id, Number(row.latest || 0));
+			return activity;
+		},
+
 		// Paginated note headers for one folder (or virtual __all__ / __trash__).
 		async noteHeadersByFolder(userId, folderId, limit = NOTE_PAGE_SIZE, offset = 0) {
 			let where = `WHERE jop_type = $2${conflictFilterSql()} AND ${itemAccessExpression()}`;

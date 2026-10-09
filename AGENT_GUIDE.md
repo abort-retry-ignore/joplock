@@ -147,6 +147,16 @@ Drag a notebook onto another to nest it; drop it on the **"Drop here to move to 
 - Handlers (`navDragStart/Over/Leave/Drop/End`, `navDropAllowed`, `navMoveFolder` in `public/app.js`) are **delegated on `document`**, so they survive htmx re-renders. `dragenter` and `dragover` share one handler. `dragleave` must be judged by position when `relatedTarget` is null (Chromium fires it, with a null target, when the pointer crosses a row's own child elements); clearing the highlight on every `dragleave` made it flicker off. Visual changes happen a tick after `dragstart` because changing layout synchronously there cancels the drag in some browsers.
 - Desktop only: touch has no HTML5 drag-and-drop, mobile uses the "Move notebook..." sheet. Real-mouse coverage: `playwright-tests/nested-folders.spec.js` ("drag and drop"); pure rules and lifecycle: `tests/nestedFoldersUi.test.js`.
 
+### Notebook order (A-Z / most recently updated)
+
+Per-user setting `folderSort` (`alpha` default | `recent`; Settings -> Appearance, plus a quick switch in the sidebar header `#nav-sort-btn` and the mobile folders header `#mobile-sort-btn`, both calling `toggleFolderSort()`; `<body data-folder-sort>` picks which label shows).
+
+- **What "recent" means** (`sortFoldersByRecent` in `app/items/folderTree.js`, data from `itemService.folderActivityByUserId`): a notebook's rank is the newest note activity **anywhere in its subtree** (so a parent rises with its busiest child, like Joplin's own "updated date" notebook sort), using the note's `user_updated_time` (falls back to the row time) and the notebook's creation time when nothing is in it. Trashed and conflict notes do not count. Because `user_updated_time` only moves on a real title/body edit (see Joplin Field Fidelity), **moving or trashing a note does not reorder notebooks**.
+- **Parents always show.** The order is applied to the FLAT list before the tree is built, so reordering can never separate a notebook from its parent; siblings simply sort by their own rolled-up recency, ties keep alphabetical order.
+- **Where it applies:** the sidebar (`navData` -> `orderFoldersForUser`) and the mobile folders screen. **Pickers are always alphabetical** (editor notebook `<select>`, move / new-notebook dialogs): `sortFoldersByRecent` tags each folder with `alphaRank` and `inAlphabeticalOrder()` restores it, so the database's collation is never re-derived. The activity query only runs for users who chose "recent".
+- Switching order re-renders the nav via `/fragments/nav`; lazily loaded note lists now receive the open note's id (`navLoadFolderNotes`) so it stays highlighted.
+- Tests: `tests/folderTree.test.js` (ordering), `tests/folderSort.test.js` (SQL, setting, routes, pickers), `playwright-tests/folder-sort.spec.js`.
+
 ### Mobile contract
 
 - The folders screen is an **inline expandable tree** (not drill-down), so `mobileBack` and the 3-screen stack are untouched. Rows carry `data-folder-id/-parent-id/-depth` and `--m-depth`; rows below the top level render `hidden` and `mobileApplyFolderTree()` reveals them from `localStorage['joplock-mobile-folders']` (sub-notebooks shown; separate from the desktop key). `.mobile-folder-row[hidden]` needs its own CSS rule because `display:flex` beats the UA `[hidden]`.
@@ -674,6 +684,7 @@ Per-user (`joplock_settings.settings` JSONB; allowlist for `PUT /api/web/setting
 - `noteOpenMode` — `markdown` (default) | `preview`
 - `resumeLastNote`, `lastNoteId`, `lastNoteFolderId` — last-opened note resumption
 - `dateFormat`, `datetimeFormat`
+- `folderSort` — `alpha` (default) | `recent`; notebook order in the sidebar and mobile folders list (see "Notebook order")
 - `uiMode` — `auto` (default) | `mobile` | `desktop`; `auto` picks the mobile shell at/below the shell breakpoint, the explicit values add `force-mobile`/`force-desktop` to `<body>`
 - `liveSearch`, `highlightActiveLine` (CM6 caret-line highlight), `confirmTrash`
 - `autoLogout`, `autoLogoutMinutes`
@@ -824,6 +835,7 @@ If a UI action appears broken, check:
 - Keep changes minimal
 - Preserve sidecar/frontend boundary
 - `public/app.js` is DOM-contract fragile; validate escaping-heavy changes and stable IDs carefully
+- **Inline handlers only see what `public/app.js` assigns to `window`.** A template `onclick="foo()"` needs `window.foo=foo;`; a function that works in a unit test can still be "not defined" in the browser. `tests/inlineHandlersExposed.test.js` scans every inline handler the templates emit and fails if a called function is not exposed
 - The code modal lives in `loggedInLayout`, not inside `navigationFragment` or `editorFragment`, so it survives htmx OOB swaps
 - Be careful with checkbox text handling, `\n`, regex escaping, and DOM-to-markdown round trips
 - Keep standalone repo paths/docs/scripts correct; avoid reintroducing monorepo assumptions
@@ -1008,6 +1020,7 @@ Recommended inner loop:
 
 ## Recently Completed Work
 
+- **Notebook drag-and-drop (desktop) and notebook order (A-Z / most recent)**: see "Drag and drop (desktop)" and "Notebook order" under Nested Notebooks. Also added a guard test for inline template handlers that are not exposed on `window`.
 - **Joplin field fidelity + compatibility harness**: pass-through serializer, stored `fields` on every item, HTML notes rendered read-only, Joplin-E2EE items as locked placeholders, conflict copies hidden, share id read from `jop_share_id`, OCR fields on uploads; opt-in real-client tests (`npm run test:joplin`). Also fixed along the way: **restoring a note from the trash returned 404 for every trashed note** (the ownership lookup ignored trashed notes), and **editing a shared note twice in Joplock silently unshared it**. See "Joplin Field Fidelity".
 - **Nested notebooks**: Joplin's `parent_id` hierarchy now renders as a tree on desktop (multi-expand, rolled-up counts, ancestors open) and mobile (inline expandable tree), with create-under-parent, move (tree picker), delete-promotes, whole-subtree sharing, and vaults as top-level leaves. `app/items/folderTree.js` + `app/items/folderOps.js`. `updateFolder` also stopped resetting `created_time`/`icon`.
 - **Rich-mode uploads now insert through the live editor**: uploading from the modal or the older `#file-upload` picker in rendered mode used to target the hidden `#note-body` textarea, which TinyMCE's own lazy sync overwrote before the debounced save fired — the attachment silently vanished. `_captureUploadInsertTarget()` now captures a TinyMCE caret range (`{mode:'tinymce', rng}`) when the host is visible and the editor is not read-only, and `_insertResourceIntoTinyMCEFromMarkdown()` rebuilds the `<img>`/`<a>` from the saved `![](:/id)` markdown, inserts it with the same `_tinyMCEBlockAttachmentHtml()` padding as drag-drop, and syncs `#note-body` immediately. All three rich-mode insert paths call `_endTinyMCEPostLoadWindow()` so the insert is treated as a real edit instead of post-load echo (otherwise the reconcile re-baselines the hash and the save sees "unchanged"). Read-only (mobile rendered) keeps the textarea/CM fallback. See "Upload behavior" above.

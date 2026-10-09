@@ -10,7 +10,7 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20261009notebookdnd';
+const ASSET_VERSION = '20261009notebooksort';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';
@@ -116,6 +116,7 @@ const layoutPage = (options = {}) => {
 	window._joplockConfig={
 		debug:${debug ? 'true' : 'false'},
 		noteOpenMode:${JSON.stringify(settings.noteOpenMode || 'markdown')},
+		folderSort:${JSON.stringify(settings.folderSort === 'recent' ? 'recent' : 'alpha')},
 		mobileStartup:${JSON.stringify(mobileStartup || null)},
 		theme:${JSON.stringify(settings.theme || 'earth')},
 		dateFormat:${JSON.stringify(String(settings.dateFormat || 'MMM-DD-YY'))},
@@ -138,7 +139,7 @@ const layoutPage = (options = {}) => {
 	<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 	<title>Joplock</title>
 </head>
-<body class="app-shell theme-${escapeHtml(settings.theme || 'earth')}${noteFontFamilyCSS(settings)==="'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace"?' note-body-monospace':''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;" data-newline-behavior="${escapeHtml(settings.newlineBehavior || 'linebreak')}">
+<body class="app-shell theme-${escapeHtml(settings.theme || 'earth')}${noteFontFamilyCSS(settings)==="'Cascadia Mono','SF Mono',Consolas,'Liberation Mono',Menlo,monospace"?' note-body-monospace':''}${settings.uiMode === 'mobile' ? ' force-mobile' : ''}${settings.uiMode === 'desktop' ? ' force-desktop' : ''}" style="--font-family-note:${noteFontFamilyCSS(settings)};--font-size-note:${escapeHtml(settings.noteFontSize || 15)}px;--font-size-note-mobile:${escapeHtml(settings.mobileNoteFontSize || ((settings.noteFontSize || 15) + 2))}px;--font-size-code:${escapeHtml(settings.codeFontSize || 12)}px;--font-size-markdown:${escapeHtml(settings.markdownFontSize || 14)}px;" data-newline-behavior="${escapeHtml(settings.newlineBehavior || 'linebreak')}" data-folder-sort="${settings.folderSort === 'recent' ? 'recent' : 'alpha'}">
 	<div id="note-loading-overlay" aria-hidden="true">
 		<div class="note-loading-ring"></div>
 		<div class="note-loading-label">Loading note…</div>
@@ -162,6 +163,7 @@ const layoutPage = (options = {}) => {
 		<div class="mobile-screen" id="mobile-folders-screen">
 			<div class="mobile-header" id="mobile-folders-header">
 				<span class="mobile-header-title">Notes</span>
+				<button class="mobile-header-btn mobile-sort-btn" id="mobile-sort-btn" onclick="toggleFolderSort()" title="Notebook order: A&ndash;Z / most recent" aria-label="Switch notebook order"><span class="sort-on-alpha">A&ndash;Z</span><span class="sort-on-recent">&#128339;</span></button>
 				<button class="mobile-header-btn" onclick="mobileSearchOpen()" title="Search">&#128269;</button>
 				<a href="/settings" class="mobile-header-btn" title="Settings">&#9881;</a>
 				<a href="/logout" class="mobile-header-btn" title="Logout" onclick="return confirmLogout(event)">&#8618;</a>

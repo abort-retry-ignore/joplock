@@ -12,7 +12,7 @@ const {
 	svgLockOpen,
 } = require('./shared');
 const { renderHtmlNote } = require('../htmlNoteRenderer');
-const { buildFolderTree, flattenFolderTree, rollupCounts, folderOptionLabel, folderPathString } = require('../items/folderTree');
+const { buildFolderTree, flattenFolderTree, rollupCounts, folderOptionLabel, folderPathString, inAlphabeticalOrder } = require('../items/folderTree');
 
 
 const noteDomId = (noteId, contextFolderId = '') => {
@@ -23,10 +23,11 @@ const noteDomId = (noteId, contextFolderId = '') => {
 const realNotebookOptions = folders => (folders || [])
 	.filter(f => f.id !== trashFolderId && !f.isVirtualAllNotes);
 
-// <option> markup for the notebook pickers: real notebooks only, in tree order,
+// <option> markup for the notebook pickers: real notebooks only, in tree order (always
+// alphabetical siblings, whatever order the sidebar uses),
 // with nesting shown as indentation (an <option> cannot nest) and the full path
 // in the tooltip so same-named notebooks stay distinguishable.
-const notebookOptionsHtml = (folders, selectedId = null) => flattenFolderTree(realNotebookOptions(folders)).map(f =>
+const notebookOptionsHtml = (folders, selectedId = null) => flattenFolderTree(inAlphabeticalOrder(realNotebookOptions(folders))).map(f =>
 	`<option value="${escapeHtml(f.id)}"${selectedId !== null && f.id === selectedId ? ' selected' : ''}${f.isVault ? ' data-is-vault="1"' : ''} data-depth="${f.depth}" title="${escapeHtml(folderPathString(f.path))}">${escapeHtml(folderOptionLabel(f))}</option>`,
 ).join('');
 
@@ -256,6 +257,8 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 				onkeydown="if(event.key==='Escape'){event.preventDefault();this.value='';htmx.trigger(this,'search-submit')}" />
 			<button type="submit" class="btn-icon-sm nav-search-btn" title="Search">&#128269;</button>${hasQuery ? `<button type="button" class="btn-icon-sm nav-search-clear" title="Clear search" onclick="var inp=document.getElementById('nav-search');inp.value='';htmx.trigger(inp,'search-submit')">&#10005;</button>` : ''}
 		</form>
+		<button type="button" class="btn btn-sm nav-sort-btn" id="nav-sort-btn" title="Notebook order: click to switch between A&ndash;Z and most recently updated" aria-label="Switch notebook order"
+			onclick="toggleFolderSort()"><span class="sort-on-alpha">A&ndash;Z</span><span class="sort-on-recent">Recent</span></button>
 		<button class="btn btn-sm" title="New notebook"
 			onclick="event.preventDefault();openNewFolderModal()">+</button>
 	</div><div class="nav-items">${isSearchMode ? '' : '<div class="nav-drop-root" id="nav-drop-root">Drop here to move to the top level</div>'}${folderSections || '<div class="empty-hint">No notebooks yet</div>'}</div>

@@ -156,6 +156,47 @@ const canNestUnder = (folders, folderId, targetId) => {
 	return { ok: true, reason: '' };
 };
 
+// ── Ordering ────────────────────────────────────────────────────────────────
+// Sibling order always comes from the input list, so "how notebooks are sorted" is
+// decided by sorting the FLAT list before it is turned into a tree. Because the tree is
+// built from parent ids, reordering can never move a notebook away from its parent: a
+// notebook is always drawn under its parent, whatever the order.
+
+// "Most recent": newest first, by the latest note activity anywhere in the notebook's
+// subtree (so a parent rises with its busiest child, like Joplin's own "updated date"
+// folder sort), falling back to the notebook's creation time when nothing is in it.
+//   activity: Map(folderId -> ms of the latest note directly in that notebook)
+// Stable: notebooks with the same recency keep the incoming (alphabetical) order. Each
+// returned folder remembers its incoming position as `alphaRank` so pickers can restore
+// alphabetical order without re-deriving the database's collation (inAlphabeticalOrder).
+const sortFoldersByRecent = (folders, activity) => {
+	const list = (folders || []).filter(f => f && f.id);
+	const acts = activity || new Map();
+	const latest = new Map();
+	const visit = node => {
+		let value = Math.max(Number(acts.get(node.id) || 0), Number(node.folder.createdTime || 0));
+		for (const child of node.children) value = Math.max(value, visit(child));
+		latest.set(node.id, value);
+		return value;
+	};
+	for (const root of buildFolderTree(list)) visit(root);
+	return list
+		.map((folder, index) => ({ folder: Object.assign({}, folder, { alphaRank: index }), index }))
+		.sort((a, b) => (latest.get(b.folder.id) - latest.get(a.folder.id)) || (a.index - b.index))
+		.map(entry => entry.folder);
+};
+
+// Undo sortFoldersByRecent. Lists that were never reordered (no alphaRank) are returned
+// as they are: they are already alphabetical.
+const inAlphabeticalOrder = folders => {
+	const list = folders || [];
+	if (!list.length || !list.every(f => f && Number.isFinite(f.alphaRank))) return list;
+	return list.slice().sort((a, b) => a.alphaRank - b.alphaRank);
+};
+
+const FOLDER_SORTS = ['alpha', 'recent'];
+const normalizeFolderSort = value => (value === 'recent' ? 'recent' : 'alpha');
+
 // "Work / Projects / Alpha"
 const folderPathString = (entryOrPath, separator = ' / ') => {
 	const path = Array.isArray(entryOrPath) ? entryOrPath : (entryOrPath && entryOrPath.path) || [];
@@ -184,4 +225,8 @@ module.exports = {
 	canNestUnder,
 	folderPathString,
 	folderOptionLabel,
+	sortFoldersByRecent,
+	inAlphabeticalOrder,
+	FOLDER_SORTS,
+	normalizeFolderSort,
 };

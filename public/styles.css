@@ -767,6 +767,16 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 
 .nav-folder-children { display: block; }
 
+/* Notebook order switch: shows the CURRENT order; <body data-folder-sort> decides which label. */
+.sort-on-recent { display: none; }
+body[data-folder-sort="recent"] .sort-on-alpha { display: none; }
+body[data-folder-sort="recent"] .sort-on-recent { display: inline; }
+/* The header is a fixed-width flex row: let the search box shrink so the switch and the "+" always fit. */
+.nav-search-form { min-width: 0; }
+.nav-search-form .notelist-search { min-width: 0; flex: 1 1 auto; }
+.nav-sort-btn { flex-shrink: 0; min-width: 40px; font-size: 11px; padding-left: 5px; padding-right: 5px; white-space: nowrap; }
+.mobile-sort-btn { font-size: 13px; font-weight: 600; min-width: 44px; }
+
 /* Drag a notebook onto another to nest it (desktop). */
 .nav-folder.nav-dragging > .nav-folder-row { opacity: 0.45; }
 .nav-folder-row.nav-drop-target {

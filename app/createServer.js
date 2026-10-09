@@ -25,6 +25,7 @@ const routeFragments = require('./routes/fragments');
 const routeMobile = require('./routes/mobile');
 const routeShares = require('./routes/shares');
 const { createFolderOps } = require('./items/folderOps');
+const { sortFoldersByRecent } = require('./items/folderTree');
 const routeApi = require('./routes/api');
 const { handleExportDocx, handleExportPdf, handleExportHtml } = routeApi;
 
@@ -118,12 +119,28 @@ const createServer = options => {
 		return { error: null, user };
 	};
 
+	// Notebook order for the lists people browse (sidebar, mobile folders screen). "Most
+	// recent" is a per-user setting; the default is the alphabetical order the database
+	// returns. Pickers (editor notebook select, move / new-notebook dialogs) always use
+	// the alphabetical order, so reordering here never affects them (see inAlphabeticalOrder).
+	const orderFoldersForUser = async (userId, folders, knownSettings) => {
+		if (!folders || !folders.length) return folders;
+		let settings = knownSettings;
+		if (!settings && settingsService) settings = await settingsService.settingsByUserId(userId).catch(() => null);
+		if (!settings || settings.folderSort !== 'recent') return folders;
+		const activity = typeof itemService.folderActivityByUserId === 'function'
+			? await itemService.folderActivityByUserId(userId).catch(() => new Map())
+			: new Map();
+		return sortFoldersByRecent(folders, activity);
+	};
+
 		const navData = async userId => {
-		const [folders, counts, vaultIds] = await Promise.all([
+		const [rawFolders, counts, vaultIds] = await Promise.all([
 			itemService.foldersByUserId(userId),
 			itemService.folderNoteCountsByUserId(userId),
 			vaultService ? vaultService.getVaultFolderIdSet(userId) : Promise.resolve(new Set()),
 		]);
+		const folders = await orderFoldersForUser(userId, rawFolders);
 		// Mark vault folders
 		const markedFolders = folders.map(f => ({ ...f, isVault: !!(f.isVault || vaultIds.has(f.id)) }));
 		const allFolders = [allNotesFolder(counts.get('__all__') || 0)].concat(markedFolders, [trashFolder(counts.get('__trash__') || 0)]);
@@ -346,6 +363,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 			templates,
 			authenticatedUser,
 			navData,
+			orderFoldersForUser,
 			folderOps,
 			userSettings,
 			saveLastNoteState,

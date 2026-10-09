@@ -293,3 +293,190 @@ test('mobile tree: mobileExpandFolderState opens the notebook and its ancestors'
 	window.mobileApplyFolderTree();
 	assert.ok(visible(doc, 'alpha'));
 });
+
+// ─── Drag and drop (desktop) ─────────────────────────────────────────────────
+
+test('only ordinary notebooks are draggable/droppable; the top-level strip is absent in search mode', () => {
+	const list = [
+		{ id: '__all_notes__', parentId: '', title: 'All Notes', isVirtualAllNotes: true, noteCount: 1 },
+		{ id: 'a', parentId: '', title: 'A' },
+		{ id: 'v', parentId: '', title: 'V', isVault: true },
+		{ id: 'e', parentId: '', title: 'E', e2ee: true },
+		{ id: 'de1e7ede1e7ede1e7ede1e7ede1e7ede', parentId: '', title: 'Trash', noteCount: 0 },
+	];
+	const doc = new JSDOM(`<body>${navigationFragment(list, new Map(), '', '')}</body>`).window.document;
+	const dnd = [...doc.querySelectorAll('.nav-folder-row[data-dnd="1"]')].map(r => r.closest('.nav-folder').dataset.folderId);
+	assert.deepEqual(dnd, ['a']);
+	assert.equal(doc.querySelectorAll('.nav-folder-row[draggable="true"]').length, 1);
+	assert.ok(doc.getElementById('nav-drop-root'));
+	const search = new JSDOM(`<body>${navigationFragment(list, [], '', '', 'q')}</body>`).window.document;
+	assert.equal(search.getElementById('nav-drop-root'), null);
+});
+
+const dragCtx = () => {
+	const dom = new JSDOM(`<body><div id="nav-panel">${navigationFragment(folders, counts, '', '')}</div></body>`, { url: 'http://localhost/' });
+	const { window } = dom;
+	const calls = { requests: [], expanded: [], refreshed: [], toggled: [], alerts: [] };
+	const timers = [];
+	const ctx = vm.createContext({
+		window, document: window.document, console,
+		isMobileShellMode: () => false,
+		_folderRequest: (m, u, b) => { calls.requests.push([m, u, b]); return Promise.resolve(''); },
+		_expandFolderState: id => calls.expanded.push(id),
+		_afterFolderChange: (o, id) => calls.refreshed.push([o, id]),
+		toggleNavFolder: (id, f) => calls.toggled.push([id, f]),
+		alert: m => calls.alerts.push(m),
+		setTimeout: (fn, ms) => { timers.push({ fn, ms, live: true }); return timers.length; },
+		clearTimeout: id => { if (timers[id - 1]) timers[id - 1].live = false; },
+	});
+	vm.runInContext('var _navDrag=null;var _NAV_DRAG_EXPAND_MS=700;', ctx);
+	for (const name of ['_navDragClearMarks', 'navDropAllowed', 'navMoveFolder', 'navDragStart', 'navDragOver', 'navDragLeave', 'navDrop', 'navDragEnd']) vm.runInContext(extractFn(name), ctx);
+	const doc = window.document;
+	const row = id => doc.querySelector(`.nav-folder[data-folder-id="${id}"] > .nav-folder-row`);
+	const runTimers = () => { for (const t of timers) if (t.live) { t.live = false; t.fn(); } };
+	const ev = (target, extra = {}) => { const e = { target, prevented: false, preventDefault() { this.prevented = true; }, dataTransfer: { setData() {}, dropEffect: '' }, ...extra }; return e; };
+	return { ctx, doc, calls, row, runTimers, ev, timers };
+};
+
+test('navDropAllowed: not itself, not its own subtree, not where it already is', () => {
+	const { ctx, doc } = dragCtx();
+	const el = id => doc.querySelector(`.nav-folder[data-folder-id="${id}"]`);
+	const drag = id => ({ id, el: el(id), parentId: el(id).dataset.parentId });
+	const allowed = (src, target) => vm.runInContext('navDropAllowed', ctx)(drag(src), el(target));
+	assert.equal(allowed('proj', 'home'), true);
+	assert.equal(allowed('proj', 'proj'), false, 'itself');
+	assert.equal(allowed('work', 'alpha'), false, 'a descendant');
+	assert.equal(allowed('work', 'proj'), false, 'a descendant');
+	assert.equal(allowed('proj', 'work'), false, 'already its parent: nothing to do');
+	assert.equal(allowed('alpha', 'work'), true, 'up a level is fine');
+	assert.equal(allowed('home', 'alpha'), true, 'a top-level notebook can go deep');
+});
+
+test('dragging a nested notebook onto another moves it; the drop is accepted only on valid targets', () => {
+	const { ctx, doc, calls, row, runTimers, ev } = dragCtx();
+	const fn = name => vm.runInContext(name, ctx);
+	fn('navDragStart')(ev(row('proj')));
+	runTimers();
+	assert.ok(doc.querySelector('.nav-folder[data-folder-id="proj"]').classList.contains('nav-dragging'));
+	assert.ok(doc.body.classList.contains('nav-dragging-folder') && doc.body.classList.contains('nav-drag-nested'));
+
+	const bad = ev(row('alpha'));
+	fn('navDragOver')(bad);
+	assert.equal(bad.prevented, false, 'a descendant is not a drop target');
+	assert.equal(bad.dataTransfer.dropEffect, 'none');
+	assert.ok(!row('alpha').classList.contains('nav-drop-target'));
+
+	const good = ev(row('home'));
+	fn('navDragOver')(good);
+	assert.equal(good.prevented, true);
+	assert.equal(good.dataTransfer.dropEffect, 'move');
+	assert.ok(row('home').classList.contains('nav-drop-target'));
+
+	const drop = ev(row('home'));
+	fn('navDrop')(drop);
+	assert.equal(drop.prevented, true);
+	assert.deepEqual(calls.requests, [['PUT', '/fragments/folders/proj', 'parentId=home']]);
+	assert.ok(!doc.body.classList.contains('nav-dragging-folder'), 'drag state is cleaned up on drop');
+	assert.ok(!row('home').classList.contains('nav-drop-target'));
+});
+
+test('the top-level strip moves a nested notebook to the top, and is not offered to a top-level one', () => {
+	const { ctx, doc, calls, row, runTimers, ev } = dragCtx();
+	const fn = name => vm.runInContext(name, ctx);
+	const strip = doc.getElementById('nav-drop-root');
+
+	fn('navDragStart')(ev(row('alpha')));
+	runTimers();
+	const over = ev(strip);
+	fn('navDragOver')(over);
+	assert.equal(over.prevented, true);
+	assert.ok(strip.classList.contains('nav-drop-active'));
+	fn('navDrop')(ev(strip));
+	assert.deepEqual(calls.requests, [['PUT', '/fragments/folders/alpha', 'parentId=']]);
+
+	fn('navDragStart')(ev(row('home')));
+	runTimers();
+	assert.ok(!doc.body.classList.contains('nav-drag-nested'), 'strip hidden: it is already top level');
+	const noop = ev(strip);
+	fn('navDragOver')(noop);
+	assert.equal(noop.prevented, false);
+	fn('navDrop')(ev(strip));
+	assert.equal(calls.requests.length, 1, 'no request for a no-op');
+	fn('navDragEnd')();
+});
+
+test('hovering a closed notebook with sub-notebooks opens it after a delay; leaving cancels', () => {
+	const { ctx, calls, row, runTimers, ev, timers } = dragCtx();
+	const fn = name => vm.runInContext(name, ctx);
+	fn('navDragStart')(ev(row('home')));
+	runTimers();
+	fn('navDragOver')(ev(row('work'))); // work is collapsed and has proj below it
+	const pending = timers.filter(t => t.live && t.ms === 700);
+	assert.equal(pending.length, 1);
+	runTimers();
+	assert.deepEqual(calls.toggled, [['work', true]]);
+
+	calls.toggled.length = 0;
+	fn('navDragOver')(ev(row('work')));
+	fn('navDragOver')(ev(row('home')));  // moved away before the delay
+	runTimers();
+	assert.deepEqual(calls.toggled, [], 'no expansion once the pointer left');
+	fn('navDragEnd')();
+});
+
+test('drag and drop is ignored for non-notebook rows, in the mobile shell, and without a drag in progress', () => {
+	const a = dragCtx();
+	const startOnAll = a.ev(a.row('__all_notes__'));
+	vm.runInContext('navDragStart', a.ctx)(startOnAll);
+	assert.equal(vm.runInContext('_navDrag', a.ctx), null, 'All Notes cannot be dragged');
+	const overIdle = a.ev(a.row('home'));
+	vm.runInContext('navDragOver', a.ctx)(overIdle);
+	assert.equal(overIdle.prevented, false);
+
+	const m = dragCtx();
+	vm.runInContext('isMobileShellMode = function(){return true}', m.ctx);
+	vm.runInContext('navDragStart', m.ctx)(m.ev(m.row('proj')));
+	assert.equal(vm.runInContext('_navDrag', m.ctx), null);
+});
+
+test('a failed move shows the server\'s reason instead of failing silently', async () => {
+	const { ctx, calls } = dragCtx();
+	vm.runInContext('_folderRequest = function(){return Promise.reject(new Error("Stop sharing this notebook before moving it"))}', ctx);
+	await vm.runInContext('navMoveFolder', ctx)('proj', 'home');
+	assert.deepEqual(calls.alerts, ['Stop sharing this notebook before moving it']);
+	assert.deepEqual(calls.refreshed, []);
+});
+
+test('dragleave only clears the highlight when the pointer really left the target', () => {
+	const { ctx, doc, row, runTimers, ev } = dragCtx();
+	const fn = name => vm.runInContext(name, ctx);
+	fn('navDragStart')(ev(row('proj')));
+	runTimers();
+	const target = row('home');
+	fn('navDragOver')(ev(target));
+	assert.ok(target.classList.contains('nav-drop-target'));
+	target.getBoundingClientRect = () => ({ left: 0, right: 200, top: 100, bottom: 130 });
+
+	// to another element inside the nav: kept (the next dragenter/dragover decides)
+	fn('navDragLeave')(ev(target, { relatedTarget: doc.querySelector('#nav-panel .nav-folder-title') }));
+	assert.ok(target.classList.contains('nav-drop-target'));
+	// child boundary crossing with a null relatedTarget, pointer still inside the row: kept
+	fn('navDragLeave')(ev(target, { relatedTarget: null, clientX: 50, clientY: 115 }));
+	assert.ok(target.classList.contains('nav-drop-target'), 'still inside the row');
+	// really left (pointer outside the row, nothing in the nav under it): cleared
+	fn('navDragLeave')(ev(target, { relatedTarget: null, clientX: 500, clientY: 115 }));
+	assert.ok(!target.classList.contains('nav-drop-target'));
+	fn('navDragEnd')();
+});
+
+test('dragenter marks the target immediately (not only on the delayed dragover)', () => {
+	const { doc, row, ev, ctx, runTimers } = dragCtx();
+	vm.runInContext('navDragStart', ctx)(ev(row('proj')));
+	runTimers();
+	const e = ev(row('home'));
+	vm.runInContext('navDragOver', ctx)(e); // dragenter is wired to the same handler
+	assert.equal(e.prevented, true);
+	assert.ok(row('home').classList.contains('nav-drop-target'));
+	void doc;
+	assert.ok(/addEventListener\('dragenter',navDragOver\)/.test(fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8')));
+});

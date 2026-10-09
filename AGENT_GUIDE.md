@@ -139,6 +139,14 @@ Joplin notebooks nest via the folder's `parent_id`. Joplock renders, creates, mo
 - **Multi-expand, no accordion.** Any number of notebooks can be open. Opening one also opens the notebooks above it (`toggleNavFolder`). `initNavPanel` trusts saved state; with no saved state the selected notebook **and its ancestors** open. Notes are lazy-loaded only for notebooks that are open **and visible** (`navFolderVisible`); expanding a parent loads already-open descendants (`navLoadOpenDescendants`). A notebook with 0 direct notes never requests a notes page.
 - Saved state is `localStorage['joplock-nav-folders']` (notes-list open).
 
+### Drag and drop (desktop)
+
+Drag a notebook onto another to nest it; drop it on the **"Drop here to move to the top level"** strip (only shown while dragging a *nested* notebook) to un-nest it. Hovering a closed notebook that has sub-notebooks for 700 ms opens it so deeper targets are reachable.
+
+- The template decides who takes part: `navigationFragment` puts `draggable="true" data-dnd="1"` on the row of ordinary notebooks only (not All Notes, Trash, vaults or Joplin-encrypted notebooks). The script reads those attributes; the **server re-validates every move** (`PUT /fragments/folders/:id`), and a refusal is shown with `alert()` (e.g. "Stop sharing this notebook before moving it into another notebook").
+- Handlers (`navDragStart/Over/Leave/Drop/End`, `navDropAllowed`, `navMoveFolder` in `public/app.js`) are **delegated on `document`**, so they survive htmx re-renders. `dragenter` and `dragover` share one handler. `dragleave` must be judged by position when `relatedTarget` is null (Chromium fires it, with a null target, when the pointer crosses a row's own child elements); clearing the highlight on every `dragleave` made it flicker off. Visual changes happen a tick after `dragstart` because changing layout synchronously there cancels the drag in some browsers.
+- Desktop only: touch has no HTML5 drag-and-drop, mobile uses the "Move notebook..." sheet. Real-mouse coverage: `playwright-tests/nested-folders.spec.js` ("drag and drop"); pure rules and lifecycle: `tests/nestedFoldersUi.test.js`.
+
 ### Mobile contract
 
 - The folders screen is an **inline expandable tree** (not drill-down), so `mobileBack` and the 3-screen stack are untouched. Rows carry `data-folder-id/-parent-id/-depth` and `--m-depth`; rows below the top level render `hidden` and `mobileApplyFolderTree()` reveals them from `localStorage['joplock-mobile-folders']` (sub-notebooks shown; separate from the desktop key). `.mobile-folder-row[hidden]` needs its own CSS rule because `display:flex` beats the UA `[hidden]`.

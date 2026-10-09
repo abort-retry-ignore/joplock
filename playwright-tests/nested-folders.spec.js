@@ -246,6 +246,117 @@ test.describe('Nested notebooks — desktop', () => {
 	});
 });
 
+// Real mouse-driven HTML5 drag and drop. The "top level" strip only exists once a drag has
+// started, so Locator.dragTo (which waits for the target first) cannot be used for it.
+const dragNotebook = async (page, fromLocator, toLocator, { hold = 0 } = {}) => {
+	await fromLocator.scrollIntoViewIfNeeded();
+	const from = await fromLocator.boundingBox();
+	await page.mouse.move(from.x + 40, from.y + from.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(from.x + 60, from.y + from.height / 2 + 8, { steps: 4 });
+	await expect(page.locator('body.nav-dragging-folder')).toHaveCount(1, { timeout: 5000 });
+	await expect(toLocator).toBeVisible();
+	await toLocator.scrollIntoViewIfNeeded();
+	const to = await toLocator.boundingBox();
+	await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+	if (hold) await page.waitForTimeout(hold);
+	await page.mouse.up();
+};
+
+test.describe('Nested notebooks — drag and drop (desktop)', () => {
+	test.beforeEach(async ({ page }, testInfo) => {
+		test.skip(testInfo.project.name !== 'desktop');
+		acceptDialogs(page);
+		await login(page);
+		await page.evaluate(() => { localStorage.removeItem('joplock-nav-folders'); localStorage.removeItem('joplock-mobile-folders'); });
+	});
+
+	test('drag a notebook onto another to nest it, onto the top-level strip to un-nest it', async ({ page }) => {
+		const base = slug('pw-nest');
+		try {
+			const ids = await seedTree(page, base);
+			await reloadUntilFolderVisible(page, ids.grand);
+			await navToggle(page, ids.parent).click();
+			await navToggle(page, ids.child).click();
+			await expect(navFolder(page, ids.grand)).toBeVisible();
+
+			// only ordinary notebooks take part
+			await expect(navRow(page, ids.sibling)).toHaveAttribute('draggable', 'true');
+			await expect(page.locator('#nav-panel .nav-folder[data-all-notes="1"] > .nav-folder-row')).not.toHaveAttribute('draggable', 'true');
+
+			// sibling -> into grand
+			await dragNotebook(page, navRow(page, ids.sibling), navRow(page, ids.grand));
+			await expect.poll(() => parentOf(page, ids.sibling)).toBe(ids.grand);
+			await expect(navFolder(page, ids.sibling)).toHaveAttribute('data-parent-id', ids.grand);
+			await expect(page.locator('body.nav-dragging-folder')).toHaveCount(0);
+
+			// ...and back to the top level through the strip
+			await expect(navFolder(page, ids.sibling)).toBeVisible();
+			await dragNotebook(page, navRow(page, ids.sibling), page.locator('#nav-drop-root'));
+			await expect.poll(() => parentOf(page, ids.sibling)).toBe('');
+		} finally {
+			await teardownTestData(page, { folderPrefixes: [base] });
+		}
+	});
+
+	test('dropping a notebook into its own descendant does nothing', async ({ page }) => {
+		const base = slug('pw-nest');
+		try {
+			const ids = await seedTree(page, base);
+			await reloadUntilFolderVisible(page, ids.grand);
+			await navToggle(page, ids.parent).click();
+			await navToggle(page, ids.child).click();
+			await expect(navFolder(page, ids.grand)).toBeVisible();
+			await dragNotebook(page, navRow(page, ids.parent), navRow(page, ids.grand));
+			await expect(page.locator('body.nav-dragging-folder')).toHaveCount(0);
+			await page.waitForTimeout(800);
+			expect(await parentOf(page, ids.parent)).toBe('');
+			expect(await parentOf(page, ids.grand)).toBe(ids.child);
+			expect(await page.locator('.nav-drop-target').count()).toBe(0);
+		} finally {
+			await teardownTestData(page, { folderPrefixes: [base] });
+		}
+	});
+
+	test('holding a dragged notebook over a closed one opens it so deeper targets are reachable', async ({ page }) => {
+		const base = slug('pw-nest');
+		try {
+			const ids = await seedTree(page, base);
+			await reloadUntilFolderVisible(page, ids.grand);
+			await expect(navFolder(page, ids.child)).toBeHidden();
+			await dragNotebook(page, navRow(page, ids.sibling), navRow(page, ids.parent), { hold: 1100 });
+			// it was dropped into `parent`, and hovering opened it so the new child is visible
+			await expect.poll(() => parentOf(page, ids.sibling)).toBe(ids.parent);
+			await expect(navFolder(page, ids.child)).toBeVisible();
+			await expect(navFolder(page, ids.sibling)).toBeVisible();
+		} finally {
+			await teardownTestData(page, { folderPrefixes: [base] });
+		}
+	});
+
+	test('the server\'s refusal is shown, not swallowed (a share root cannot be nested)', async ({ page }) => {
+		const base = slug('pw-nest');
+		let shareId = '';
+		try {
+			const a = await mkFolder(page, `${base}-a`);
+			const b = await mkFolder(page, `${base}-b`);
+			const share = await api(page, 'POST', '/api/web/shares', { notebookId: a });
+			expect(share.status, share.text).toBe(200);
+			shareId = share.data.id;
+			await reloadUntilFolderVisible(page, b);
+			const dialogs = [];
+			page.on('dialog', d => dialogs.push(d.message())); // acceptDialogs() already accepts them
+			await dragNotebook(page, navRow(page, a), navRow(page, b));
+			await expect.poll(() => dialogs.length).toBeGreaterThan(0);
+			expect(dialogs[0]).toMatch(/Stop sharing this notebook/);
+			expect(await parentOf(page, a)).toBe('');
+		} finally {
+			if (shareId) await api(page, 'DELETE', `/api/web/shares/${shareId}`);
+			await teardownTestData(page, { folderPrefixes: [base] });
+		}
+	});
+});
+
 test.describe('Nested notebooks — mobile', () => {
 	test.beforeEach(async ({ page }, testInfo) => {
 		test.skip(testInfo.project.name !== 'mobile');

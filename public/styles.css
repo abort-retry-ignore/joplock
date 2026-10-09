@@ -767,6 +767,30 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 
 .nav-folder-children { display: block; }
 
+/* Drag a notebook onto another to nest it (desktop). */
+.nav-folder.nav-dragging > .nav-folder-row { opacity: 0.45; }
+.nav-folder-row.nav-drop-target {
+	background: color-mix(in srgb, var(--accent) 22%, transparent);
+	outline: 2px solid var(--accent);
+	outline-offset: -2px;
+}
+.nav-drop-root {
+	display: none;
+	margin: 4px 8px 6px;
+	padding: 8px;
+	border: 1px dashed var(--border-focus, var(--accent));
+	border-radius: 4px;
+	font-size: 12px;
+	text-align: center;
+	color: var(--text-dim);
+}
+body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
+.nav-drop-root.nav-drop-active {
+	border-style: solid;
+	background: color-mix(in srgb, var(--accent) 22%, transparent);
+	color: var(--text);
+}
+
 .nav-folder.collapsed > .nav-folder-children { display: none; }
 
 .nav-folder-toggle {

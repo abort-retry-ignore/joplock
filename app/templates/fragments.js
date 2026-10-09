@@ -208,11 +208,16 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 			const vaultIcon = isVault ? `<button type="button" class="vault-folder-lock btn-icon-sm" data-folder-id="${escapeHtml(folderId)}" title="Lock vault" onclick="event.stopPropagation();toggleVaultLock('${escapeHtml(folderId)}')">${svgLockClosed}</button>` : '';
 			const trashIcon = isTrash ? `<button type="button" class="trash-folder-empty btn-icon-sm" title="Empty trash" onclick="event.stopPropagation();openEmptyTrashModal()">&#10005;</button>` : '';
 			const shareIndicator = folder.isShared ? `<span class="nav-share-icon" title="Shared${folder.ownerId ? ' by someone' : ''}">👥</span>` : '';
+			// Desktop drag-and-drop: a notebook can be dragged onto another to nest it. Only real,
+			// ordinary notebooks take part: not All Notes / Trash, not vaults (they stay top-level
+			// leaves) and not Joplin-encrypted notebooks (Joplock cannot rewrite those). The server
+			// re-checks every move, these attributes only decide what the UI offers.
+			const dndAttrs = (isTrash || isAllNotes || isVault || folder.e2ee) ? '' : ' draggable="true" data-dnd="1"';
 			const childrenHtml = node.children.length
 				? `<div class="nav-folder-children">${node.children.map(renderFolder).join('')}</div>`
 				: '';
 			return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}${isVault ? ' nav-folder-vault' : ''}${node.hasChildren ? ' nav-folder-has-children' : ''}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folderTitle)}" data-parent-id="${escapeHtml(node.treeParentId)}" data-depth="${node.depth}"${folder.e2ee ? ' data-e2ee="1"' : ''} style="--nav-depth:${Math.min(node.depth, 8)}" data-selected="${isOpen ? '1' : ''}" data-note-count="${directCount}"${isAllNotes ? ' data-all-notes="1"' : ''}${isVault ? ' data-is-vault="1"' : ''}>
-			<div class="nav-folder-row"${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folderTitle)}')"`}>
+			<div class="nav-folder-row"${dndAttrs}${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folderTitle)}')"`}>
 				${isExpandable ? `<button type="button" class="nav-folder-toggle" tabindex="-1" onclick="toggleNavFolder('${escapeHtml(folderId)}')">&#9656;</button>` : '<span class="nav-folder-toggle nav-folder-toggle-placeholder"></span>'}
 				<span class="sidebar-item-icon">${isTrash ? '&#128465;' : (isAllNotes ? allNotesIcon : folderOutlineIcon)}</span>
 				${shareIndicator}
@@ -253,7 +258,7 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 		</form>
 		<button class="btn btn-sm" title="New notebook"
 			onclick="event.preventDefault();openNewFolderModal()">+</button>
-	</div><div class="nav-items">${folderSections || '<div class="empty-hint">No notebooks yet</div>'}</div>
+	</div><div class="nav-items">${isSearchMode ? '' : '<div class="nav-drop-root" id="nav-drop-root">Drop here to move to the top level</div>'}${folderSections || '<div class="empty-hint">No notebooks yet</div>'}</div>
 	<div class="folder-context-menu" id="folder-context-menu" hidden>
 		<button type="button" class="folder-context-item" onclick="editFolderFromMenu()">Edit notebook</button>
 		<button type="button" class="folder-context-item" data-not-for-vault="1" onclick="newSubfolderFromMenu()">New sub-notebook</button>

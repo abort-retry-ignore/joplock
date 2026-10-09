@@ -583,6 +583,126 @@ function openNavFolderAndFirstNote(id){
 		document.body.addEventListener('htmx:afterSettle',onSettle);
 	}
 }
+// ---- Drag a notebook onto another to nest it (desktop sidebar) -------------------
+// Handlers are delegated on `document`, so they survive every htmx re-render of the nav.
+// The template marks the rows that take part (data-dnd="1" + draggable); the server
+// re-validates every move, so this only decides what the UI offers. Touch screens have no
+// HTML5 drag-and-drop: mobile uses the "Move notebook..." sheet.
+var _navDrag=null;
+var _NAV_DRAG_EXPAND_MS=700;
+function _navDragClearMarks(){
+	if(!_navDrag)return;
+	if(_navDrag.markedEl){_navDrag.markedEl.classList.remove('nav-drop-target');_navDrag.markedEl=null}
+	var strip=document.getElementById('nav-drop-root');if(strip)strip.classList.remove('nav-drop-active');
+	if(_navDrag.expandTimer){clearTimeout(_navDrag.expandTimer);_navDrag.expandTimer=null;_navDrag.expandId=''}
+}
+// Can the dragged notebook go into `targetFolderEl` (a .nav-folder)? Mirrors the server's
+// structural rule: not itself, not inside its own subtree, and not where it already is.
+function navDropAllowed(drag,targetFolderEl){
+	if(!drag||!drag.el||!targetFolderEl)return false;
+	var tid=targetFolderEl.getAttribute('data-folder-id');
+	if(!tid||tid===drag.id)return false;
+	if(drag.el.contains(targetFolderEl))return false;
+	if((drag.parentId||'')===tid)return false;
+	return true;
+}
+function navMoveFolder(id,parentId){
+	return _folderRequest('PUT','/fragments/folders/'+encodeURIComponent(id),'parentId='+encodeURIComponent(parentId)).then(function(){
+		_expandFolderState(parentId);
+		_afterFolderChange('',id);
+	}).catch(function(e){alert((e&&e.message)||'Move failed')});
+}
+function navDragStart(e){
+	if(isMobileShellMode())return;
+	var row=e.target&&e.target.closest?e.target.closest('.nav-folder-row[data-dnd="1"]'):null;
+	if(!row)return;
+	var folder=row.closest('.nav-folder');
+	if(!folder||!folder.closest('#nav-panel'))return;
+	_navDrag={id:folder.getAttribute('data-folder-id'),el:folder,parentId:folder.getAttribute('data-parent-id')||'',markedEl:null,expandTimer:null,expandId:''};
+	if(e.dataTransfer){e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',_navDrag.id)}catch(_e){}}
+	// Visual changes wait a tick: altering layout synchronously inside dragstart makes
+	// some browsers cancel the drag immediately.
+	var started=_navDrag;
+	setTimeout(function(){
+		if(_navDrag!==started)return;
+		folder.classList.add('nav-dragging');
+		document.body.classList.add('nav-dragging-folder');
+		// the "top level" strip is only meaningful for a notebook that is nested
+		document.body.classList.toggle('nav-drag-nested',!!started.parentId);
+	},0);
+}
+function navDragOver(e){
+	if(!_navDrag)return;
+	var target=e.target;
+	var strip=target&&target.closest?target.closest('#nav-drop-root'):null;
+	var row=!strip&&target&&target.closest?target.closest('.nav-folder-row[data-dnd="1"]'):null;
+	var folder=row?row.closest('.nav-folder'):null;
+	var allowed=false;
+	_navDragClearMarks();
+	if(strip){
+		allowed=!!_navDrag.parentId;
+		if(allowed)strip.classList.add('nav-drop-active');
+	}else if(folder&&navDropAllowed(_navDrag,folder)){
+		allowed=true;
+		row.classList.add('nav-drop-target');
+		_navDrag.markedEl=row;
+		// hovering over a closed notebook that has sub-notebooks opens it, so deep targets are reachable
+		if(folder.classList.contains('collapsed')&&folder.classList.contains('nav-folder-has-children')){
+			var fid=folder.getAttribute('data-folder-id');
+			_navDrag.expandId=fid;
+			_navDrag.expandTimer=setTimeout(function(){if(_navDrag&&_navDrag.expandId===fid)toggleNavFolder(fid,true)},_NAV_DRAG_EXPAND_MS);
+		}
+	}
+	if(allowed){
+		e.preventDefault();
+		if(e.dataTransfer)e.dataTransfer.dropEffect='move';
+	}else if(e.dataTransfer){
+		e.dataTransfer.dropEffect='none';
+	}
+}
+function navDragLeave(e){
+	if(!_navDrag)return;
+	var panel=document.getElementById('nav-panel');
+	// Moved onto another element of the nav: the next dragenter/dragover re-marks the target.
+	if(e.relatedTarget&&panel&&panel.contains(e.relatedTarget))return;
+	// Crossing between a row's own child elements also fires dragleave, and Chromium may report
+	// a null relatedTarget for it. Judge by position: still inside the marked target = not a leave.
+	var marked=_navDrag.markedEl||document.getElementById('nav-drop-root');
+	var x=e.clientX,y=e.clientY;
+	if(marked&&!e.relatedTarget&&x>0&&y>0){
+		var r=marked.getBoundingClientRect();
+		if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom)return;
+	}
+	_navDragClearMarks();
+}
+function navDrop(e){
+	if(!_navDrag)return;
+	var drag=_navDrag;
+	var target=e.target;
+	var strip=target&&target.closest?target.closest('#nav-drop-root'):null;
+	var row=!strip&&target&&target.closest?target.closest('.nav-folder-row[data-dnd="1"]'):null;
+	var folder=row?row.closest('.nav-folder'):null;
+	var parentId=null;
+	if(strip&&drag.parentId)parentId='';
+	else if(folder&&navDropAllowed(drag,folder))parentId=folder.getAttribute('data-folder-id');
+	if(parentId===null)return;
+	e.preventDefault();
+	navDragEnd();
+	navMoveFolder(drag.id,parentId);
+}
+function navDragEnd(){
+	if(!_navDrag)return;
+	_navDragClearMarks();
+	if(_navDrag.el)_navDrag.el.classList.remove('nav-dragging');
+	document.body.classList.remove('nav-dragging-folder','nav-drag-nested');
+	_navDrag=null;
+}
+document.addEventListener('dragstart',navDragStart);
+document.addEventListener('dragenter',navDragOver);
+document.addEventListener('dragover',navDragOver);
+document.addEventListener('dragleave',navDragLeave);
+document.addEventListener('drop',navDrop);
+document.addEventListener('dragend',navDragEnd);
 function getTA(){return queryActiveEditor('#note-body')}
 function getPV(){var pv=queryActiveEditor('#note-preview');return pv&&pv.style.display!=='none'?pv:null}
 function isMarkdownVisible(){var host=queryActiveEditor('#cm-host');return !!(host&&host.style.display!=='none')}

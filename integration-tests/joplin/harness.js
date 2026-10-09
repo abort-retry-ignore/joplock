@@ -91,7 +91,15 @@ class Joplock {
 	}
 
 	// Write a Joplin item as a sync client would (multipart, like Joplin's own uploader).
+	// Delete an item through the sync API, as a Joplin client would. Needed for items the
+	// Joplock UI refuses to remove (end-to-end encrypted, hidden conflict copies, notebooks
+	// a client trashed).
+	async deleteRawItem(id) {
+		return this.request('DELETE', `/joplin/api/items/root:/${id}.md:`, { asClient: true });
+	}
+
 	async putRawItem(id, text) {
+		(this.rawIds = this.rawIds || []).push(id);
 		const boundary = `----jctest${Date.now()}`;
 		const body = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="item.md"\r\nContent-Type: text/markdown\r\n\r\n${text}\r\n--${boundary}--\r\n`;
 		const r = await this.request('PUT', `/joplin/api/items/root:/${id}.md:/content`, {
@@ -116,6 +124,8 @@ class Joplock {
 	// Remove everything whose title starts with the given prefix (best effort).
 	async cleanup(prefix) {
 		try {
+			// items uploaded raw by the test come first (some can't be deleted any other way)
+			for (const id of (this.rawIds || []).splice(0)) await this.deleteRawItem(id);
 			const notes = (await this.noteHeaders()).filter(n => (n.title || '').startsWith(prefix));
 			for (const n of notes) {
 				await this.request('DELETE', `/fragments/notes/${n.id}`);

@@ -135,5 +135,8 @@ describe('Nested notebooks between Joplock and a Joplin client', { skip, concurr
 		const ids = (await jp.folders()).map(f => f.id);
 		assert.ok(!ids.includes(fa.id) && !ids.includes(fb.id), 'neither level is listed any more');
 		assert.ok(!(await jp.noteHeaders()).some(n => n.title === `${PREFIX}-t7-note` && !n.deletedTime), 'the note is not in a live notebook');
+		// trashed items are hidden from Joplock, so remove them the way a client would
+		const note = await client.note(`${PREFIX}-t7-note`);
+		for (const id of [note && note.id, fb.id, fa.id]) if (id) await jp.deleteRawItem(id);
 	});
 });

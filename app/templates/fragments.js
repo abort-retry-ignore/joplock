@@ -11,6 +11,7 @@ const {
 	svgLockClosed,
 	svgLockOpen,
 } = require('./shared');
+const { renderHtmlNote } = require('../htmlNoteRenderer');
 const { buildFolderTree, flattenFolderTree, rollupCounts, folderOptionLabel, folderPathString } = require('../items/folderTree');
 
 
@@ -56,8 +57,8 @@ const noteListItem = (note, selectedNoteId, contextFolderId = '', selectedContex
 	const active = note.id === selectedNoteId && (selectedContextFolderId === null || contextFolderId === selectedContextFolderId) ? ' active' : '';
 	const editorPath = `/fragments/editor/${encodeURIComponent(note.id)}${contextFolderId ? `?currentFolderId=${encodeURIComponent(contextFolderId)}` : ''}`;
 	const protectedByVault = !!(note.isEncrypted || note.inVault);
-	const lockIcon = protectedByVault ? '<span class="note-lock-icon" data-note-id="' + escapeHtml(note.id) + '">' + svgLockClosed + '</span>' : '';
-	return `<button id="${escapeHtml(noteDomId(note.id, contextFolderId))}" class="notelist-item${active}" data-note-id="${escapeHtml(note.id)}"${note.isEncrypted ? ' data-encrypted="1"' : ''}${protectedByVault && note.parentId ? ` data-vault-id="${escapeHtml(note.parentId)}"` : ''}
+	const lockIcon = (protectedByVault || note.e2ee) ? '<span class="note-lock-icon" data-note-id="' + escapeHtml(note.id) + '">' + svgLockClosed + '</span>' : '';
+	return `<button id="${escapeHtml(noteDomId(note.id, contextFolderId))}" class="notelist-item${active}${note.e2ee ? ' notelist-item-e2ee' : ''}" data-note-id="${escapeHtml(note.id)}"${note.isEncrypted ? ' data-encrypted="1"' : ''}${note.e2ee ? ' data-e2ee="1"' : ''}${protectedByVault && note.parentId ? ` data-vault-id="${escapeHtml(note.parentId)}"` : ''}
 		hx-get="${editorPath}"
 		hx-target="#editor-panel"
 		hx-swap="innerHTML"
@@ -210,7 +211,7 @@ const navigationFragment = (folders, countsOrNotes, selectedFolderId, selectedNo
 			const childrenHtml = node.children.length
 				? `<div class="nav-folder-children">${node.children.map(renderFolder).join('')}</div>`
 				: '';
-			return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}${isVault ? ' nav-folder-vault' : ''}${node.hasChildren ? ' nav-folder-has-children' : ''}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folderTitle)}" data-parent-id="${escapeHtml(node.treeParentId)}" data-depth="${node.depth}" style="--nav-depth:${Math.min(node.depth, 8)}" data-selected="${isOpen ? '1' : ''}" data-note-count="${directCount}"${isAllNotes ? ' data-all-notes="1"' : ''}${isVault ? ' data-is-vault="1"' : ''}>
+			return `<div class="nav-folder collapsed${isExpandable ? '' : ' nav-folder-empty'}${isVault ? ' nav-folder-vault' : ''}${node.hasChildren ? ' nav-folder-has-children' : ''}" data-folder-id="${escapeHtml(folderId)}" data-folder-title="${escapeHtml(folderTitle)}" data-parent-id="${escapeHtml(node.treeParentId)}" data-depth="${node.depth}"${folder.e2ee ? ' data-e2ee="1"' : ''} style="--nav-depth:${Math.min(node.depth, 8)}" data-selected="${isOpen ? '1' : ''}" data-note-count="${directCount}"${isAllNotes ? ' data-all-notes="1"' : ''}${isVault ? ' data-is-vault="1"' : ''}>
 			<div class="nav-folder-row"${isAllNotes ? '' : ` oncontextmenu="openFolderContextMenu(event,'${escapeHtml(folderId)}','${escapeHtml(folderTitle)}')"`}>
 				${isExpandable ? `<button type="button" class="nav-folder-toggle" tabindex="-1" onclick="toggleNavFolder('${escapeHtml(folderId)}')">&#9656;</button>` : '<span class="nav-folder-toggle nav-folder-toggle-placeholder"></span>'}
 				<span class="sidebar-item-icon">${isTrash ? '&#128465;' : (isAllNotes ? allNotesIcon : folderOutlineIcon)}</span>
@@ -312,6 +313,17 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 	if (!note) {
 		return '<div class="editor-empty">Select a note</div>';
 	}
+	if (note.e2ee) {
+		// Joplin end-to-end encrypted: the server only has ciphertext, and writing
+		// from here would replace it with plaintext. Placeholder only: no form, so
+		// nothing can be saved.
+		return `<div class="editor-empty editor-e2ee" id="editor-e2ee" data-note-id="${escapeHtml(note.id)}">
+			<div class="editor-locked-icon">${svgLockClosed}</div>
+			<div class="editor-locked-text">This note is end-to-end encrypted by Joplin</div>
+			<div class="editor-e2ee-hint">Joplock cannot read or change it. Open it in a Joplin app.</div>
+		</div>`;
+	}
+	const htmlNote = note.markupLanguage === 2;
 	const isOwner = !note.ownerId || note.ownerId === viewerUserId;
 	const readOnly = !!(note.ownerId && viewerUserId && note.ownerId !== viewerUserId && !canWrite);
 	const folderOptions = notebookOptionsHtml(folders, note.parentId);
@@ -329,8 +341,10 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 				<button type="button" class="btn btn-primary editor-locked-btn" id="editor-locked-btn" onclick="unlockNote('${escapeHtml(note.id)}')">Unlock</button>
 			</div>
 		</div>` : '';
-	const bodyDisplay = vaultProtected ? ' style="display:none"' : '';
+	const bodyDisplay = (vaultProtected || htmlNote) ? ' style="display:none"' : '';
 	const shareReadonlyBanner = readOnly ? '<div class="share-readonly-banner">Shared &middot; read-only</div>' : '';
+	// HTML notes are shown rendered and read-only; the original HTML is never rewritten.
+	const htmlBanner = htmlNote ? '<div class="share-readonly-banner html-note-banner">HTML note &middot; read-only in Joplock (edit it in a Joplin app)</div>' : '';
 	return `<form class="editor-form" id="note-editor-form"
 		hx-put="/fragments/editor/${encodeURIComponent(note.id)}"
 		hx-trigger="joplock:save"
@@ -340,8 +354,9 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 		${vaultProtected ? 'data-encrypted="1"' : ''}
 		${vaultId ? `data-vault-id="${escapeHtml(vaultId)}"` : ''}
 		${readOnly ? 'data-share-readonly="1"' : ''}
+		${htmlNote ? 'data-html-note="1"' : ''}
 		data-is-owner="${isOwner ? '1' : '0'}"
-		data-note-id="${escapeHtml(note.id)}">${shareReadonlyBanner}
+		data-note-id="${escapeHtml(note.id)}">${shareReadonlyBanner}${htmlBanner}
 		<div class="editor-titlebar">
 			<select name="parentId" class="editor-folder-select" id="editor-folder-select" title="${vaultProtected ? 'Unlock the note to move it' : (readOnly ? 'Shared items are read-only' : 'Move to folder')}"${(vaultProtected || readOnly) ? ' disabled' : ''}>${folderOptions}</select>
 			<span class="editor-folder-arrow">&#9656;</span>
@@ -349,7 +364,7 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 			<input type="hidden" name="currentFolderId" value="${escapeHtml(currentFolderId || '')}" />
 			<input type="hidden" name="title" class="editor-title-hidden"
 				value="${escapeHtml(stripMarkdownForTitle(note.title || ''))}" />
-			<div class="editor-title" contenteditable="${readOnly ? 'false' : 'true'}"
+			<div class="editor-title" contenteditable="${(readOnly || htmlNote) ? 'false' : 'true'}"
 				data-placeholder="Note title">${escapeHtml(stripMarkdownForTitle(note.title || ''))}</div>
 			<span id="autosave-status"></span>
 			<button type="button" id="undo-save-btn" class="btn btn-sm btn-secondary undo-save-btn" title="Undo last save (Ctrl+Shift+Z)" onclick="undoSnapshot()" hidden>Undo</button>
@@ -416,7 +431,7 @@ const editorFragment = (note, folders, currentFolderId = '', viewerUserId = '', 
 		${lockedView}
 		<textarea name="body" class="editor-body" id="note-body"${bodyDisplay}>${escapeHtml(note.body || '')}</textarea>
 		<div id="cm-host" class="cm-host" style="display:none"></div>
-		<div id="tinymce-slot" class="tinymce-slot" data-rendered-body="${vaultProtected ? '' : escapeHtml(renderMarkdown(note.body || ''))}"${vaultProtected ? ' data-locked="1"' : ''}></div>
+		<div id="tinymce-slot" class="tinymce-slot" data-rendered-body="${vaultProtected ? '' : escapeHtml(htmlNote ? renderHtmlNote(note.body || '') : renderMarkdown(note.body || ''))}"${vaultProtected ? ' data-locked="1"' : ''}></div>
 	</form>${noteMetaFragment(note)}`;
 };
 

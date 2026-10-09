@@ -355,7 +355,9 @@ const handle = async (url, request, response, ctx) => {
 				itemService.foldersByUserId(auth.user.id),
 			]);
 			if (!existing) { sendHtml(response, 404, '<div class="empty-hint">Note not found.</div>'); return true; }
-			const access = await resolveItemShareAccess(itemService, auth.user.id, noteId);
+			// The note being restored is in the trash: resolve access against trashed notes,
+			// otherwise this lookup never finds it and every restore answers 404.
+			const access = await resolveItemShareAccess(itemService, auth.user.id, noteId, { deleted: 'only' });
 			assertOwnerForDestructive(access);
 			let restoreParentId = existing.parentId;
 			if (!folders.find(f => f.id === restoreParentId)) {

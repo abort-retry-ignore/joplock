@@ -20,6 +20,8 @@ test('mapFolderRow should combine joplin ids and JSON content', () => {
 		id: 'folder1',
 		parentId: '',
 		title: 'Projects',
+		e2ee: false,
+		fields: { title: 'Projects', icon: '📁' },
 		icon: '📁',
 		deletedTime: 0,
 		createdTime: 100,
@@ -68,6 +70,7 @@ test('mapNoteHeaderRow should use projected note fields', () => {
 		id: 'note1',
 		parentId: 'folder1',
 		title: 'Projected Note',
+		e2ee: false,
 		isEncrypted: false,
 		deletedTime: 0,
 		updatedTime: 400,
@@ -105,4 +108,68 @@ test('buildNoteSearchConditions should return empty sql for blank queries', () =
 		assert.deepEqual(params, []);
 		assert.equal(sql, '');
 	}
+});
+
+// ── Joplin fields on the model ──
+const { mapNoteRow: mapNote, mapFolderRow: mapFolder, mapNoteHeaderRow: mapHeader } = require('../app/items/itemService');
+const row = (content, extra = {}) => ({ jop_id: 'n1', jop_parent_id: 'f1', jop_updated_time: 5, created_time: 1, owner_id: 'u', content: Buffer.from(JSON.stringify(content)), ...extra });
+
+test('mapNoteRow carries every stored field so a rewrite can pass them through', () => {
+	const stored = { title: 'T', body: 'B', is_todo: 1, todo_due: 99, author: 'A', is_locked: 1, order: 7, markup_language: 2 };
+	const note = mapNote(row(stored));
+	assert.deepEqual(note.fields, stored);
+	assert.equal(note.markupLanguage, 2);
+	assert.equal(note.isTodo, true);
+	assert.equal(note.isConflict, false);
+	assert.equal(note.e2ee, false);
+});
+
+test('mapNoteRow defaults to markdown and flags conflicts', () => {
+	assert.equal(mapNote(row({ title: 'T' })).markupLanguage, 1);
+	assert.equal(mapNote(row({ title: 'T', is_conflict: 1 })).isConflict, true);
+});
+
+test('Joplin end-to-end encrypted items become locked placeholders with no content', () => {
+	const viaColumn = mapNote(row({ title: '', body: 'ciphertext-ish', encryption_cipher_text: 'JED01...' }, { jop_encryption_applied: 1 }));
+	assert.equal(viaColumn.e2ee, true);
+	assert.equal(viaColumn.body, '');
+	assert.match(viaColumn.title, /Encrypted note/);
+	const viaJson = mapNote(row({ encryption_applied: 1, encryption_cipher_text: 'JED01...' }));
+	assert.equal(viaJson.e2ee, true);
+	const folder = mapFolder(row({ title: '' }, { jop_encryption_applied: 1 }));
+	assert.equal(folder.e2ee, true);
+	assert.match(folder.title, /Encrypted notebook/);
+	const header = mapHeader({ jop_id: 'n', jop_parent_id: 'f', title: '', jop_encryption_applied: 1 });
+	assert.equal(header.e2ee, true);
+	assert.match(header.title, /Encrypted note/);
+});
+
+test('note queries exclude conflict copies (lists, headers, counts, search) but not when asked to', async () => {
+	const { createItemService } = require('../app/items/itemService');
+	const sqls = [];
+	const db = { query: async sql => { sqls.push(sql); return { rows: [] }; } };
+	const svc = createItemService(db);
+	await svc.notesByUserId('u');
+	await svc.noteHeadersByUserId('u');
+	await svc.noteHeadersByFolder('u', 'f1');
+	await svc.noteHeadersByFolder('u', '__trash__');
+	await svc.folderNoteCountsByUserId('u');
+	await svc.searchNotes('u', 'hello');
+	assert.ok(sqls.length >= 7);
+	for (const sql of sqls) assert.match(sql, /is_conflict/, `conflict filter missing in: ${sql.slice(0, 80)}`);
+	sqls.length = 0;
+	await svc.notesByUserId('u', { includeConflicts: true });
+	assert.doesNotMatch(sqls[0], /is_conflict/);
+});
+
+test('item reads select the encryption column so E2EE items can be recognised', async () => {
+	const { createItemService } = require('../app/items/itemService');
+	const sqls = [];
+	const svc = createItemService({ query: async sql => { sqls.push(sql); return { rows: [] }; } });
+	await svc.foldersByUserId('u');
+	await svc.folderByUserIdAndJopId('u', 'f');
+	await svc.notesByUserId('u');
+	await svc.noteByUserIdAndJopId('u', 'n');
+	await svc.noteHeadersByFolder('u', 'f1');
+	for (const sql of sqls) assert.match(sql, /jop_encryption_applied/);
 });

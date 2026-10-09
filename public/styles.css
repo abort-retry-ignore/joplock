@@ -1433,6 +1433,27 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 .editor-form.editor-readonly .editor-folder-select { opacity: 0.6; cursor: not-allowed; }
 .editor-form.editor-readonly .cm-content { caret-color: transparent; }
 
+/* HTML notes (Joplin markup_language 2): rendered, read-only. No editing chrome,
+ * no markdown/rendered switch (there is only the rendered view). */
+.editor-form[data-html-note="1"] #markdown-toggle,
+.editor-form[data-html-note="1"] #preview-toggle,
+.editor-form[data-html-note="1"] #undo-save-btn,
+.editor-form[data-html-note="1"] .editor-toolbar,
+.active-html-note #mobile-md-toggle,
+.active-html-note #mobile-preview-toggle { display: none !important; }
+.editor-form[data-html-note="1"] .editor-title { opacity: 0.85; cursor: default; caret-color: transparent; }
+
+/* Joplin end-to-end encrypted note: locked placeholder only (no form). */
+.editor-e2ee {
+	flex-direction: column;
+	gap: 10px;
+	text-align: center;
+	padding: 40px 20px;
+}
+.editor-e2ee-hint { font-size: 13px; color: var(--text-muted); }
+.notelist-item-e2ee .notelist-item-title,
+.mobile-note-row-e2ee .mobile-note-title { opacity: 0.75; font-style: italic; }
+
 .share-readonly-banner {
 	background: var(--accent);
 	color: var(--bg);

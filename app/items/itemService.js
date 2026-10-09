@@ -12,12 +12,27 @@ const decodeItemContent = content => {
 	return JSON.parse(raw);
 };
 
+// Items encrypted by Joplin's own end-to-end encryption (not Joplock vaults).
+// The stored content is ciphertext: title/body are empty and rewriting the item
+// from here would replace the ciphertext with plaintext. They are shown as a
+// locked placeholder and never written.
+const E2EE_NOTE_TITLE = '\u{1F512} Encrypted note';
+const E2EE_FOLDER_TITLE = '\u{1F512} Encrypted notebook';
+const MARKUP_MARKDOWN = 1;
+const MARKUP_HTML = 2;
+const isJoplinE2ee = (row, content) => Number(row.jop_encryption_applied || 0) === 1 || Number(content.encryption_applied || 0) === 1;
+
 const mapFolderRow = row => {
 	const content = decodeItemContent(row.content);
+	const e2ee = isJoplinE2ee(row, content);
 	return {
 		id: row.jop_id,
 		parentId: row.jop_parent_id || '',
-		title: content.title || '',
+		title: e2ee ? E2EE_FOLDER_TITLE : (content.title || ''),
+		e2ee,
+		// Every field the item carries, so a rewrite can pass through what Joplock
+		// does not edit (see serializeFolder / serializeNote).
+		fields: content,
 		icon: content.icon || '',
 		deletedTime: Number(content.deleted_time || 0),
 		createdTime: Number(content.created_time || row.created_time || 0),
@@ -58,12 +73,17 @@ const buildNoteSearchConditions = (query, firstParamIndex) => {
 
 const mapNoteRow = row => {
 	const content = decodeItemContent(row.content);
-	const body = content.body || '';
+	const e2ee = isJoplinE2ee(row, content);
+	const body = e2ee ? '' : (content.body || '');
 	const encrypted = isEncryptedBody(body);
 	return {
 		id: row.jop_id,
 		parentId: row.jop_parent_id || '',
-		title: content.title || '',
+		title: e2ee ? E2EE_NOTE_TITLE : (content.title || ''),
+		e2ee,
+		markupLanguage: Number(content.markup_language || MARKUP_MARKDOWN),
+		isConflict: !!Number(content.is_conflict || 0),
+		fields: content,
 		body,
 		bodyPreview: encrypted ? 'Encrypted' : body.slice(0, 240),
 		isEncrypted: encrypted,
@@ -80,10 +100,12 @@ const mapNoteRow = row => {
 
 const mapNoteHeaderRow = row => {
 	const encrypted = !!(row.is_encrypted || false);
+	const e2ee = Number(row.jop_encryption_applied || 0) === 1;
 	return {
 		id: row.jop_id,
 		parentId: row.jop_parent_id || '',
-		title: row.title || '',
+		title: e2ee ? E2EE_NOTE_TITLE : (row.title || ''),
+		e2ee,
 		isEncrypted: encrypted,
 		deletedTime: Number(row.deleted_time || 0),
 		updatedTime: Number(row.jop_updated_time || 0),
@@ -98,6 +120,11 @@ const deletedFilterSql = mode => {
 	if (mode === 'all') return '';
 	return ' AND COALESCE((convert_from(content, \'UTF8\')::json->>\'deleted_time\')::bigint, 0) = 0';
 };
+
+// Joplin keeps conflict copies out of the normal notebooks (they live under its
+// "Conflicts" notebook), so they are hidden here too. Resolving them is done in a
+// Joplin app; Joplock only has to leave them untouched.
+const conflictFilterSql = () => ` AND COALESCE((convert_from(content, 'UTF8')::json->>'is_conflict')::int, 0) = 0`;
 
 const NOTE_PAGE_SIZE = 100;
 const VIRTUAL_ALL_NOTES_ID = '__all__';
@@ -149,7 +176,7 @@ const createItemService = database => {
 	return {
 		async foldersByUserId(userId) {
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
 				FROM items
 				WHERE jop_type = $2${deletedFilterSql('exclude')} AND ${itemAccessExpression()}
 				ORDER BY LOWER(COALESCE(convert_from(content, 'UTF8')::json->>'title', '')) ASC, created_time ASC
@@ -160,7 +187,7 @@ const createItemService = database => {
 
 		async folderByUserIdAndJopId(userId, folderId) {
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
 				FROM items
 				WHERE jop_type = $2 AND jop_id = $3 AND ${itemAccessExpression()}
 				LIMIT 1
@@ -175,7 +202,7 @@ const createItemService = database => {
 			const folderId = options.folderId || '';
 			const deleted = options.deleted || 'exclude';
 			const params = [userId, MODEL_TYPE_NOTE];
-			let where = `WHERE jop_type = $2${deletedFilterSql(deleted)} AND ${itemAccessExpression()}`;
+			let where = `WHERE jop_type = $2${deletedFilterSql(deleted)}${options.includeConflicts ? '' : conflictFilterSql()} AND ${itemAccessExpression()}`;
 
 			if (folderId) {
 				params.push(folderId);
@@ -183,7 +210,7 @@ const createItemService = database => {
 			}
 
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
 				FROM items
 				${where}
 				ORDER BY jop_updated_time DESC, created_time DESC
@@ -200,13 +227,14 @@ const createItemService = database => {
 					jop_parent_id,
 					jop_updated_time,
 					owner_id,
+					jop_encryption_applied,
 					COALESCE(convert_from(content, 'UTF8')::json->>'title', '') AS title,
 					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time,
 					COALESCE(convert_from(content, 'UTF8')::json->>'share_id', '') AS share_id,
 					COALESCE((convert_from(content, 'UTF8')::json->>'is_shared')::int, 0) AS is_shared,
 					(COALESCE(convert_from(content, 'UTF8')::json->>'body', '') LIKE '%<!--joplock-encrypted-start-->%') AS is_encrypted
 				FROM items
-				WHERE jop_type = $2${deletedFilterSql(deleted)} AND ${itemAccessExpression()}
+				WHERE jop_type = $2${deletedFilterSql(deleted)}${conflictFilterSql()} AND ${itemAccessExpression()}
 				ORDER BY jop_updated_time DESC, created_time DESC
 			`, [userId, MODEL_TYPE_NOTE]);
 
@@ -221,7 +249,7 @@ const createItemService = database => {
 					SELECT jop_parent_id AS folder_id, COUNT(*) AS count
 					FROM items
 					WHERE jop_type = $2
-					  AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) = 0
+					  AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) = 0${conflictFilterSql()}
 					  AND ${itemAccessExpression()}
 					GROUP BY jop_parent_id
 				`, [userId, MODEL_TYPE_NOTE]),
@@ -229,7 +257,7 @@ const createItemService = database => {
 					SELECT COUNT(*) AS count
 					FROM items
 					WHERE jop_type = $2
-					  AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) > 0
+					  AND COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) > 0${conflictFilterSql()}
 					  AND ${itemAccessExpression()}
 				`, [userId, MODEL_TYPE_NOTE]),
 			]);
@@ -247,7 +275,7 @@ const createItemService = database => {
 
 		// Paginated note headers for one folder (or virtual __all__ / __trash__).
 		async noteHeadersByFolder(userId, folderId, limit = NOTE_PAGE_SIZE, offset = 0) {
-			let where = `WHERE jop_type = $2 AND ${itemAccessExpression()}`;
+			let where = `WHERE jop_type = $2${conflictFilterSql()} AND ${itemAccessExpression()}`;
 			const params = [userId, MODEL_TYPE_NOTE];
 
 			if (folderId === VIRTUAL_TRASH_ID) {
@@ -267,6 +295,7 @@ const createItemService = database => {
 					jop_parent_id,
 					jop_updated_time,
 					owner_id,
+					jop_encryption_applied,
 					COALESCE(convert_from(content, 'UTF8')::json->>'title', '') AS title,
 					COALESCE((convert_from(content, 'UTF8')::json->>'deleted_time')::bigint, 0) AS deleted_time,
 					COALESCE(convert_from(content, 'UTF8')::json->>'share_id', '') AS share_id,
@@ -286,14 +315,15 @@ const createItemService = database => {
 			if (!termSql) return [];
 			const limitIdx = 2 + termParams.length + 1;
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
 				FROM (
-					SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id,
+					SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied,
 						${safeJsonExpression("convert_from(content, 'UTF8')")} AS parsed
 					FROM items
 					WHERE jop_type = $2 AND ${itemAccessExpression()}
 				) sub
 				WHERE COALESCE((parsed->>'deleted_time')::bigint, 0) = 0
+					AND COALESCE((parsed->>'is_conflict')::int, 0) = 0
 					AND (${termSql})
 				ORDER BY jop_updated_time DESC, created_time DESC
 				LIMIT $${limitIdx} OFFSET $${limitIdx + 1}
@@ -305,7 +335,7 @@ const createItemService = database => {
 		async noteByUserIdAndJopId(userId, noteId, options = {}) {
 			const deleted = options.deleted || 'exclude';
 			const result = await database.query(`
-				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id
+				SELECT id, jop_id, jop_parent_id, jop_updated_time, created_time, content, owner_id, jop_encryption_applied
 				FROM items
 				WHERE jop_type = $2 AND jop_id = $3${deletedFilterSql(deleted)} AND ${itemAccessExpression()}
 				LIMIT 1

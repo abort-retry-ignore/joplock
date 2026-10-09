@@ -97,6 +97,7 @@ function makeSyncSandbox({ hostVisible, taValue, tinymceHtml, contentNoteId = ''
 		function tinymceToMarkdown(html){return String(html||'').replace(/<[^>]+>/g,'').trim()}
 		function _log(){ _logs.push([].slice.call(arguments).join(' ')); }
 	`, ctx);
+	vm.runInContext(extractFn('_isHtmlNoteActive'), ctx);
 	vm.runInContext(extractFn('tinyMCESyncToTA'), ctx);
 	return { ctx, ta };
 }

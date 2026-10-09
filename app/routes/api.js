@@ -1,10 +1,11 @@
 'use strict';
 
-const { sendJson, parseBody, normalizeStoredFolderId, assertVaultNoteBodyEncrypted } = require('./_helpers');
+const { sendJson, parseBody, normalizeStoredFolderId, assertVaultNoteBodyEncrypted, publicItem, publicItems } = require('./_helpers');
 const {
 	resolveItemShareAccess, resolveFolderShareState, assertCanWrite, assertOwnerForDestructive, deriveShareFieldsForMove,
 } = require('../items/shareAccess');
 const templates = require('../templates');
+const { assertNotE2ee } = require('../items/itemWriteService');
 const { flattenFolderTree } = require('../items/folderTree');
 const { AI_PROVIDERS } = require('../settingsService');
 
@@ -266,7 +267,7 @@ const handle = async (url, request, response, ctx) => {
 				if (!title) { sendJson(response, 400, { error: 'Folder title is required' }); return true; }
 				const created = await folderOps.createFolder({ user: auth.user, title, parentId: body.parentId || '', requestContext: upstreamRequestContext(request) });
 				const folder = await itemService.folderByUserIdAndJopId(auth.user.id, created.id);
-				sendJson(response, 201, { item: folder });
+				sendJson(response, 201, { item: publicItem(folder) });
 			} catch (error) {
 				sendJson(response, error.statusCode || 500, { error: error.message || `${error}` });
 			}
@@ -276,7 +277,7 @@ const handle = async (url, request, response, ctx) => {
 			const auth = await authenticatedUser(request);
 			if (auth.error) { sendJson(response, 401, { error: auth.error }); return true; }
 			const folders = await itemService.foldersByUserId(auth.user.id);
-			sendJson(response, 200, { items: folders });
+			sendJson(response, 200, { items: publicItems(folders) });
 		} catch (error) {
 			sendJson(response, 500, { error: error.message || `${error}` });
 		}
@@ -319,7 +320,7 @@ const handle = async (url, request, response, ctx) => {
 				await itemWriteService.updateFolder(auth.user.sessionId, existing, { title }, upstreamRequestContext(request));
 			}
 			const folder = await itemService.folderByUserIdAndJopId(auth.user.id, folderId);
-			sendJson(response, 200, { item: folder });
+			sendJson(response, 200, { item: publicItem(folder) });
 		} catch (error) {
 			sendJson(response, error.statusCode || 500, { error: error.message || `${error}` });
 		}
@@ -631,7 +632,7 @@ const handle = async (url, request, response, ctx) => {
 					...shareFields,
 				}, upstreamRequestContext(request));
 				const note = await itemService.noteByUserIdAndJopId(auth.user.id, created.id);
-				sendJson(response, 201, { item: note });
+				sendJson(response, 201, { item: publicItem(note) });
 			} catch (error) {
 				sendJson(response, error.statusCode || 500, { error: error.message || `${error}` });
 			}
@@ -642,7 +643,7 @@ const handle = async (url, request, response, ctx) => {
 			if (auth.error) { sendJson(response, 401, { error: auth.error }); return true; }
 			const folderId = url.searchParams.get('folderId') || '';
 			const notes = await notesForFolder(itemService, auth.user.id, folderId);
-			sendJson(response, 200, { items: notes });
+			sendJson(response, 200, { items: publicItems(notes) });
 		} catch (error) {
 			sendJson(response, 500, { error: error.message || `${error}` });
 		}
@@ -683,7 +684,7 @@ const handle = async (url, request, response, ctx) => {
 					...shareFields,
 				}, upstreamRequestContext(request));
 				const note = await itemService.noteByUserIdAndJopId(auth.user.id, updated.id);
-				sendJson(response, 200, { item: note });
+				sendJson(response, 200, { item: publicItem(note) });
 			} catch (error) {
 				sendJson(response, error.statusCode || 500, { error: error.message || `${error}` });
 			}
@@ -696,6 +697,8 @@ const handle = async (url, request, response, ctx) => {
 				if (!noteId) { sendJson(response, 404, { error: 'Note not found' }); return true; }
 				const access = await resolveItemShareAccess(itemService, auth.user.id, noteId);
 				assertOwnerForDestructive(access);
+				// Same rule as trashing: a live end-to-end encrypted note is not touched from here.
+				if (access.item && access.item.e2ee) assertNotE2ee(access.item, 'note');
 				await itemWriteService.deleteNote(auth.user.sessionId, noteId, upstreamRequestContext(request));
 				sendJson(response, 204, {});
 			} catch (error) {
@@ -709,7 +712,7 @@ const handle = async (url, request, response, ctx) => {
 			if (!noteId) { sendJson(response, 404, { error: 'Note not found' }); return true; }
 			const note = await itemService.noteByUserIdAndJopId(auth.user.id, noteId);
 			if (!note) { sendJson(response, 404, { error: 'Note not found' }); return true; }
-			sendJson(response, 200, { item: note });
+			sendJson(response, 200, { item: publicItem(note) });
 		} catch (error) {
 			sendJson(response, 500, { error: error.message || `${error}` });
 		}

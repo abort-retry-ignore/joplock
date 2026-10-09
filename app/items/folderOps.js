@@ -21,6 +21,7 @@
 
 const { flattenFolderTree, canNestUnder, subtreeIds } = require('./folderTree');
 const { resolveFolderShareState, deriveShareFieldsForMove } = require('./shareAccess');
+const { assertNotE2ee } = require('./itemWriteService');
 
 const fail = (statusCode, message) => {
 	const error = new Error(message);
@@ -175,12 +176,21 @@ const createFolderOps = ({ itemService, itemWriteService, vaultService, shareSyn
 		// ── delete (promote) ──────────────────────────────────────────────────
 		async deleteFolder({ user, folderId, requestContext }) {
 			const state = await requireFolder(user.id, folderId);
+			assertNotE2ee(state.folder, 'notebook');
 			const oldShareId = shareOf(state);
 			if (oldShareId && !state.isOwner) throw fail(403, 'Only the owner can move or delete this item');
 
 			const folders = await itemService.foldersByUserId(user.id);
 			const parentId = treeParent(folders, folderId);
 			const children = flattenFolderTree(folders).filter(f => f.treeParentId === folderId);
+			// Conflict copies are hidden from lists but still belong to the notebook, so they
+			// move with it instead of being left pointing at a deleted notebook.
+			const notes = await itemService.notesByUserId(user.id, { folderId, includeConflicts: true });
+			// Joplock cannot move Joplin end-to-end encrypted items. Refuse BEFORE writing
+			// anything so a delete never half-completes.
+			if (children.some(c => c.e2ee) || notes.some(n => n.e2ee)) {
+				throw fail(409, 'This notebook contains end-to-end encrypted items that Joplock cannot move. Delete it in a Joplin app.');
+			}
 
 			// Where promoted things end up, and which share that is.
 			let destinationId = parentId;
@@ -213,7 +223,6 @@ const createFolderOps = ({ itemService, itemWriteService, vaultService, shareSyn
 			}
 
 			// 2. its own notes move to the parent (or General)
-			const notes = await itemService.notesByUserId(user.id, { folderId });
 			const noteShareUpdates = [];
 			for (const note of notes) {
 				const noteShareId = note.shareId || '';

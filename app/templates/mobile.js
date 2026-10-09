@@ -52,7 +52,7 @@ const mobileFoldersFragment = (folders, countsOrNotes) => {
 		const toggle = f.hasChildren
 			? `<span role="button" tabindex="0" class="mobile-folder-toggle" aria-label="Expand or collapse" onclick="mobileToggleFolderRow(${escapeHtml(JSON.stringify(f.id))},event)">&#9656;</span>`
 			: togglePlaceholder;
-		return `<button class="mobile-folder-row${f.hasChildren ? ' has-children' : ''}" data-folder-id="${escapeHtml(f.id)}" data-parent-id="${escapeHtml(f.treeParentId)}" data-depth="${f.depth}" style="--m-depth:${Math.min(f.depth, 4)}"${f.depth ? ' hidden' : ''} onclick="mobilePushNotes(${escapeHtml(JSON.stringify(f.id))},${escapeHtml(JSON.stringify(f.title || 'Untitled'))})">
+		return `<button class="mobile-folder-row${f.hasChildren ? ' has-children' : ''}" data-folder-id="${escapeHtml(f.id)}" data-parent-id="${escapeHtml(f.treeParentId)}" data-depth="${f.depth}"${f.e2ee ? ' data-e2ee="1"' : ''} style="--m-depth:${Math.min(f.depth, 4)}"${f.depth ? ' hidden' : ''} onclick="mobilePushNotes(${escapeHtml(JSON.stringify(f.id))},${escapeHtml(JSON.stringify(f.title || 'Untitled'))})">
 			${toggle}
 			<span class="mobile-folder-icon">${folderOutlineIcon}</span>
 			<span class="mobile-folder-title">${escapeHtml(f.title || 'Untitled')}</span>
@@ -70,8 +70,8 @@ const mobileFoldersFragment = (folders, countsOrNotes) => {
 const mobileNoteRow = (n, onclickJs, viewerUserId = '') => {
 	const protectedByVault = !!(n.isEncrypted || n.inVault);
 	const isOwner = !n.ownerId || n.ownerId === viewerUserId;
-	const lockIcon = protectedByVault ? '<span class="note-lock-icon" data-note-id="' + escapeHtml(n.id) + '">' + svgLockClosed + '</span>' : '';
-	return `<button class="mobile-note-row" data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}" data-is-owner="${isOwner ? '1' : '0'}"${n.isEncrypted ? ' data-encrypted="1"' : ''}${protectedByVault && n.parentId ? ` data-vault-id="${escapeHtml(n.parentId)}"` : ''} onclick="${onclickJs}">
+	const lockIcon = (protectedByVault || n.e2ee) ? '<span class="note-lock-icon" data-note-id="' + escapeHtml(n.id) + '">' + svgLockClosed + '</span>' : '';
+	return `<button class="mobile-note-row${n.e2ee ? ' mobile-note-row-e2ee' : ''}"${n.e2ee ? ' data-e2ee="1"' : ''} data-note-id="${escapeHtml(n.id)}" data-note-title="${escapeHtml(n.title || 'Untitled')}" data-is-owner="${isOwner ? '1' : '0'}"${n.isEncrypted ? ' data-encrypted="1"' : ''}${protectedByVault && n.parentId ? ` data-vault-id="${escapeHtml(n.parentId)}"` : ''} onclick="${onclickJs}">
 		${lockIcon}<span class="mobile-note-title">${escapeHtml(stripMarkdownForTitle(n.title || 'Untitled') || 'Untitled')}</span>
 		<span class="mobile-note-arrow">&#8250;</span>
 	</button>`;

@@ -176,6 +176,15 @@ const normalizeStoredFolderId = folderId => folderId === '__all__' ? ALL_NOTES_F
 
 const mapNavNotes = notes => notes.map(note => note.deletedTime ? { ...note, parentId: TRASH_FOLDER_ID } : note);
 
+// Items read from the database carry `fields` (every stored Joplin field, used so a
+// rewrite can pass them through). That is internal: never send it to the browser.
+const publicItem = item => {
+	if (!item || typeof item !== 'object' || !('fields' in item)) return item;
+	const { fields, ...rest } = item; // eslint-disable-line no-unused-vars
+	return rest;
+};
+const publicItems = items => (Array.isArray(items) ? items.map(publicItem) : items);
+
 const contentDispositionFilename = value => `${value || 'attachment'}`.replace(/[\r\n"]/g, '_');
 
 const shouldInlineResource = mime => /^(image\/.+|application\/pdf|text\/plain)$/i.test(`${mime || ''}`);
@@ -285,6 +294,8 @@ const assertShareWriteAccess = async (itemService, userId, itemId) => {
 };
 
 module.exports = {
+	publicItem,
+	publicItems,
 	// response
 	send,
 	sendJson,

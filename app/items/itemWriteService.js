@@ -1,5 +1,6 @@
 const http = require('http');
 const { randomBytes } = require('crypto');
+const { serializeItem, MODEL_TYPE_NOTE, MODEL_TYPE_FOLDER, MODEL_TYPE_RESOURCE } = require('./joplinItem');
 
 const notePath = noteId => `root:/${noteId}.md:`;
 const folderPath = folderId => `root:/${folderId}.md:`;
@@ -11,119 +12,148 @@ const itemId = suffix => {
 	return `${token}${suffix}`;
 };
 
-const formatTimestamp = timestamp => new Date(timestamp).toISOString();
+const httpError = (statusCode, message) => {
+	const error = new Error(message);
+	error.statusCode = statusCode;
+	return error;
+};
+
+// Values for items that have no stored fields (brand new items). Existing items
+// never use these: their stored fields are written back (see joplinItem.js).
+const noteDefaults = now => ({
+	is_conflict: 0,
+	latitude: '0.00000000',
+	longitude: '0.00000000',
+	altitude: '0.0000',
+	author: '',
+	source_url: '',
+	is_todo: 0,
+	todo_due: 0,
+	todo_completed: 0,
+	source: 'joplock-web',
+	source_application: 'net.cozic.joplock-web',
+	application_data: '',
+	order: now, // Joplin orders new notes by creation time
+	encryption_cipher_text: '',
+	encryption_applied: 0,
+	markup_language: 1,
+	conflict_original_id: '',
+	master_key_id: '',
+	user_data: '',
+});
 
 const serializeNote = note => {
 	const now = Date.now();
 	const noteId = note.id || itemId('1');
-	const parentId = note.parentId || '';
-	const createdTime = note.createdTime || now;
-	const deletedTime = note.deletedTime || 0;
+	const fields = note.fields || null;
+	const createdTime = note.createdTime || (fields && fields.created_time) || now;
+
+	const overrides = {
+		id: noteId,
+		parent_id: note.parentId || '',
+		created_time: createdTime,
+		updated_time: now,
+		user_created_time: (fields && fields.user_created_time) || createdTime,
+		user_updated_time: note.userUpdatedTime !== undefined ? note.userUpdatedTime : now,
+		is_shared: note.isShared ? 1 : 0,
+		share_id: note.shareId || '',
+		deleted_time: note.deletedTime || 0,
+	};
+	if (note.masterKeyId !== undefined) overrides.master_key_id = note.masterKeyId;
 
 	return {
 		id: noteId,
 		path: notePath(noteId),
-		body: `${note.title || 'Untitled note'}
-
-${note.body || ''}
-
-id: ${noteId}
-parent_id: ${parentId}
-created_time: ${formatTimestamp(createdTime)}
-updated_time: ${formatTimestamp(now)}
-is_conflict: 0
-latitude: 0.00000000
-longitude: 0.00000000
-altitude: 0.0000
-author: 
-source_url: 
-is_todo: 0
-todo_due: 0
-todo_completed: 0
-source: joplock-web
-source_application: net.cozic.joplock-web
-application_data: 
-order: 0
-user_created_time: ${formatTimestamp(createdTime)}
-user_updated_time: ${formatTimestamp(now)}
-encryption_cipher_text: 
-encryption_applied: 0
-markup_language: 1
-is_shared: ${note.isShared ? 1 : 0}
-share_id: ${note.shareId || ''}
-conflict_original_id: 
-master_key_id: ${note.masterKeyId || ''}
-user_data: 
-deleted_time: ${deletedTime}
-type_: 1`,
+		body: serializeItem({
+			type: MODEL_TYPE_NOTE,
+			title: note.title || 'Untitled note',
+			body: note.body || '',
+			fields,
+			defaults: noteDefaults(now),
+			overrides,
+		}),
 	};
 };
 
 const serializeFolder = folder => {
 	const now = Date.now();
 	const folderId = folder.id || itemId('2');
-	const parentId = folder.parentId || '';
-	// Preserve creation timestamps and metadata across rewrites. A rename or a
-	// move re-serializes the whole item, so anything not carried here (created
-	// time, icon, master key) would be silently reset on every edit.
-	const createdTime = folder.createdTime || now;
-	const userCreatedTime = folder.userCreatedTime || createdTime;
+	const fields = folder.fields || null;
+	const createdTime = folder.createdTime || (fields && fields.created_time) || now;
+
+	const overrides = {
+		id: folderId,
+		parent_id: folder.parentId || '',
+		created_time: createdTime,
+		updated_time: now,
+		user_created_time: folder.userCreatedTime || (fields && fields.user_created_time) || createdTime,
+		user_updated_time: folder.userUpdatedTime !== undefined ? folder.userUpdatedTime : now,
+		is_shared: folder.isShared ? 1 : 0,
+		share_id: folder.shareId || '',
+	};
 
 	return {
 		id: folderId,
 		path: folderPath(folderId),
-		body: `${folder.title || 'Untitled folder'}
-
-id: ${folderId}
-created_time: ${formatTimestamp(createdTime)}
-updated_time: ${formatTimestamp(now)}
-user_created_time: ${formatTimestamp(userCreatedTime)}
-user_updated_time: ${formatTimestamp(now)}
-encryption_cipher_text:
-encryption_applied: 0
-parent_id: ${parentId}
-is_shared: ${folder.isShared ? 1 : 0}
-share_id: ${folder.shareId || ''}
-master_key_id: ${folder.masterKeyId || ''}
-icon: ${folder.icon || ''}
-user_data: 
-deleted_time: 0
-type_: 2`,
+		body: serializeItem({
+			type: MODEL_TYPE_FOLDER,
+			title: folder.title || 'Untitled folder',
+			fields,
+			// icon / master key / deleted time come from the stored item when there is one;
+			// these only matter for objects built without it.
+			defaults: {
+				encryption_cipher_text: '',
+				encryption_applied: 0,
+				master_key_id: folder.masterKeyId || '',
+				icon: folder.icon || '',
+				user_data: '',
+				deleted_time: 0,
+			},
+			overrides,
+		}),
 	};
 };
 
 const serializeResource = resource => {
 	const now = Date.now();
 	const resourceId = resource.id || itemId('4');
-	const mime = resource.mime || 'application/octet-stream';
 	const filename = resource.filename || '';
-	const fileExtension = resource.fileExtension || '';
-	const size = resource.size || 0;
+	const overrides = {
+		id: resourceId,
+		mime: resource.mime || 'application/octet-stream',
+		filename,
+		created_time: now,
+		updated_time: now,
+		user_created_time: now,
+		user_updated_time: now,
+		file_extension: resource.fileExtension || '',
+		size: resource.size || 0,
+		is_shared: resource.isShared ? 1 : 0,
+		share_id: resource.shareId || '',
+		master_key_id: resource.masterKeyId || '',
+		blob_updated_time: now,
+	};
 
 	return {
 		id: resourceId,
 		metaPath: resourceMetaPath(resourceId),
 		blobPath: resourceBlobPath(resourceId),
-		body: `${resource.title || filename || 'Untitled resource'}
-
-id: ${resourceId}
-mime: ${mime}
-filename: ${filename}
-created_time: ${formatTimestamp(now)}
-updated_time: ${formatTimestamp(now)}
-user_created_time: ${formatTimestamp(now)}
-user_updated_time: ${formatTimestamp(now)}
-file_extension: ${fileExtension}
-encryption_cipher_text: 
-encryption_applied: 0
-encryption_blob_encrypted: 0
-size: ${size}
-is_shared: ${resource.isShared ? 1 : 0}
-share_id: ${resource.shareId || ''}
-master_key_id: ${resource.masterKeyId || ''}
-user_data: 
-blob_updated_time: ${formatTimestamp(now)}
-type_: 4`,
+		body: serializeItem({
+			type: MODEL_TYPE_RESOURCE,
+			title: resource.title || filename || 'Untitled resource',
+			defaults: {
+				encryption_cipher_text: '',
+				encryption_applied: 0,
+				encryption_blob_encrypted: 0,
+				user_data: '',
+				ocr_text: '',
+				ocr_details: '',
+				ocr_status: 0,
+				ocr_error: '',
+				ocr_driver_id: 0,
+			},
+			overrides,
+		}),
 	};
 };
 
@@ -173,6 +203,23 @@ const checkUpstreamResponse = response => {
 	const error = new Error(message);
 	error.statusCode = response.statusCode;
 	throw error;
+};
+
+const MARKUP_HTML = 2;
+
+const normalizeNewlines = text => `${text === undefined || text === null ? '' : text}`.replace(/\r\n?/g, '\n');
+
+// Joplin end-to-end encrypted items hold ciphertext; rewriting one from here
+// would replace it with plaintext. They are shown as locked placeholders only.
+const assertNotE2ee = (item, noun) => {
+	if (item && item.e2ee) throw httpError(403, `This ${noun} is end-to-end encrypted by Joplin and cannot be changed in Joplock.`);
+};
+
+// `user_updated_time` as stored; undefined when the item has none (serializer then
+// stamps "now", the behaviour for items that were never read from the server).
+const preservedUserUpdatedTime = item => {
+	const stored = item && item.fields ? item.fields.user_updated_time : undefined;
+	return stored || undefined;
 };
 
 const createItemWriteService = options => {
@@ -245,6 +292,8 @@ const createItemWriteService = options => {
 		},
 
 		async updateFolder(sessionId, existingFolder, updates, requestContext) {
+			assertNotE2ee(existingFolder, 'notebook');
+			const titleChanged = updates.title !== undefined && updates.title !== existingFolder.title;
 			const serialized = serializeFolder({
 				id: existingFolder.id,
 				title: updates.title !== undefined ? updates.title : existingFolder.title,
@@ -253,8 +302,12 @@ const createItemWriteService = options => {
 				shareId: updates.shareId !== undefined ? updates.shareId : (existingFolder.shareId || ''),
 				createdTime: existingFolder.createdTime,
 				userCreatedTime: existingFolder.userCreatedTime,
+				// A rename is an edit; moves and share changes keep the user-visible
+				// "modified" time, like Joplin's own Folder.moveToFolder.
+				userUpdatedTime: titleChanged ? Date.now() : preservedUserUpdatedTime(existingFolder),
 				icon: existingFolder.icon,
 				masterKeyId: existingFolder.masterKeyId,
+				fields: existingFolder.fields,
 			});
 			await putSerializedItem(sessionId, serialized, requestContext);
 			return { id: serialized.id };
@@ -267,15 +320,29 @@ const createItemWriteService = options => {
 		},
 
 		async updateNote(sessionId, existingNote, updates, requestContext) {
+			assertNotE2ee(existingNote, 'note');
+			const isHtml = existingNote.markupLanguage === MARKUP_HTML;
+			// HTML notes are read-only in Joplock: converting them to markdown would
+			// destroy them. Moving, trashing and restoring (no content change) is fine.
+			if (isHtml && updates.body !== undefined && normalizeNewlines(updates.body) !== normalizeNewlines(existingNote.body)) {
+				throw httpError(403, 'HTML notes are read-only in Joplock. Edit them in a Joplin app.');
+			}
+			const title = isHtml || updates.title === undefined ? existingNote.title : updates.title;
+			const body = isHtml || updates.body === undefined ? existingNote.body : updates.body;
+			const contentChanged = title !== existingNote.title || normalizeNewlines(body) !== normalizeNewlines(existingNote.body);
 			const serialized = serializeNote({
 				id: existingNote.id,
-				title: updates.title !== undefined ? updates.title : existingNote.title,
-				body: updates.body !== undefined ? updates.body : existingNote.body,
+				title,
+				body,
 				parentId: updates.parentId !== undefined ? updates.parentId : existingNote.parentId,
 				createdTime: existingNote.createdTime,
 				deletedTime: updates.deletedTime !== undefined ? updates.deletedTime : existingNote.deletedTime,
 				isShared: updates.isShared !== undefined ? updates.isShared : (existingNote.isShared || false),
 				shareId: updates.shareId !== undefined ? updates.shareId : (existingNote.shareId || ''),
+				// Only a real title/body edit moves the user-visible "modified" time;
+				// move / trash / restore / share changes leave it alone (Joplin semantics).
+				userUpdatedTime: contentChanged ? Date.now() : preservedUserUpdatedTime(existingNote),
+				fields: existingNote.fields,
 			});
 			await putSerializedItem(sessionId, serialized, requestContext);
 			return { id: serialized.id };
@@ -310,6 +377,7 @@ const createItemWriteService = options => {
 
 module.exports = {
 	createItemWriteService,
+	assertNotE2ee,
 	serializeFolder,
 	serializeNote,
 	serializeResource,

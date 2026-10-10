@@ -897,8 +897,15 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	padding: 4px;
 	border: 1px solid var(--border);
 	border-radius: 0;
-	background: var(--bg-elevated);
+	/* It floats over the sidebar AND the editor, so it must be opaque. --bg-elevated alone is
+	 * a ~2% tint in most themes (see-through); lay it over the solid sidebar colour so the
+	 * theme's look is kept without letting the content behind show through. */
+	background-color: var(--bg-side);
+	background-image: linear-gradient(var(--bg-elevated), var(--bg-elevated));
 	box-shadow: 0 10px 30px var(--shadow);
+	/* a very short window: scroll the menu instead of letting items fall off the screen */
+	max-height: calc(100vh - 16px);
+	overflow-y: auto;
 }
 
 .folder-context-menu[hidden],

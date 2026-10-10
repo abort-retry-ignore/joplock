@@ -363,8 +363,23 @@ function _reconcileSaveStateAfterModeSwitch(){
 }
 function renderNoteMeta(){var src=document.getElementById('note-meta');var mobileBody=document.getElementById('mobile-editor-body');if(isMobileShellMode()&&mobileBody){src=mobileBody.querySelector('#note-meta')||src}var target;if(isMobileShellMode()){target=src}else{target=document.getElementById('status-note-meta');if(src&&target){target.setAttribute('data-created-time',src.getAttribute('data-created-time')||'0');target.setAttribute('data-updated-time',src.getAttribute('data-updated-time')||'0')}}if(!target)return;var c=Number(target.getAttribute('data-created-time')||0),u=Number(target.getAttribute('data-updated-time')||0);if(!c&&!u){target.textContent='';return}var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var fmt=function(ts){if(!ts)return '';var d=new Date(ts);return String(d.getDate()).padStart(2,'0')+'-'+months[d.getMonth()]+'-'+String(d.getFullYear()).slice(-2)};target.textContent='Created '+fmt(c)+' | Edited '+fmt(u)}
 var _folderMenuState={id:'',title:''};
+// Put the menu at the pointer, but keep all of it on screen. It is position:fixed, so an item
+// that lands below the viewport cannot be scrolled to: right-clicking a notebook near the
+// bottom of a long list used to push Share / Delete off the screen. The menu must already be
+// un-hidden (a hidden element measures 0x0), and its items final (vault / pin entries change
+// its height).
+function positionFolderContextMenu(menu,x,y){
+	var pad=8;
+	var w=menu.offsetWidth||0,h=menu.offsetHeight||0;
+	var vw=window.innerWidth||document.documentElement.clientWidth||0;
+	var vh=window.innerHeight||document.documentElement.clientHeight||0;
+	var left=Math.max(pad,Math.min(x,vw-w-pad));
+	var top=Math.max(pad,Math.min(y,vh-h-pad));
+	menu.style.left=left+'px';
+	menu.style.top=top+'px';
+}
 function closeFolderContextMenu(){var menu=document.getElementById('folder-context-menu');if(menu)menu.hidden=true}
-function openFolderContextMenu(event,id,title){if(event){event.preventDefault();event.stopPropagation()}var _e2eeEl=navFolderEl(id);if(_e2eeEl&&_e2eeEl.getAttribute('data-e2ee')==='1')return false;var menu=document.getElementById('folder-context-menu');if(!menu)return false;_folderMenuState={id:id,title:title};menu.hidden=false;_syncFolderMenuForVault(menu,id);_syncFolderMenuPin(menu,id);menu.style.left=(event.clientX||16)+'px';menu.style.top=(event.clientY||16)+'px';return false}
+function openFolderContextMenu(event,id,title){if(event){event.preventDefault();event.stopPropagation()}var _e2eeEl=navFolderEl(id);if(_e2eeEl&&_e2eeEl.getAttribute('data-e2ee')==='1')return false;var menu=document.getElementById('folder-context-menu');if(!menu)return false;_folderMenuState={id:id,title:title};menu.hidden=false;_syncFolderMenuForVault(menu,id);_syncFolderMenuPin(menu,id);positionFolderContextMenu(menu,event.clientX||16,event.clientY||16);return false}
 function closeFolderModal(){var modal=document.getElementById('folder-modal');var backdrop=document.getElementById('folder-modal-backdrop');if(modal)modal.hidden=true;if(backdrop)backdrop.hidden=true}
 function openFolderModal(){var input=document.getElementById('folder-edit-title');var modal=document.getElementById('folder-modal');var backdrop=document.getElementById('folder-modal-backdrop');if(modal&&modal.parentNode!==document.body)document.body.appendChild(modal);if(backdrop&&backdrop.parentNode!==document.body)document.body.appendChild(backdrop);if(input)input.value=_folderMenuState.title||'';if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false;closeFolderContextMenu();if(input)input.focus()}
 function openEmptyTrashModal(){var modal=document.getElementById('empty-trash-modal');var backdrop=document.getElementById('empty-trash-modal-backdrop');if(modal&&modal.parentNode!==document.body)document.body.appendChild(modal);if(backdrop&&backdrop.parentNode!==document.body)document.body.appendChild(backdrop);if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false}

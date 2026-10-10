@@ -845,6 +845,7 @@ If a UI action appears broken, check:
 - Keep changes minimal
 - Preserve sidecar/frontend boundary
 - `public/app.js` is DOM-contract fragile; validate escaping-heavy changes and stable IDs carefully
+- **Floating menus must be opaque and stay on screen.** `--bg-elevated` is a ~2% tint in most themes, so it is a *panel lift*, never a popup background: put popups on a solid colour (`--bg-side` / `--bg-editor`; the notebook context menu layers the tint over `--bg-side`). A `position:fixed` popup also cannot be scrolled to, so place it with `positionFolderContextMenu()`-style clamping instead of raw pointer coordinates, or items near the window edge become unreachable. Guarded by `tests/popupBackgrounds.test.js` and `playwright-tests/folder-context-menu.spec.js`.
 - **Inline handlers only see what `public/app.js` assigns to `window`.** A template `onclick="foo()"` needs `window.foo=foo;`; a function that works in a unit test can still be "not defined" in the browser. `tests/inlineHandlersExposed.test.js` scans every inline handler the templates emit and fails if a called function is not exposed
 - The code modal lives in `loggedInLayout`, not inside `navigationFragment` or `editorFragment`, so it survives htmx OOB swaps
 - Be careful with checkbox text handling, `\n`, regex escaping, and DOM-to-markdown round trips

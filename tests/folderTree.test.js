@@ -194,3 +194,63 @@ test('normalizeFolderSort only accepts the two known values', () => {
 	assert.equal(normalizeFolderSort('alpha'), 'alpha');
 	for (const v of [undefined, null, '', 'RECENT', 'newest', 1]) assert.equal(normalizeFolderSort(v), 'alpha');
 });
+
+// ── pinning ──
+const { applyPinnedFirst } = require('../app/items/folderTree');
+
+test('pinned notebooks come first among their siblings; the rest keep their order', () => {
+	const out = applyPinnedFirst(alphaList(), ['zoo', 'home']);
+	assert.deepEqual(orderOf(out), ['home', 'zoo', 'archive', 'work', 'notes', 'proj', 'alpha'], 'home and zoo first, in the existing (alphabetical) order');
+	assert.deepEqual(out.filter(f => f.isPinned).map(f => f.id).sort(), ['home', 'zoo']);
+});
+
+test('pinning a nested notebook pulls its ancestors up but keeps it under its parents', () => {
+	const out = applyPinnedFirst(alphaList(), ['alpha']);
+	const flat = flattenFolderTree(out);
+	assert.deepEqual(flat.map(f => f.id), ['work', 'proj', 'alpha', 'notes', 'archive', 'home', 'zoo']);
+	assert.equal(flat.find(f => f.id === 'alpha').depth, 2, 'still two levels down');
+	assert.equal(flat.find(f => f.id === 'alpha').isPinned, true);
+	assert.equal(flat.find(f => f.id === 'work').isPinned, false, 'ancestors rise but are not themselves pinned');
+});
+
+test('a directly pinned notebook ranks above one that merely contains a pinned notebook', () => {
+	// home pinned directly; work only contains pinned alpha. Alphabetically work < zoo; home < work too,
+	// so use zoo (pinned) vs work (container) to prove the rank, not the alphabet.
+	const out = applyPinnedFirst(alphaList(), ['zoo', 'alpha']);
+	assert.deepEqual(orderOf(out).filter(id => ['zoo', 'work', 'home', 'archive'].includes(id)), ['zoo', 'work', 'archive', 'home']);
+});
+
+test('pins compose with the recent order: pinned first, then by recency', () => {
+	const recent = sortFoldersByRecent(alphaList(), new Map([['zoo', 90], ['home', 50], ['archive', 5]]));
+	const out = applyPinnedFirst(recent, ['archive']);
+	assert.deepEqual(orderOf(out).filter(id => ['zoo', 'home', 'archive'].includes(id)), ['archive', 'zoo', 'home']);
+});
+
+test('pins never change what pickers see: inAlphabeticalOrder restores the original order', () => {
+	const alpha = alphaList();
+	const out = applyPinnedFirst(alpha, ['zoo']);
+	assert.notDeepEqual(out.map(f => f.id), alpha.map(f => f.id));
+	assert.deepEqual(inAlphabeticalOrder(out).map(f => f.id), alpha.map(f => f.id));
+	// pins applied on top of a recent sort keep the ORIGINAL alphabetical rank
+	const both = applyPinnedFirst(sortFoldersByRecent(alpha, new Map([['archive', 99]])), ['home']);
+	assert.deepEqual(inAlphabeticalOrder(both).map(f => f.id), alpha.map(f => f.id));
+});
+
+test('nothing pinned, stale ids and bad input are harmless', () => {
+	const alpha = alphaList();
+	assert.equal(applyPinnedFirst(alpha, []), alpha, 'untouched when there is nothing to pin');
+	assert.equal(applyPinnedFirst(alpha, ['deleted-long-ago']), alpha, 'stale ids are ignored');
+	assert.equal(applyPinnedFirst(alpha, null), alpha);
+	assert.deepEqual(applyPinnedFirst(null, ['x']), null);
+	const input = alphaList();
+	const snapshot = JSON.stringify(input);
+	applyPinnedFirst(input, ['zoo']);
+	assert.equal(JSON.stringify(input), snapshot, 'input is not mutated');
+});
+
+test('pinned notebooks stay under their parent even when the parent is pinned too', () => {
+	const out = applyPinnedFirst(alphaList(), ['work', 'proj']);
+	const flat = flattenFolderTree(out);
+	assert.deepEqual(flat.slice(0, 3).map(f => f.id), ['work', 'proj', 'alpha']);
+	assert.equal(flat[1].treeParentId, 'work');
+});

@@ -152,6 +152,7 @@ const defaultSettings = Object.freeze({
 	encryptionAutoLockMinutes: 5,
 	uiMode: 'auto',
 	folderSort: 'alpha',
+	pinnedFolders: [],
 	proseAutocompleteSentenceCount: 1,
 	openRouterApiKey: '',
 	openRouterModel: 'openai/gpt-4o-mini',
@@ -207,6 +208,17 @@ const normalizeTextExpanders = entries => {
 	}).filter(Boolean).slice(0, 100);
 };
 
+const normalizePinnedFolders = value => {
+	if (!Array.isArray(value)) return [];
+	const out = [];
+	for (const id of value) {
+		const clean = `${id === null || id === undefined ? '' : id}`.trim();
+		if (clean && clean.length <= 64 && !out.includes(clean)) out.push(clean);
+		if (out.length >= 100) break;
+	}
+	return out;
+};
+
 const normalizeSettings = settings => ({
 	noteFontSize: normalizeInteger(settings.noteFontSize, defaultSettings.noteFontSize, 12, 24),
 	mobileNoteFontSize: normalizeInteger(settings.mobileNoteFontSize, normalizeInteger(settings.noteFontSize, defaultSettings.noteFontSize, 12, 24) + 2, 12, 28),
@@ -234,6 +246,9 @@ const normalizeSettings = settings => ({
 	encryptionAutoLockMinutes: normalizeInteger(settings.encryptionAutoLockMinutes, defaultSettings.encryptionAutoLockMinutes, 0, 480),
 	uiMode: validUiModes.includes(settings.uiMode) ? settings.uiMode : defaultSettings.uiMode,
 	folderSort: settings.folderSort === 'recent' ? 'recent' : defaultSettings.folderSort,
+	// Notebooks pinned to the top of the list. Joplock-only: Joplin has no such concept, so
+	// this is never written to a Joplin item. Unknown / deleted ids are simply ignored.
+	pinnedFolders: normalizePinnedFolders(settings.pinnedFolders),
 	proseAutocompleteSentenceCount: normalizeInteger(settings.proseAutocompleteSentenceCount, defaultSettings.proseAutocompleteSentenceCount, 1, 8),
 	openRouterApiKey: `${settings.openRouterApiKey || ''}`.trim(),
 	openRouterModel: `${settings.openRouterModel || ''}`.trim() || defaultSettings.openRouterModel,

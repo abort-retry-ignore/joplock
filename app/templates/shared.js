@@ -140,6 +140,7 @@ const passwordField = (name, opts = {}) => {
 };
 
 const svgLockClosed = '<svg class="vault-svg-icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke-width="2.5"/></svg>';
+const svgPin = '<svg class="pin-svg-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 3a1 1 0 0 1 .7 1.7L15 6.4l1.9 4.4 2.3 1.3a1 1 0 0 1-.4 1.9H13v5.4a1 1 0 0 1-2 0V14H5.2a1 1 0 0 1-.4-1.9l2.3-1.3L9 6.4 7.3 4.7A1 1 0 0 1 8 3h8z"/></svg>';
 const svgLockOpen = '<svg class="vault-svg-icon" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="15" width="18" height="11" rx="2"/><path d="M7 15V8a5 5 0 0 1 10 0"/></svg>';
 
 module.exports = {
@@ -158,4 +159,5 @@ module.exports = {
 	passwordField,
 	svgLockClosed,
 	svgLockOpen,
+	svgPin,
 };

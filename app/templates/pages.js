@@ -10,7 +10,7 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20261009notebooksort';
+const ASSET_VERSION = '20261009pinnednotebooks';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';
@@ -228,6 +228,7 @@ const layoutPage = (options = {}) => {
 	<div class="mobile-ctx-backdrop" id="mobile-folder-ctx-backdrop" style="display:none" onclick="mobileFolderCtxClose()"></div>
 	<div class="mobile-ctx-sheet" id="mobile-folder-ctx-sheet" style="display:none">
 		<div class="mobile-ctx-title" id="mobile-folder-ctx-title"></div>
+		<button class="mobile-ctx-btn" id="mobile-folder-ctx-pin">&#128204; Pin to top</button>
 		<button class="mobile-ctx-btn" id="mobile-folder-ctx-rename">&#9998; Rename notebook</button>
 		<button class="mobile-ctx-btn" id="mobile-folder-ctx-add-sub">&#10133; New sub-notebook</button>
 		<button class="mobile-ctx-btn" id="mobile-folder-ctx-move">&#8599; Move notebook&hellip;</button>

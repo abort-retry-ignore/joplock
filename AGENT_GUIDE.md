@@ -157,6 +157,15 @@ Per-user setting `folderSort` (`alpha` default | `recent`; Settings -> Appearanc
 - Switching order re-renders the nav via `/fragments/nav`; lazily loaded note lists now receive the open note's id (`navLoadFolderNotes`) so it stays highlighted.
 - Tests: `tests/folderTree.test.js` (ordering), `tests/folderSort.test.js` (SQL, setting, routes, pickers), `playwright-tests/folder-sort.spec.js`.
 
+### Pinned notebooks
+
+Pin a notebook to the top of the list: **Pin to top / Unpin from top** in the desktop context menu (`#folder-ctx-pin`) and the mobile long-press sheet (`#mobile-folder-ctx-pin`); a pin icon marks pinned rows (`.nav-pin-icon`, `.mobile-pin-icon`, `data-pinned="1"`).
+
+- **Joplock-only, per user.** Stored as `pinnedFolders` in `joplock_settings` (max 100 ids, distinct); changed only through `PUT` / `DELETE /api/web/pinned-folders/:id`. **Nothing is written to the Joplin notebook** (Joplin has no pin concept), so Joplin apps are unaffected, other users do not see your pins, and a recipient can pin a notebook that was shared with them. Pinning a notebook that does not exist is a 404; a successful pin also forgets pins of notebooks that no longer exist (stale ids are otherwise ignored on render). Guarded by a byte-for-byte check of the Joplin item in `playwright-tests/folder-pin.spec.js` and a "no Joplin write" unit test.
+- **Ordering** (`applyPinnedFirst` in `app/items/folderTree.js`, applied in `orderFoldersForUser` after the A-Z / recent order): pinned notebooks come first among their siblings; among themselves they follow the active order. **Pinning a nested notebook pulls its ancestors up** (rank 1 = "contains a pinned notebook") so it stays near the top and is still drawn under its parents; ancestors are not themselves marked pinned. Like every ordering here it runs on the FLAT list, so a notebook can never be separated from its parent.
+- **Pickers ignore pins** (editor notebook select, move / new-notebook dialogs): `applyPinnedFirst` keeps/assigns `alphaRank` so `inAlphabeticalOrder()` restores the alphabetical order.
+- Tests: `tests/folderTree.test.js` (rules), `tests/folderPin.test.js` (setting, endpoints, routes, pickers, client helpers), `playwright-tests/folder-pin.spec.js`.
+
 ### Mobile contract
 
 - The folders screen is an **inline expandable tree** (not drill-down), so `mobileBack` and the 3-screen stack are untouched. Rows carry `data-folder-id/-parent-id/-depth` and `--m-depth`; rows below the top level render `hidden` and `mobileApplyFolderTree()` reveals them from `localStorage['joplock-mobile-folders']` (sub-notebooks shown; separate from the desktop key). `.mobile-folder-row[hidden]` needs its own CSS rule because `display:flex` beats the UA `[hidden]`.
@@ -684,6 +693,7 @@ Per-user (`joplock_settings.settings` JSONB; allowlist for `PUT /api/web/setting
 - `noteOpenMode` — `markdown` (default) | `preview`
 - `resumeLastNote`, `lastNoteId`, `lastNoteFolderId` — last-opened note resumption
 - `dateFormat`, `datetimeFormat`
+- `pinnedFolders` — array of notebook ids pinned to the top of the list (managed via `/api/web/pinned-folders/:id`, not the settings page; see "Pinned notebooks")
 - `folderSort` — `alpha` (default) | `recent`; notebook order in the sidebar and mobile folders list (see "Notebook order")
 - `uiMode` — `auto` (default) | `mobile` | `desktop`; `auto` picks the mobile shell at/below the shell breakpoint, the explicit values add `force-mobile`/`force-desktop` to `<body>`
 - `liveSearch`, `highlightActiveLine` (CM6 caret-line highlight), `confirmTrash`
@@ -1020,6 +1030,7 @@ Recommended inner loop:
 
 ## Recently Completed Work
 
+- **Pinned notebooks**: pin a notebook to the top of the sidebar / mobile list (per-user, Joplock-only; nested pins pull their parents up). See "Pinned notebooks".
 - **Notebook drag-and-drop (desktop) and notebook order (A-Z / most recent)**: see "Drag and drop (desktop)" and "Notebook order" under Nested Notebooks. Also added a guard test for inline template handlers that are not exposed on `window`.
 - **Joplin field fidelity + compatibility harness**: pass-through serializer, stored `fields` on every item, HTML notes rendered read-only, Joplin-E2EE items as locked placeholders, conflict copies hidden, share id read from `jop_share_id`, OCR fields on uploads; opt-in real-client tests (`npm run test:joplin`). Also fixed along the way: **restoring a note from the trash returned 404 for every trashed note** (the ownership lookup ignored trashed notes), and **editing a shared note twice in Joplock silently unshared it**. See "Joplin Field Fidelity".
 - **Nested notebooks**: Joplin's `parent_id` hierarchy now renders as a tree on desktop (multi-expand, rolled-up counts, ancestors open) and mobile (inline expandable tree), with create-under-parent, move (tree picker), delete-promotes, whole-subtree sharing, and vaults as top-level leaves. `app/items/folderTree.js` + `app/items/folderOps.js`. `updateFolder` also stopped resetting `created_time`/`icon`.

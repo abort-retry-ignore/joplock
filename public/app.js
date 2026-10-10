@@ -364,7 +364,7 @@ function _reconcileSaveStateAfterModeSwitch(){
 function renderNoteMeta(){var src=document.getElementById('note-meta');var mobileBody=document.getElementById('mobile-editor-body');if(isMobileShellMode()&&mobileBody){src=mobileBody.querySelector('#note-meta')||src}var target;if(isMobileShellMode()){target=src}else{target=document.getElementById('status-note-meta');if(src&&target){target.setAttribute('data-created-time',src.getAttribute('data-created-time')||'0');target.setAttribute('data-updated-time',src.getAttribute('data-updated-time')||'0')}}if(!target)return;var c=Number(target.getAttribute('data-created-time')||0),u=Number(target.getAttribute('data-updated-time')||0);if(!c&&!u){target.textContent='';return}var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var fmt=function(ts){if(!ts)return '';var d=new Date(ts);return String(d.getDate()).padStart(2,'0')+'-'+months[d.getMonth()]+'-'+String(d.getFullYear()).slice(-2)};target.textContent='Created '+fmt(c)+' | Edited '+fmt(u)}
 var _folderMenuState={id:'',title:''};
 function closeFolderContextMenu(){var menu=document.getElementById('folder-context-menu');if(menu)menu.hidden=true}
-function openFolderContextMenu(event,id,title){if(event){event.preventDefault();event.stopPropagation()}var _e2eeEl=navFolderEl(id);if(_e2eeEl&&_e2eeEl.getAttribute('data-e2ee')==='1')return false;var menu=document.getElementById('folder-context-menu');if(!menu)return false;_folderMenuState={id:id,title:title};menu.hidden=false;_syncFolderMenuForVault(menu,id);menu.style.left=(event.clientX||16)+'px';menu.style.top=(event.clientY||16)+'px';return false}
+function openFolderContextMenu(event,id,title){if(event){event.preventDefault();event.stopPropagation()}var _e2eeEl=navFolderEl(id);if(_e2eeEl&&_e2eeEl.getAttribute('data-e2ee')==='1')return false;var menu=document.getElementById('folder-context-menu');if(!menu)return false;_folderMenuState={id:id,title:title};menu.hidden=false;_syncFolderMenuForVault(menu,id);_syncFolderMenuPin(menu,id);menu.style.left=(event.clientX||16)+'px';menu.style.top=(event.clientY||16)+'px';return false}
 function closeFolderModal(){var modal=document.getElementById('folder-modal');var backdrop=document.getElementById('folder-modal-backdrop');if(modal)modal.hidden=true;if(backdrop)backdrop.hidden=true}
 function openFolderModal(){var input=document.getElementById('folder-edit-title');var modal=document.getElementById('folder-modal');var backdrop=document.getElementById('folder-modal-backdrop');if(modal&&modal.parentNode!==document.body)document.body.appendChild(modal);if(backdrop&&backdrop.parentNode!==document.body)document.body.appendChild(backdrop);if(input)input.value=_folderMenuState.title||'';if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false;closeFolderContextMenu();if(input)input.focus()}
 function openEmptyTrashModal(){var modal=document.getElementById('empty-trash-modal');var backdrop=document.getElementById('empty-trash-modal-backdrop');if(modal&&modal.parentNode!==document.body)document.body.appendChild(modal);if(backdrop&&backdrop.parentNode!==document.body)document.body.appendChild(backdrop);if(modal)modal.hidden=false;if(backdrop)backdrop.hidden=false}
@@ -432,6 +432,36 @@ function _expandFolderState(id){
 	if(!id)return;
 	if(typeof window.mobileExpandFolderState==='function')window.mobileExpandFolderState(id);
 	expandNavFolderState(id);
+}
+// ---- Pin a notebook to the top of the list ---------------------------------------
+// Pins are a per-user Joplock setting (PUT/DELETE /api/web/pinned-folders/:id); nothing is
+// written to the Joplin notebook. The server renders pinned notebooks first and marks them
+// data-pinned="1" on the sidebar / mobile rows, which is what these helpers read.
+function _isFolderPinnedInDom(id){
+	var q=String(id).replace(/"/g,'\\"');
+	var row=document.querySelector('#mobile-folders-body .mobile-folder-row[data-folder-id="'+q+'"]');
+	if(row&&isMobileShellMode())return row.getAttribute('data-pinned')==='1';
+	var el=navFolderEl(id);
+	if(el)return el.getAttribute('data-pinned')==='1';
+	return !!(row&&row.getAttribute('data-pinned')==='1');
+}
+function _syncFolderMenuPin(menu,id){
+	var b=menu.querySelector('#folder-ctx-pin');
+	if(b)b.textContent=_isFolderPinnedInDom(id)?'Unpin from top':'Pin to top';
+}
+function setFolderPinned(id,pinned){
+	var selectedEl=document.querySelector('#nav-panel .nav-folder[data-selected="1"]');
+	var selectedId=selectedEl?selectedEl.getAttribute('data-folder-id'):'';
+	return fetch('/api/web/pinned-folders/'+encodeURIComponent(id),{method:pinned?'PUT':'DELETE',credentials:'same-origin'}).then(function(r){
+		if(r.status===401){window.location.assign('/logout');return}
+		if(!r.ok)return r.json().catch(function(){return {}}).then(function(d){throw new Error(d.error||'Could not update pinned notebooks')});
+		_afterFolderChange('',selectedId);
+	}).catch(function(e){alert((e&&e.message)||'Could not update pinned notebooks')});
+}
+function togglePinFromMenu(){
+	var id=_folderMenuState.id;if(!id)return;
+	closeFolderContextMenu();
+	setFolderPinned(id,!_isFolderPinnedInDom(id));
 }
 function newSubfolderFromMenu(){var id=_folderMenuState.id;if(!id)return;closeFolderContextMenu();openNewFolderModal('',id)}
 function moveFolderFromMenu(){if(!_folderMenuState.id)return;closeFolderContextMenu();openMoveFolderModal()}
@@ -5621,6 +5651,12 @@ function confirmLogout(event){
 		if(titleEl)titleEl.textContent=_folderCtxTitle;
 		if(renameBtn)renameBtn.onclick=function(){mobileFolderCtxRename()};
 		if(delBtn)delBtn.onclick=function(){mobileFolderCtxDelete()};
+		var pinBtn=document.getElementById('mobile-folder-ctx-pin');
+		if(pinBtn){
+			var isPinned=_isFolderPinnedInDom(folderId);
+			pinBtn.textContent=(isPinned?'\uD83D\uDCCC Unpin from top':'\uD83D\uDCCC Pin to top');
+			pinBtn.onclick=function(){var id=_folderCtxId;window.mobileFolderCtxClose();setFolderPinned(id,!isPinned)};
+		}
 		var addSubBtn=document.getElementById('mobile-folder-ctx-add-sub');
 		var moveBtn=document.getElementById('mobile-folder-ctx-move');
 		var vaultRow=_folderIsVaultInDom(folderId);
@@ -7145,6 +7181,7 @@ async function submitNewFolderModal(event){
 	window.closeNav=closeNav;
 	window.toggleNav=toggleNav;
 	window.toggleNavFolder=toggleNavFolder;
+	window.togglePinFromMenu=togglePinFromMenu;
 	window.toggleFolderSort=toggleFolderSort;
 	window.newSubfolderFromMenu=newSubfolderFromMenu;
 	window.moveFolderFromMenu=moveFolderFromMenu;

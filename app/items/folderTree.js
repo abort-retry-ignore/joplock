@@ -194,6 +194,41 @@ const inAlphabeticalOrder = folders => {
 	return list.slice().sort((a, b) => a.alphaRank - b.alphaRank);
 };
 
+// Pinned notebooks come first among their siblings, whichever order is active. Like the
+// recency order this runs on the FLAT list, so a notebook can never be separated from its
+// parent. Rank: 2 = pinned itself, 1 = contains a pinned notebook somewhere below (so a
+// pinned NESTED notebook pulls its ancestors up with it and stays reachable at the top,
+// still drawn under its parents), 0 = everything else. Stable within a rank, so the active
+// A-Z / recent order decides among pinned notebooks. Folders get `isPinned`, and keep (or
+// get) `alphaRank` so pickers can undo the reordering (inAlphabeticalOrder).
+const applyPinnedFirst = (folders, pinnedIds) => {
+	const list = (folders || []).filter(f => f && f.id);
+	const pinned = new Set(pinnedIds || []);
+	if (!list.some(f => pinned.has(f.id))) return folders;
+	const rank = new Map();
+	const visit = node => {
+		let value = pinned.has(node.id) ? 2 : 0;
+		for (const child of node.children) {
+			if (visit(child) > 0 && value < 1) value = 1;
+		}
+		rank.set(node.id, value);
+		return value;
+	};
+	for (const root of buildFolderTree(list)) visit(root);
+	return list
+		.map((folder, index) => ({
+			folder: Object.assign({}, folder, {
+				alphaRank: Number.isFinite(folder.alphaRank) ? folder.alphaRank : index,
+				isPinned: pinned.has(folder.id),
+			}),
+			index,
+		}))
+		.sort((a, b) => (rank.get(b.folder.id) - rank.get(a.folder.id)) || (a.index - b.index))
+		.map(entry => entry.folder);
+};
+
+const MAX_PINNED_FOLDERS = 100;
+
 const FOLDER_SORTS = ['alpha', 'recent'];
 const normalizeFolderSort = value => (value === 'recent' ? 'recent' : 'alpha');
 
@@ -226,6 +261,8 @@ module.exports = {
 	folderPathString,
 	folderOptionLabel,
 	sortFoldersByRecent,
+	applyPinnedFirst,
+	MAX_PINNED_FOLDERS,
 	inAlphabeticalOrder,
 	FOLDER_SORTS,
 	normalizeFolderSort,

@@ -25,7 +25,7 @@ const routeFragments = require('./routes/fragments');
 const routeMobile = require('./routes/mobile');
 const routeShares = require('./routes/shares');
 const { createFolderOps } = require('./items/folderOps');
-const { sortFoldersByRecent } = require('./items/folderTree');
+const { sortFoldersByRecent, applyPinnedFirst } = require('./items/folderTree');
 const routeApi = require('./routes/api');
 const { handleExportDocx, handleExportPdf, handleExportHtml } = routeApi;
 
@@ -120,18 +120,26 @@ const createServer = options => {
 	};
 
 	// Notebook order for the lists people browse (sidebar, mobile folders screen). "Most
-	// recent" is a per-user setting; the default is the alphabetical order the database
+	// recent" and pinned notebooks are per-user settings; the default is the alphabetical order the database
 	// returns. Pickers (editor notebook select, move / new-notebook dialogs) always use
 	// the alphabetical order, so reordering here never affects them (see inAlphabeticalOrder).
 	const orderFoldersForUser = async (userId, folders, knownSettings) => {
 		if (!folders || !folders.length) return folders;
 		let settings = knownSettings;
 		if (!settings && settingsService) settings = await settingsService.settingsByUserId(userId).catch(() => null);
-		if (!settings || settings.folderSort !== 'recent') return folders;
-		const activity = typeof itemService.folderActivityByUserId === 'function'
-			? await itemService.folderActivityByUserId(userId).catch(() => new Map())
-			: new Map();
-		return sortFoldersByRecent(folders, activity);
+		if (!settings) return folders;
+		let ordered = folders;
+		if (settings.folderSort === 'recent') {
+			const activity = typeof itemService.folderActivityByUserId === 'function'
+				? await itemService.folderActivityByUserId(userId).catch(() => new Map())
+				: new Map();
+			ordered = sortFoldersByRecent(folders, activity);
+		}
+		// pinned notebooks come first, whichever order is active
+		if (Array.isArray(settings.pinnedFolders) && settings.pinnedFolders.length) {
+			ordered = applyPinnedFirst(ordered, settings.pinnedFolders);
+		}
+		return ordered;
 	};
 
 		const navData = async userId => {

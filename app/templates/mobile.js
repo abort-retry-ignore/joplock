@@ -8,6 +8,7 @@ const {
 	trashFolderId,
 	stripMarkdownForTitle,
 	svgLockClosed,
+	svgPin,
 } = require('./shared');
 const { flattenFolderTree, rollupCounts } = require('../items/folderTree');
 
@@ -52,10 +53,11 @@ const mobileFoldersFragment = (folders, countsOrNotes) => {
 		const toggle = f.hasChildren
 			? `<span role="button" tabindex="0" class="mobile-folder-toggle" aria-label="Expand or collapse" onclick="mobileToggleFolderRow(${escapeHtml(JSON.stringify(f.id))},event)">&#9656;</span>`
 			: togglePlaceholder;
-		return `<button class="mobile-folder-row${f.hasChildren ? ' has-children' : ''}" data-folder-id="${escapeHtml(f.id)}" data-parent-id="${escapeHtml(f.treeParentId)}" data-depth="${f.depth}"${f.e2ee ? ' data-e2ee="1"' : ''} style="--m-depth:${Math.min(f.depth, 4)}"${f.depth ? ' hidden' : ''} onclick="mobilePushNotes(${escapeHtml(JSON.stringify(f.id))},${escapeHtml(JSON.stringify(f.title || 'Untitled'))})">
+		return `<button class="mobile-folder-row${f.hasChildren ? ' has-children' : ''}" data-folder-id="${escapeHtml(f.id)}" data-parent-id="${escapeHtml(f.treeParentId)}" data-depth="${f.depth}"${f.e2ee ? ' data-e2ee="1"' : ''}${f.isPinned ? ' data-pinned="1"' : ''} style="--m-depth:${Math.min(f.depth, 4)}"${f.depth ? ' hidden' : ''} onclick="mobilePushNotes(${escapeHtml(JSON.stringify(f.id))},${escapeHtml(JSON.stringify(f.title || 'Untitled'))})">
 			${toggle}
 			<span class="mobile-folder-icon">${folderOutlineIcon}</span>
 			<span class="mobile-folder-title">${escapeHtml(f.title || 'Untitled')}</span>
+			${f.isPinned ? `<span class="mobile-pin-icon" title="Pinned to the top">${svgPin}</span>` : ''}
 			${vaultIcon}
 			<span class="mobile-folder-count">${count || ''}</span>
 			<span class="mobile-folder-add" onclick="mobileNewNoteInFolder(${escapeHtml(JSON.stringify(f.id))},${escapeHtml(JSON.stringify(f.title || 'Untitled'))},event)">+</span>

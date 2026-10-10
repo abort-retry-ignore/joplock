@@ -6,7 +6,7 @@ const {
 } = require('../items/shareAccess');
 const templates = require('../templates');
 const { assertNotE2ee } = require('../items/itemWriteService');
-const { flattenFolderTree } = require('../items/folderTree');
+const { flattenFolderTree, MAX_PINNED_FOLDERS } = require('../items/folderTree');
 const { AI_PROVIDERS } = require('../settingsService');
 
 const notesForFolder = async (itemService, userId, folderId) => {
@@ -254,6 +254,40 @@ const handle = async (url, request, response, ctx) => {
 			sendJson(response, 500, { error: error.message || `${error}` });
 		}
 		return true;
+	}
+
+	// PUT /api/web/pinned-folders/:id   — pin a notebook to the top of the list
+	// DELETE /api/web/pinned-folders/:id — unpin it
+	// Pins are a per-user Joplock setting: Joplin has no such concept, so nothing is ever
+	// written to the notebook itself (Joplin apps and other users are unaffected).
+	{
+		const pinMatch = url.pathname.match(/^\/api\/web\/pinned-folders\/([^/]+)$/);
+		if (pinMatch && (request.method === 'PUT' || request.method === 'DELETE')) {
+			try {
+				const auth = await authenticatedUser(request);
+				if (auth.error) { sendJson(response, 401, { error: auth.error }); return true; }
+				const folderId = decodeURIComponent(pinMatch[1]);
+				const current = await settingsService.settingsByUserId(auth.user.id);
+				let pinned = Array.isArray(current.pinnedFolders) ? current.pinnedFolders.slice() : [];
+				if (request.method === 'PUT') {
+					const folder = await itemService.folderByUserIdAndJopId(auth.user.id, folderId);
+					if (!folder) { sendJson(response, 404, { error: 'Notebook not found' }); return true; }
+					// forget pins of notebooks that no longer exist, then add this one
+					const live = new Set((await itemService.foldersByUserId(auth.user.id)).map(f => f.id));
+					pinned = pinned.filter(id => live.has(id));
+					if (!pinned.includes(folderId)) pinned.push(folderId);
+					if (pinned.length > MAX_PINNED_FOLDERS) { sendJson(response, 400, { error: `You can pin at most ${MAX_PINNED_FOLDERS} notebooks` }); return true; }
+				} else {
+					pinned = pinned.filter(id => id !== folderId);
+				}
+				await settingsService.saveSettings(auth.user.id, { ...current, pinnedFolders: pinned });
+				response.writeHead(204);
+				response.end();
+			} catch (error) {
+				sendJson(response, error.statusCode || 500, { error: error.message || `${error}` });
+			}
+			return true;
+		}
 	}
 
 	// /api/web/folders

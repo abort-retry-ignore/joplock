@@ -767,6 +767,21 @@ body.nav-collapsed .editor-titlebar { padding-left: 42px; }
 
 .nav-folder-children { display: block; }
 
+/* Pinned notebooks: a small pin before the title (sidebar) / after it (mobile). */
+.nav-pin-icon,
+.mobile-pin-icon {
+	display: inline-flex;
+	flex-shrink: 0;
+	width: 12px;
+	height: 12px;
+	color: var(--accent);
+	opacity: 0.85;
+}
+.nav-pin-icon svg,
+.mobile-pin-icon svg { width: 100%; height: 100%; }
+.nav-pin-icon { margin-right: 2px; }
+.mobile-pin-icon { width: 14px; height: 14px; }
+
 /* Notebook order switch: shows the CURRENT order; <body data-folder-sort> decides which label. */
 .sort-on-recent { display: none; }
 body[data-folder-sort="recent"] .sort-on-alpha { display: none; }

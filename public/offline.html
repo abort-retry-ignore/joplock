@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#1e1a12" />
+<title>Joplock is offline</title>
+<style>
+	*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+	html, body { height: 100%; }
+	body {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 100vh;
+		min-height: 100dvh;
+		padding: calc(24px + env(safe-area-inset-top, 0px)) calc(24px + env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) calc(24px + env(safe-area-inset-left, 0px));
+		background: #1a1610;
+		color: #e8e0d0;
+		font: 16px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+		text-align: center;
+	}
+	main { max-width: 340px; }
+	img { width: 72px; height: 72px; border-radius: 16px; margin-bottom: 20px; }
+	h1 { font-size: 22px; margin-bottom: 8px; }
+	p { color: #b8ad98; margin-bottom: 22px; }
+	button {
+		min-height: 48px;
+		padding: 0 28px;
+		font: inherit;
+		font-weight: 600;
+		color: #1a1610;
+		background: #d9a441;
+		border: 0;
+		border-radius: 10px;
+	}
+	button:active { opacity: 0.8; }
+	#status { margin-top: 16px; min-height: 1.5em; font-size: 14px; color: #8f8573; }
+</style>
+</head>
+<body>
+<main>
+	<img src="/icon-192.png" alt="" width="72" height="72" />
+	<h1>You're offline</h1>
+	<p>Joplock needs a connection to your notes. Nothing is kept on this device, so there is nothing to open until you're back online.</p>
+	<button id="retry" type="button">Try again</button>
+	<div id="status" role="status"></div>
+</main>
+<script>
+(function () {
+	// not "status": a global of that name is window.status, a string the browser owns
+	var statusEl = document.getElementById('status');
+	function retry() {
+		statusEl.textContent = 'Checking\u2026';
+		fetch('/health', { cache: 'no-store' }).then(function (r) {
+			if (r.ok) location.reload();
+			else statusEl.textContent = 'Still not reachable.';
+		}).catch(function () { statusEl.textContent = 'Still offline.'; });
+	}
+	document.getElementById('retry').addEventListener('click', retry);
+	window.addEventListener('online', retry);
+})();
+</script>
+</body>
+</html>

@@ -511,10 +511,10 @@ test.describe('Markdown mode extras (mobile shell)', () => {
 			await page.locator('#mobile-editor-body .cm-jl-check').first().tap();
 			await expect.poll(() => getDoc(page)).toContain('- [x] task one');
 
-			const status = page.locator('#mobile-editor-body .cm-jl-status');
-			await expect(status).toBeVisible();
-			const sb = await status.boundingBox();
-			expect(sb.y + sb.height).toBeLessThanOrEqual(page.viewportSize().height + 1);
+			// The word-count / outline bar is desktop-only: the mobile editor gives that row to the text.
+			await expect(page.locator('#mobile-editor-body .cm-jl-status')).toHaveCount(0);
+			const host = await page.locator('#mobile-editor-body #cm-host').boundingBox();
+			expect(host.y + host.height).toBeGreaterThan(page.viewportSize().height - 4);
 			// Export is reachable from the mobile editor menu in markdown mode too.
 			await page.locator('#mobile-editor-menu-btn').click();
 			await expect(page.locator('#mobile-ctx-export')).toBeVisible();

@@ -271,7 +271,7 @@ const settingsPage = (options = {}) => {
 							<label><input type="checkbox" id="settings-highlight-active-line" onchange="saveSetting('highlightActiveLine',this.checked?'1':'0')"${settings.highlightActiveLine !== false ? ' checked' : ''} /> Highlight current line in editor</label>
 							<label><input type="checkbox" id="settings-md-inline-widgets" onchange="saveSetting('mdInlineWidgets',this.checked?'1':'0')"${settings.mdInlineWidgets !== false ? ' checked' : ''} /> Show images, attachments, checkboxes and code Copy buttons inline</label>
 							<label><input type="checkbox" id="settings-md-live-preview" onchange="saveSetting('mdLivePreview',this.checked?'1':'0')"${settings.mdLivePreview === true ? ' checked' : ''} /> Hide formatting marks (#, **, links) on lines you are not editing</label>
-							<label><input type="checkbox" id="settings-md-status-bar" onchange="saveSetting('mdStatusBar',this.checked?'1':'0')"${settings.mdStatusBar !== false ? ' checked' : ''} /> Show word count and heading outline bar</label>
+							<label><input type="checkbox" id="settings-md-status-bar" onchange="saveSetting('mdStatusBar',this.checked?'1':'0')"${settings.mdStatusBar !== false ? ' checked' : ''} /> Show word count and heading outline bar (desktop; not shown on phones)</label>
 							<label><input type="checkbox" id="settings-md-folding" onchange="saveSetting('mdFolding',this.checked?'1':'0')"${settings.mdFolding !== false ? ' checked' : ''} /> Show fold arrows for headings, lists and code blocks</label>
 						</div>
 						</div>

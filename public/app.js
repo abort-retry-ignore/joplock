@@ -3620,9 +3620,11 @@ function _cmExtraHooks(){
 		htmlToMarkdown:_pasteHtmlToMarkdown
 	};
 }
+// The word-count / heading-outline bar is desktop-only: on the mobile shell it costs a row of
+// screen under the editor and recounts words on every keystroke, so it is not created at all.
 function _cmExtraExtensions(C){
 	if(!window.JoplockMd)return [];
-	try{return window.JoplockMd.createExtensions(C,_cmExtraHooks(),{inlineWidgets:_mdInlineWidgets,livePreview:_mdLivePreview,statusBar:_mdStatusBar,folding:_mdFolding})}
+	try{return window.JoplockMd.createExtensions(C,_cmExtraHooks(),{inlineWidgets:_mdInlineWidgets,livePreview:_mdLivePreview,statusBar:_mdStatusBar&&!isMobileShellMode(),folding:_mdFolding})}
 	catch(err){console.error('[joplock] markdown extras failed to initialise',err);return []}
 }
 function initCM(host,content){

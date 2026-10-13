@@ -659,6 +659,7 @@ These screens are shown/hidden by inline JS in `layoutPage()` using class change
 - Mobile note creation uses dedicated fragment endpoints and server headers to drive the next UI step
 - The floating action button is only a mobile affordance; desktop should stay unaffected
 - FAB visibility should follow screen state directly (`folders` / `notes` visible, `editor` hidden), not only htmx swap side effects
+- The markdown editor's word-count / heading-outline bar (`.cm-jl-status`, `mdStatusBar` setting) is desktop-only: `_cmExtraExtensions` passes `statusBar: _mdStatusBar && !isMobileShellMode()`, so it is never created in the mobile shell (it costs a row under the editor and recounts words on every keystroke). The Outline jump-to-heading popup lives in that bar, so it is not available on mobile either. Covered by `tests/mobileStatusBar.test.js` and `playwright-tests/md-extras.spec.js`.
 - `#mobile-folders-body` / `#mobile-notes-body` carry `padding-bottom: calc(96px + env(safe-area-inset-bottom))` so the last row (or the notes list's "Load more" button) scrolls clear of the FAB (56px + 20px offset) and the home indicator. Scope it to those two ids: `#mobile-editor-body` shares `.mobile-screen-body` and must not get it. Covered by `playwright-tests/mobile-list-clearance.spec.js`.
 - Mobile folder rows can include a vault lock button and it must stay inline with the row actions
 

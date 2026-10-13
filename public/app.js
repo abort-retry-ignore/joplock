@@ -5950,8 +5950,14 @@ function confirmLogout(event){
 			positionTinyMCEHost();
 			return;
 		}
+		// Markdown mode: this is the formatting bar (B I U S H3 ...). It is up when a note opens and
+		// stays up while editing, so "hide" requests are ignored: the viewport handler asks for one
+		// when it thinks the keyboard went away (wrong on iOS home-screen apps, where innerHeight
+		// shrinks together with the visual viewport, so an OPEN keyboard looks closed), and the rich
+		// editor's blur handler asks for one 200ms after a switch to markdown. Only a locked vault hides it.
 		var form=activeEditorForm();
-		if(form&&form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1')show=false;
+		var locked=!!(form&&form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1');
+		show=!locked;
 		tb.style.display=show?'flex':'none';
 		// Reposition immediately, then again after a tick so the toolbar has a
 		// rendered height before positionTinyMCEHost measures the anchor bottom.

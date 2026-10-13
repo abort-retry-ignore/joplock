@@ -1,5 +1,6 @@
 /* joplock client application — extracted from templates.js */
 /* Server config is passed via window._joplockConfig set inline before this script loads */
+/* Contracts for this file (editor, saves, vaults, uploads, mobile shell, AI) are in docs/agents/: editor.md, vaults-and-save-safety.md, editor-uploads.md, pwa-mobile.md, ai-expander-ask.md. Read the one that matches your change first. */
 (function(){
 var _cfg=window._joplockConfig||{};
 var _dbg=_cfg.debug||false;
@@ -2667,7 +2668,7 @@ function askDisabledForActiveNote(){
 }
 // User-visible explanation for why /ask silently no-ops in vault notes. Shown
 // once per note-open so users don't keep re-typing hoping it will work. The
-// underlying policy (see AGENT_GUIDE "Ask Slash Command") is that plaintext
+// underlying policy (see docs/agents/ai-expander-ask.md) is that plaintext
 // context from an encrypted note must never leave the browser.
 var _askDisabledNotified={};
 function _notifyAskDisabledInVault(){

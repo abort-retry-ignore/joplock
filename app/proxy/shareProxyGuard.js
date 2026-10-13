@@ -1,4 +1,5 @@
 'use strict';
+// Share write guards, and their limits: docs/agents/notebooks-and-sharing.md, docs/agents/joplin-fidelity.md
 
 /**
  * shareProxyGuard.js

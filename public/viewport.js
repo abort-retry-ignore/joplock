@@ -25,6 +25,7 @@
  * switch the whole thing off with localStorage['joplock-viewport'] = 'off'.
  *
  * Pure helpers are exported for node tests (module.exports), like cm-extras.js.
+ * Why this exists and how it is verified: docs/agents/pwa-mobile.md ("Soft keyboard / viewport").
  */
 (function (root) {
 	'use strict';

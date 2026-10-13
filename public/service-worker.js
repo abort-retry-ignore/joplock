@@ -1,4 +1,4 @@
-// Joplock service worker. Policy (AGENT_GUIDE "PWA shell"): never cache anything user-specific.
+// Joplock service worker. Policy (docs/agents/pwa-mobile.md, "Service worker policy"): never cache anything user-specific.
 //  - navigations: network, and when the network is down a static /offline.html (never a cached
 //    signed-in page; the app has no offline notes)
 //  - versioned scripts/stylesheets (?v=<asset version>, immutable by construction): cache-first, so a

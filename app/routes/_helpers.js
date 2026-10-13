@@ -1,4 +1,5 @@
 'use strict';
+// Static serving (serveFile) and the service worker template: docs/agents/pwa-mobile.md; vault write guard: docs/agents/vaults-and-save-safety.md
 
 const http = require('http');
 const fs = require('fs');

@@ -142,8 +142,7 @@ The full example is meant as a working reference compose file. Adjust it for you
 
 ### Development
 
-`AGENT_GUIDE.md` is the source of truth for repo conventions, architecture, the
-editor model, and debugging workflow. `docs/joplock-db-schema.html` documents the
+`AGENTS.md` holds the repo rules, and `docs/agents/` the reasons and "do not regress" contracts by topic (it is written for coding agents, short and on-demand). `docs/joplock-db-schema.html` documents the
 four sidecar tables Joplock adds to the shared database.
 
 For local work, keep a git-ignored `docker-compose.dev.yml` (Postgres + Joplin

@@ -1,4 +1,5 @@
 /* Joplock markdown-mode (CodeMirror 6) extras.
+ * Contracts and reasons: docs/agents/editor-markdown-extras.md
  *
  * Loaded after codemirror.min.js and before app.js. Exposes `window.JoplockMd`:
  *

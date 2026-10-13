@@ -1,4 +1,5 @@
 'use strict';
+// Tree/sort/pin semantics and why: docs/agents/notebooks-and-sharing.md
 
 // Pure helpers for Joplin's nested notebooks (a notebook is nested when its
 // `parent_id` points at another notebook).

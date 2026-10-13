@@ -1,4 +1,5 @@
 'use strict';
+// Sharing model, and why share SQL must never decode items.content for every item: docs/agents/notebooks-and-sharing.md
 
 const { randomBytes } = require('crypto');
 const { sendJson, parseBody } = require('./_helpers');

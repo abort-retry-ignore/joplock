@@ -10,7 +10,7 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20261013tbkeep';
+const ASSET_VERSION = '20261013vpsync';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';
@@ -134,6 +134,7 @@ const layoutPage = (options = {}) => {
 		openRouterEnabled:${(Array.isArray(settings.aiProfiles) ? settings.aiProfiles.some(p => p.apiKey) : !!settings.openRouterApiKey) ? 'true' : 'false'}
 	};
 	</script>
+	<script src="/viewport.js?v=${ASSET_VERSION}"></script>
 	<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 	<title>Joplock</title>
 </head>

@@ -3,8 +3,8 @@
 // posts flat snapshots to /api/web/client-log, where they appear in `docker logs` as
 // "[joplock client] diag.viewport {...}". It exists so layout work can be compared on real
 // hardware before the real editor is changed: `?shell=current` is today's fixed-inset shell,
-// `?shell=vv` is the herdr-web-ui approach (shell height follows visualViewport while the
-// keyboard is up). No dependencies on app.js.
+// `?shell=vv` loads /viewport.js, the module the real app uses (shell height follows
+// visualViewport while the keyboard is up, page scroll pinned at 0). No dependencies on app.js.
 'use strict';
 
 const SHELLS = ['current', 'vv'];
@@ -42,6 +42,7 @@ const diagPage = (options = {}) => {
 <meta name="mobile-web-app-capable" content="yes" />
 <link rel="manifest" href="/manifest.webmanifest" />
 <title>Joplock device diagnostics</title>
+${shell === 'vv' ? '<script src="/viewport.js"></script>' : ''}
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden;overscroll-behavior:none;background:#7a1010;color:#e8ecf2;font:13px/1.35 -apple-system,system-ui,sans-serif}
@@ -50,7 +51,8 @@ body{position:fixed;inset:0;width:100%}
 #shell::after{content:'';position:absolute;left:0;right:0;bottom:0;height:5px;background:#ff2bd6;z-index:5;pointer-events:none}
 #shell::before{content:'';position:absolute;left:0;right:0;top:0;height:3px;background:#19e6ff;z-index:5;pointer-events:none}
 #shell.shell-current{bottom:0}
-#shell.shell-vv{height:var(--app-height,100dvh)}
+#shell.shell-vv{bottom:0}
+html[data-keyboard] #shell.shell-vv{top:var(--app-top,0px);bottom:auto;height:var(--app-height)}
 #hdr{flex:none;height:calc(44px + env(safe-area-inset-top,0px));padding:env(safe-area-inset-top,0px) 8px 0;display:flex;align-items:center;gap:8px;background:#2a3446;border-bottom:1px solid #3a475e}
 #hdr b{flex:1;font-size:15px}
 #hdr a,#bar a{color:#8fd3e6;text-decoration:none;padding:8px 6px}
@@ -81,7 +83,7 @@ details p{padding:2px 0}
 <i id="p-st" style="height:env(safe-area-inset-top,0px)"></i><i id="p-sb" style="height:env(safe-area-inset-bottom,0px)"></i>
 <i id="p-sl" style="height:env(safe-area-inset-left,0px)"></i><i id="p-sr" style="height:env(safe-area-inset-right,0px)"></i>
 </div>
-<div id="shell" class="shell-${shell}">
+<div id="shell" class="shell-${shell}"${shell === 'vv' ? ' data-viewport-pin' : ''}>
 <div id="hdr"><a href="/settings?tab=about">&lsaquo; Back</a><b>Diagnostics &middot; ${shell}${iw ? ' + iw' : ''}${zoom ? ' + zoom' : ''}</b></div>
 <div id="panel">
 <div id="variants">${link('current', { shell: 'current' })}${link('vv shell', { shell: 'vv' })}${link('vv + interactive-widget', { shell: 'vv', iw: '1' })}${link('current + zoom allowed', { shell: 'current', zoom: '1' })}</div>
@@ -124,16 +126,9 @@ function kbVisible(){
 	if(!visible)remembered[w]=Math.max(ref,height);
 	return visible;
 }
-// The vv shell is the herdr-web-ui approach: height follows visualViewport only while a soft
-// keyboard is up, and the page is pinned at (0,0). The current shell does nothing here.
-function applyShell(visible){
-	if(CONFIG.shell!=='vv')return;
-	if(visible&&vv)root.style.setProperty('--app-height',Math.round(vv.height)+'px');else root.style.removeProperty('--app-height');
-	window.scrollTo(0,0);
-}
 function snap(){
 	var o={},put=function(k,v){o[k]=v};
-	var visible=kbVisible();applyShell(visible);
+	var visible=kbVisible();
 	var sh=$('shell').getBoundingClientRect(),hd=$('hdr').getBoundingClientRect(),bar=$('bar').getBoundingClientRect(),ed=$('edit').getBoundingClientRect();
 	var vTop=vv?vv.offsetTop:0,vH=vv?vv.height:window.innerHeight,vBottom=vTop+vH,ae=document.activeElement;
 	put('shell',CONFIG.shell);put('iw',CONFIG.iw);put('zoom',CONFIG.zoom);
@@ -154,6 +149,10 @@ function snap(){
 	put('hdrVisible',hd.bottom>vTop&&hd.top<vBottom);put('barVisible',bar.top>=vTop-1&&bar.bottom<=vBottom+1);
 	// portrait, no keyboard: how far short of the window's bottom the shell ends (the iOS dead band)
 	put('bandBottom',Math.round(window.outerHeight-sh.bottom));
+	put('kbAttr',root.hasAttribute('data-keyboard'));
+	put('appTopVar',(getComputedStyle(root).getPropertyValue('--app-top')||'').trim()||'none');
+	put('vpPins',window.JoplockViewport&&window.JoplockViewport.state?window.JoplockViewport.state().pins:-1);
+	put('vpMax',window.JoplockViewport&&window.JoplockViewport.state?window.JoplockViewport.state().maxScroll:-1);
 	put('appHeightVar',(getComputedStyle(root).getPropertyValue('--app-height')||'').trim()||'none');
 	put('focus',ae?(ae.id||ae.tagName):'none');put('kbGuess',visible);
 	put('kbApi',!!navigator.virtualKeyboard);put('kbApiH',navigator.virtualKeyboard&&navigator.virtualKeyboard.boundingRect?Math.round(navigator.virtualKeyboard.boundingRect.height):-1);

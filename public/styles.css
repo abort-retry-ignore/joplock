@@ -3820,6 +3820,17 @@ body.force-mobile .mobile-app {
 }
 body.force-mobile .mobile-fab { display: flex; }
 
+/* While a soft keyboard is up, public/viewport.js sizes the shell to the visible area and keeps it
+   at the top of that area (and pins the page scroll at 0). iOS then has nothing to scroll into
+   view, so the header and the markdown toolbar stay on screen. Outside that state .mobile-app is
+   inset:0 exactly as before. */
+html[data-keyboard] .mobile-app,
+html[data-keyboard] body.force-mobile .mobile-app {
+	top: var(--app-top, 0px);
+	bottom: auto;
+	height: var(--app-height);
+}
+
 /* Hide the custom toolbar in mobile rich (TinyMCE) mode — applies at any viewport width.
    TinyMCE's own built-in toolbar is rendered inside the editor host instead.
    In markdown/preview mode body.mobile-markdown-mode is set, restoring it. */

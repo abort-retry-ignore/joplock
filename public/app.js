@@ -2444,17 +2444,13 @@ function positionTinyMCEHost(){
 			top=slot.getBoundingClientRect().top;
 		}
 		var mobileApp=document.getElementById('mobile-app');
-		var mar=mobileApp?mobileApp.getBoundingClientRect():{left:0,width:window.innerWidth};
+		var mar=mobileApp?mobileApp.getBoundingClientRect():{left:0,width:window.innerWidth,bottom:window.innerHeight};
 		left=mar.left;
 		width=mar.width;
-		// Keep the host locked to the visible viewport while the keyboard is open,
-		// otherwise iOS may pan the outer page (dual-scroll effect).
-		// When keyboard is closed, prefer innerHeight to avoid rubber-band gaps.
-		if(vv&&window.innerHeight-vv.height>80){
-			vpH=vv.height+vv.offsetTop;
-		}else{
-			vpH=window.innerHeight;
-		}
+		// The host's bottom is the shell's bottom. public/viewport.js sizes .mobile-app to the
+		// visible area while the keyboard is up, so no innerHeight/visualViewport guess here
+		// (iOS home-screen apps shrink innerHeight with the keyboard, which fooled the old one).
+		vpH=mar.bottom;
 	}else{
 		var rect=slot.getBoundingClientRect();
 		if(rect.width===0||rect.height===0){
@@ -5979,21 +5975,17 @@ function confirmLogout(event){
 	// Show/hide toolbar on TinyMCE focus/blur.
 	(function initMobileToolbarGlobalListeners(){
 		function onVpChange(){
+			// Keyboard state comes from public/viewport.js (joplock:viewport); it also resizes the
+			// shell, so this only has to re-anchor the TinyMCE host. The markdown toolbar is permanent
+			// (setMobileToolbarVisible ignores hide in markdown mode), so no keyboard-gone logic.
 			stabilizeTinyMCEHostPosition();
-			// When the visual viewport returns to full height the keyboard has gone away.
-			// Hide the toolbar — user is no longer actively editing.
-			if(!inMobileEditor())return;
-			var vv=window.visualViewport;
-			var keyboardGone=!vv||(window.innerHeight-vv.height<80);
-			if(keyboardGone&&!(_tinymceEditor&&_tinymceEditor.hasFocus&&_tinymceEditor.hasFocus())){
-				setMobileToolbarVisible(false);
-			}
 		}
 		if(window.visualViewport){
 			window.visualViewport.addEventListener('resize',onVpChange);
 			window.visualViewport.addEventListener('scroll',positionTinyMCEHost);
 		}
 		window.addEventListener('resize',positionTinyMCEHost);
+		document.addEventListener('joplock:viewport',onVpChange);
 		// TinyMCE lives in an iframe; relay focus/blur via custom events from setup().
 		document.body.addEventListener('joplock:editor-focus',function(){
 			if(_tinymceSuppressEdits)return;

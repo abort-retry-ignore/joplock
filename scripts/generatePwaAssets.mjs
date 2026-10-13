@@ -9,6 +9,11 @@ const publicDir = path.join(rootDir, 'public');
 const splashDir = path.join(publicDir, 'apple-splash');
 
 const splashScreens = [
+	// iPhone Air (420x912 @3x) and iPhone 16/17 Pro (402x874 @3x)
+	{ width: 1260, height: 2736 },
+	{ width: 2736, height: 1260 },
+	{ width: 1206, height: 2622 },
+	{ width: 2622, height: 1206 },
 	{ width: 1320, height: 2868 },
 	{ width: 2868, height: 1320 },
 	{ width: 1290, height: 2796 },

@@ -40,14 +40,15 @@ const diagPage = (options = {}) => {
 <meta name="theme-color" content="#2a3446" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <link rel="manifest" href="/manifest.webmanifest" />
 <title>Joplock device diagnostics</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden;overscroll-behavior:none;background:#14181f;color:#e8ecf2;font:13px/1.35 -apple-system,system-ui,sans-serif}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none;background:#7a1010;color:#e8ecf2;font:13px/1.35 -apple-system,system-ui,sans-serif}
 body{position:fixed;inset:0;width:100%}
 #shell{position:fixed;left:0;right:0;top:0;display:flex;flex-direction:column;background:#1b2230;overflow:hidden}
+#shell::after{content:'';position:absolute;left:0;right:0;bottom:0;height:5px;background:#ff2bd6;z-index:5;pointer-events:none}
+#shell::before{content:'';position:absolute;left:0;right:0;top:0;height:3px;background:#19e6ff;z-index:5;pointer-events:none}
 #shell.shell-current{bottom:0}
 #shell.shell-vv{height:var(--app-height,100dvh)}
 #hdr{flex:none;height:calc(44px + env(safe-area-inset-top,0px));padding:env(safe-area-inset-top,0px) 8px 0;display:flex;align-items:center;gap:8px;background:#2a3446;border-bottom:1px solid #3a475e}
@@ -90,7 +91,8 @@ details p{padding:2px 0}
 <p>2. Tap the top box (iframe, like the rich editor), wait 3s. Dismiss the keyboard (Done / tap outside), wait 3s. Repeat for the single-line field and the big box. While the keyboard is up, look: does the header stay at the top? Is the bottom bar right above the keyboard?</p>
 <p>3. Rotate to landscape, wait 3s; tap a field, wait 3s; rotate back.</p>
 <p>4. Background the app 10s and return (<b>visible</b>).</p>
-<p>5. Optional: type a note in the label menu and tap Send, e.g. when something looks wrong.</p>
+<p>5. Colours help in screenshots: <b>magenta</b> line = bottom edge of the app area, <b>cyan</b> line = top edge, <b>dark red</b> = page background showing through where the app does NOT reach. Please screenshot (a) idle and (b) keyboard up, and paste them in chat.</p>
+<p>6. Optional: type a note in the label menu and tap Send, e.g. when something looks wrong.</p>
 </details>
 <pre id="out">measuring&hellip;</pre>
 </div>
@@ -148,6 +150,10 @@ function snap(){
 	put('hdrScreenY',Math.round(hd.top-vTop));
 	// gap between the bottom bar and the bottom of the visible area (>=0 = bar visible; negative = under the keyboard)
 	put('barGap',Math.round(vBottom-bar.bottom));put('editH',Math.round(ed.height));
+	put('hdrTop',Math.round(hd.top));put('barBottom',Math.round(bar.bottom));put('vvBottom',Math.round(vBottom));
+	put('hdrVisible',hd.bottom>vTop&&hd.top<vBottom);put('barVisible',bar.top>=vTop-1&&bar.bottom<=vBottom+1);
+	// portrait, no keyboard: how far short of the window's bottom the shell ends (the iOS dead band)
+	put('bandBottom',Math.round(window.outerHeight-sh.bottom));
 	put('appHeightVar',(getComputedStyle(root).getPropertyValue('--app-height')||'').trim()||'none');
 	put('focus',ae?(ae.id||ae.tagName):'none');put('kbGuess',visible);
 	put('kbApi',!!navigator.virtualKeyboard);put('kbApiH',navigator.virtualKeyboard&&navigator.virtualKeyboard.boundingRect?Math.round(navigator.virtualKeyboard.boundingRect.height):-1);

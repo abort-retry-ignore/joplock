@@ -8,7 +8,8 @@
 //
 // Flags: HDR-OFF  header not at the top of the visible screen (page panned)
 //        BAR-HID  bottom bar below the visible area (under the keyboard)
-//        BAR-GAP  more than 2px of empty space under the bottom bar
+//        BAR-GAP  more than 2px of empty space under the bottom bar (keyboard down)
+//        DEAD-BAND shell ends above the window's bottom edge (iOS black-translucent viewport bug; keyboard down)
 //        NO-SAFE  standalone but every safe-area inset is 0 (insets not applied/black-translucent off)
 
 const { spawnSync } = require('node:child_process');
@@ -49,7 +50,8 @@ const flags = r => {
 	const out = [];
 	if (Math.abs(r.hdrScreenY) > 1) out.push('HDR-OFF');
 	if (r.barGap < 0) out.push('BAR-HID');
-	if (r.barGap > 2) out.push('BAR-GAP');
+	if (r.barGap > 2 && !r.kbGuess) out.push('BAR-GAP');
+	if (r.bandBottom > 2 && !r.kbGuess) out.push('DEAD-BAND');
 	if (r.standalone && !(r.safeT || r.safeB || r.safeL || r.safeR)) out.push('NO-SAFE');
 	return out;
 };
@@ -72,7 +74,8 @@ if (asJson) {
 			`vv ${r.vvW}x${r.vvH} top=${r.vvTop} s=${r.vvScale}`,
 			`lvh=${r.p100lvh} dvh=${r.p100dvh} svh=${r.p100svh}`,
 			`safe T${r.safeT} B${r.safeB} L${r.safeL} R${r.safeR}`,
-			`hdrY=${r.hdrScreenY} barGap=${r.barGap} shellH=${r.shellH}`,
+			`hdrY=${r.hdrScreenY} barGap=${r.barGap} band=${r.bandBottom ?? '?'} shellH=${r.shellH} outerH=${r.outerH}`,
+			`scr ${r.screenW}x${r.screenH}`,
 			`appH=${r.appHeightVar}`,
 			`focus=${r.focus} kb=${r.kbGuess ? 'Y' : 'n'}${r.kbApi ? `/api${r.kbApiH}` : ''}`,
 			flags(r).join(',') || 'ok',

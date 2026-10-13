@@ -523,6 +523,9 @@ Desktop and mobile do not have separate editor implementations. Both use the sam
 ### PWA shell
 Cache shell/static assets only. Do not cache note/resource/API responses in ways that break shared-browser safety.
 
+### iOS home-screen status bar (do NOT use black-translucent)
+Pages must not set `apple-mobile-web-app-status-bar-style` (leave it absent, as herdr-web-ui does). With `black-translucent`, an iOS standalone app sizes `innerHeight`/`100dvh`/`100svh` as *screen height minus the top safe-area inset*, anchored at the top, while `100lvh`/`100vh` still report the full screen. The shell then ends that many points above the bottom edge (a dead band painted in the page background) and every `position: fixed; bottom: …` element (FAB, bottom sheets, backdrops) floats too high. Measured on an iPhone Air: screen 812, `innerHeight` 751, top inset 61. Absent meta = content starts below the status bar, bottom edge lands on the hardware, safe-area-top is 0. iOS bakes the value in at install time, so after changing it the icon must be removed and re-added. `tests/pwaHead.test.js` guards this, that every `apple-touch-startup-image` file exists and matches its media query, and that each `100vh` has a `100dvh` fallback (WebKit reports `100vh`/`100lvh` overflowing in default-style standalone installs). Newer iPhones need their own splash entry in `app/templates/shared.js` + `scripts/generatePwaAssets.mjs` (iPhone Air 420×912 @3x, 16/17 Pro 402×874 @3x are included).
+
 ### Mobile-first navigation without SPA rewrite
 Mobile uses a folders screen, notes screen, and editor screen implemented in SSR + htmx + inline JS. Do not introduce a client router or framework state layer to solve mobile flow problems.
 

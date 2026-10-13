@@ -905,6 +905,7 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	box-shadow: 0 10px 30px var(--shadow);
 	/* a very short window: scroll the menu instead of letting items fall off the screen */
 	max-height: calc(100vh - 16px);
+	max-height: calc(100dvh - 16px);
 	overflow-y: auto;
 }
 
@@ -2743,6 +2744,7 @@ body.editor-markdown-mode .editor-toolbar {
 	justify-content: center;
 	min-height: 100vh;
 	font-family: 'Cascadia Mono', monospace;
+	min-height: 100dvh;
 }
 
 .login-card { text-align: center; max-width: 360px; width: 100%; }
@@ -2826,6 +2828,7 @@ select.login-input option {
 .settings-page {
 	min-height: 100vh;
 	padding: calc(28px + env(safe-area-inset-top, 0px)) 20px calc(28px + env(safe-area-inset-bottom, 0px));
+	min-height: 100dvh;
 	background: var(--bg);
 }
 
@@ -4003,6 +4006,7 @@ body.resizing .mobile-screen-right { transition: none !important; }
 	max-width: 420px;
 	width: calc(100% - 32px);
 	max-height: calc(100vh - 32px);
+	max-height: calc(100dvh - 32px);
 	overflow: hidden;
 	box-shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
@@ -4014,6 +4018,7 @@ body.resizing .mobile-screen-right { transition: none !important; }
 	display: flex;
 	flex-direction: column;
 	max-height: calc(100vh - 32px);
+	max-height: calc(100dvh - 32px);
 	overflow-y: auto;
 }
 .admin-modal-header {

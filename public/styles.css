@@ -3514,6 +3514,15 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 		-webkit-overflow-scrolling: touch;
 		overscroll-behavior: contain;
 	}
+	/* The folder and note lists end clear of the floating "+" (56px tall, 20px above the
+	   bottom edge, so 76px) plus breathing room and the home indicator. Without this the last
+	   row's count / "+" / chevron (or "Load more") sit under the button and cannot be scrolled
+	   out from beneath it. Scoped to the two list bodies: the editor body shares
+	   .mobile-screen-body and must not get padding. */
+	#mobile-folders-body,
+	#mobile-notes-body {
+		padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+	}
 	/* Editor body must not scroll at the outer level — TinyMCE scrolls internally.
 	   overflow:hidden + overscroll-behavior:none kills iOS rubber-band on the shell. */
 	.mobile-editor-body {

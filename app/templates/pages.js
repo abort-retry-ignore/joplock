@@ -10,7 +10,7 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20261010opaquemenu';
+const ASSET_VERSION = '20261012listclear';
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';

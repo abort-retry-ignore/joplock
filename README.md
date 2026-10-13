@@ -12,8 +12,8 @@ Joplock runs as a sidecar alongside an unmodified Joplin Server instance, sharin
 - **Low Resource usage** -- minimal memory usage on the client, fast and responsive
 - **Security-first design** -- no private data stored on the client; sessions are cleaned up on logout; per-user settings and admin controls for user management
 - **Client-side encrypted vaults** -- turn any notebook into a vault; notes inside are AES-GCM encrypted in the browser with a PBKDF2-derived key. The server never sees vault passwords. Ciphertext is bound to a specific vault and note id, and the server rejects any write that would land a vault-encrypted body in the wrong note or the wrong vault
-- **Dual-mode editor** -- CodeMirror 6 for markdown editing (the default) and TinyMCE 8 for rich rendered mode, switchable per note; on the mobile/tablet shell rendered mode opens read-only with a pencil toggle to edit
-- **Rich markdown mode** -- inline image previews with drag-to-resize, attachment and note-link chips with hover info, clickable task checkboxes, code-block Copy buttons, Tab-aligned pipe tables, paste-as-markdown (web pages, Word, Docs) and URL-over-selection links, heading folding, a word-count status bar with a heading outline, and an optional live-preview mode that hides formatting marks off the line you are editing (each switchable under Settings → Markdown editor)
+- **Dual-mode editor** -- CodeMirror 6 for markdown editing (the default) and TinyMCE 8 for rich rendered mode, switchable per note; on the mobile layout (phones and narrow windows) rendered mode opens read-only with a pencil toggle to edit
+- **Rich markdown mode** -- inline image previews with drag-to-resize, attachment and note-link chips with hover info, clickable task checkboxes, code-block Copy buttons, Tab-aligned pipe tables, paste-as-markdown (web pages, Word, Docs) and URL-over-selection links, heading folding, a word-count status bar with a heading outline (desktop layout only), and an optional live-preview mode that hides formatting marks off the line you are editing (each switchable under Settings → Markdown editor)
 - **Tables, code blocks, and lightbox** -- full-screen code editor modal with language picker, TinyMCE tables with markdown round-trip, a lightbox for images and attachments, and a per-image download button
 - **Note export** -- export any note as Markdown, single-file HTML (images and links inlined), DOCX (server-side via pandoc with reference styles), or PDF (pandoc + weasyprint), with visible table gridlines in PDF/DOCX output
 - **AI autocomplete** -- optional prose completion via user-configured provider profiles (OpenRouter and others), triggered by Ctrl/Cmd-Space or configurable Expander triggers; a `/ask <question>` slash command for direct Q&A; per-user text expanders for snippets
@@ -24,7 +24,7 @@ Joplock runs as a sidecar alongside an unmodified Joplin Server instance, sharin
 - **Multi-factor authentication** -- optional TOTP-based MFA on top of standard Joplin sessions
 - **Fast search** -- searches titles and note bodies directly in Postgres; optional live-as-you-type search
 - **Near-instant autosave** -- debounced saves with conflict detection, hash-based deduplication, and an undo ring buffer with full note history snapshots. Restoring a snapshot updates the open editor immediately without a page refresh
-- **PWA support** -- installable as a home screen app on mobile and desktop with splash screens, offline indicator, and service worker shell
+- **PWA support** -- installable as a home screen app on mobile and desktop, with splash screens, a mobile layout that follows the phone in both orientations (display-cutout safe), and compressed, cached static assets. Notes are never stored offline: with no connection you get an offline page, not a cached note
 - **Server-side rendering** -- SSR with htmx for minimal client-side JavaScript
 
 ## Runtime Model

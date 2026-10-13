@@ -298,7 +298,14 @@ var _traceKey='joplock-debug-trace';
 // recomputed it inline; after a resize they could disagree and cause the
 // toolbar/readonly-default to be out of sync with the shell layout.
 var _mobileShellCached=null;
-function _computeMobileShell(){if(_uiMode==='mobile')return true;if(_uiMode==='desktop')return false;return viewportWidth()<=_mobileShellMaxWidth}
+// A phone is a touch device whose PHYSICAL screen has a short side <=500 CSS px (iPhone Pro Max 440,
+// Pixel 412; tablets start around 600-744). The screen, never the window: a soft keyboard shrinks the
+// window (iOS home-screen apps even shrink innerHeight), so a window-height test would flip an iPad to
+// the phone layout and reload the page while typing. This is what keeps a phone in LANDSCAPE
+// (812-956px wide) on the mobile shell. Must stay in step with the @media query in styles.css.
+var _phoneScreenMaxShortSide=500;
+function _isPhoneScreen(){try{return window.matchMedia('(pointer: coarse)').matches&&Math.min(window.screen.width,window.screen.height)<=_phoneScreenMaxShortSide}catch(e){return false}}
+function _computeMobileShell(){if(_uiMode==='mobile')return true;if(_uiMode==='desktop')return false;return viewportWidth()<=_mobileShellMaxWidth||_isPhoneScreen()}
 function isMobileShellMode(recompute){if(recompute||_mobileShellCached===null)_mobileShellCached=_computeMobileShell();return _mobileShellCached}
 function isDesktopMode(recompute){return !isMobileShellMode(recompute)}
 function _trace(){if(!_dbg)return;try{var line='['+new Date().toISOString().slice(11,23)+'] '+Array.prototype.slice.call(arguments).map(function(v){return typeof v==='string'?v:JSON.stringify(v)}).join(' ');var arr=JSON.parse(sessionStorage.getItem(_traceKey)||'[]');arr.push(line);if(arr.length>80)arr=arr.slice(arr.length-80);sessionStorage.setItem(_traceKey,JSON.stringify(arr));console.log('[trace]',line)}catch(_e){}}

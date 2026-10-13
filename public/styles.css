@@ -3247,7 +3247,14 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 0; }
 
 /* Responsive */
-@media (max-width: 768px) {
+/* The mobile shell. "Phone" = narrow window (<=768px) OR a touch device whose physical screen has a
+   short side <=500px. The second part is what makes a phone in LANDSCAPE (812-956px wide) keep the
+   mobile layout. It must be the screen, never the window height: a soft keyboard shrinks the window
+   (on iOS home-screen apps innerHeight shrinks with it), so a height test would flip an iPad to the
+   phone layout and reload the page while typing. iOS reports device-width as the portrait width in
+   both orientations and Android rotates it, hence both device-width and device-height.
+   public/app.js _computeMobileShell() must stay in step; tests/landscapeShell.test.js checks both. */
+@media (max-width: 768px), (pointer: coarse) and (max-device-width: 500px), (pointer: coarse) and (max-device-height: 500px) {
 	body { font-size: 12px; }
 	body { --statusbar-height: 36px; }
 	/* Prevent iOS auto-zoom: all inputs must be >= 16px */
@@ -3401,7 +3408,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	display: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-device-width: 500px), (pointer: coarse) and (max-device-height: 500px) {
 	/* Hide desktop layout on mobile */
 	.app, .nav-reopen-btn, .mobile-nav-backdrop { display: none !important; }
 	.app-statusbar { display: none; }
@@ -3419,7 +3426,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	.mobile-app {
 		display: flex;
 		position: fixed;
-		inset: 0;
+		inset: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
 		overflow: hidden;
 		background: var(--bg);
 	}
@@ -3721,7 +3728,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	.mobile-fab {
 		position: fixed;
 		bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-		right: 20px;
+		right: calc(20px + env(safe-area-inset-right, 0px));
 		width: 56px;
 		height: 56px;
 		border-radius: 50%;
@@ -3745,7 +3752,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	}
 	.mobile-fab-menu {
 		position: fixed;
-		right: 20px;
+		right: calc(20px + env(safe-area-inset-right, 0px));
 		bottom: calc(88px + env(safe-area-inset-bottom, 0px));
 		background: var(--bg-side);
 		border: 1px solid var(--border);
@@ -3785,7 +3792,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 		left: 0; right: 0; bottom: 0;
 		background: var(--bg-side);
 		border-radius: 0;
-		padding: 8px 0 calc(16px + env(safe-area-inset-bottom, 0px));
+		padding: 8px env(safe-area-inset-right, 0px) calc(16px + env(safe-area-inset-bottom, 0px)) env(safe-area-inset-left, 0px);
 		z-index: 201;
 		box-shadow: 0 -4px 24px var(--shadow);
 		animation: mobileCtxSlideUp 0.2s cubic-bezier(0.4,0,0.2,1);
@@ -3875,7 +3882,8 @@ body.force-mobile .mobile-editor-body > form {
 body.force-mobile .mobile-app {
 	display: flex !important;
 	position: fixed;
-	inset: 0;
+	/* left/right keep clear of a landscape notch or Dynamic Island (0 in portrait and in browsers) */
+	inset: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
 	overflow: hidden;
 	background: var(--bg);
 }
@@ -3914,7 +3922,7 @@ body.resizing .mobile-screen-left,
 body.resizing .mobile-screen-right { transition: none !important; }
 
 /* Mobile locked editor */
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-device-width: 500px), (pointer: coarse) and (max-device-height: 500px) {
 	.editor-locked {
 		padding: 60px 20px;
 	}
@@ -3949,7 +3957,7 @@ body.resizing .mobile-screen-right { transition: none !important; }
 .settings-tab-panel { display: none; }
 .settings-tab-panel.active { display: block; }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-device-width: 500px), (pointer: coarse) and (max-device-height: 500px) {
 	.settings-page {
 		padding: calc(16px + env(safe-area-inset-top, 0px)) 12px calc(20px + env(safe-area-inset-bottom, 0px));
 	}
@@ -4497,5 +4505,32 @@ mark.search-highlight-active {
 
 	*:not(.note-loading-ring) {
 		animation: none !important;
+	}
+}
+
+/* Short windows: a phone in landscape (about 390px tall), or any phone with the keyboard up. The
+   shell's fixed chrome (title bar 44px + toolbar 67px) is most of that, so tighten it. These
+   elements exist only in the mobile shell, so a tablet's desktop layout is unaffected. */
+@media (max-height: 500px) {
+	.mobile-header {
+		height: calc(36px + env(safe-area-inset-top, 0px));
+	}
+
+	.mobile-app .editor-toolbar {
+		padding: 4px 10px;
+	}
+
+	.mobile-app .editor-toolbar .tb {
+		min-width: 40px;
+		height: 34px;
+		font-size: 16px;
+	}
+}
+
+/* Landscape with the keyboard up leaves room for little more than the toolbar and a few lines of
+   text: the editor's title bar (back, search, menu) steps aside until the keyboard is dismissed. */
+@media (max-height: 500px) and (orientation: landscape) {
+	html[data-keyboard] #mobile-editor-header {
+		display: none;
 	}
 }

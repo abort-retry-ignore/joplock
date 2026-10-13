@@ -765,7 +765,7 @@ test('styles define ordered list spacing and matrix note text token', () => {
 	assert.ok(css.includes('.ai-profiles-bar {'));
 	assert.ok(css.includes('.ai-profile-field .settings-field-hint,'));
 	assert.ok(css.includes('overflow-wrap: anywhere;'));
-	assert.ok(css.includes('@media (max-width: 768px) {'));
+	assert.ok(css.includes('@media (max-width: 768px), (pointer: coarse)'));
 	assert.ok(css.includes('.settings-tabs {\n\t\tdisplay: grid;'));
 	assert.ok(css.includes('grid-template-columns: 1fr;'));
 	assert.ok(css.includes('.ai-profiles-bar {\n\t\tdisplay: grid;'));

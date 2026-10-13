@@ -60,10 +60,12 @@ function makeShellCtx(opts = {}) {
 		document: dom.window.document,
 		_uiMode: opts.uiMode || 'auto',
 		_mobileShellMaxWidth: 768,
+		_phoneScreenMaxShortSide: 500,
 		_mobileShellCached: null,
 	});
 	// Inject the same helpers app.js defines.
 	vm.runInContext(extractFn('viewportWidth'), ctx);
+	vm.runInContext(extractFn('_isPhoneScreen'), ctx); // jsdom has no matchMedia: reports false, i.e. width rule only
 	vm.runInContext(extractFn('_computeMobileShell'), ctx);
 	vm.runInContext(extractFn('isMobileShellMode'), ctx);
 	vm.runInContext(extractFn('isDesktopMode'), ctx);

@@ -1,4 +1,5 @@
-const CACHE_NAME = 'joplock-shell-v90-20261013vpsync';
+// __ASSET_VERSION__ is replaced by the server with app/assetVersion.js's value when this file is served
+const CACHE_NAME = 'joplock-shell-__ASSET_VERSION__';
 const STATIC_ASSETS = ['/styles.css', '/htmx.min.js', '/turndown.min.js', '/codemirror.min.js', '/cm-extras.js', '/viewport.js', '/prism.min.js', '/hljs.min.js', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png', '/maskable-icon-192.png', '/maskable-icon-512.png', '/apple-touch-icon.png', '/fonts/CascadiaMono-Regular.woff2', '/fonts/CascadiaMono-Bold.woff2'];
 
 self.addEventListener('install', event => {

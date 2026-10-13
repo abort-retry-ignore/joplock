@@ -3358,7 +3358,6 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 		display: flex;
 		position: fixed;
 		inset: 0;
-		top: env(safe-area-inset-top, 0px);
 		overflow: hidden;
 		background: var(--bg);
 	}

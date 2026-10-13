@@ -5,9 +5,10 @@ const path = require('path');
 const { sessionIdFromHeaders } = require('./auth/cookies');
 const { createRateLimitService } = require('./auth/rateLimitService');
 const templates = require('./templates');
+const { assetVersion } = require('./assetVersion');
 
 const {
-	send, makeSendHtml, redirect, fileExists, serveFile,
+	send, makeSendHtml, redirect, fileExists, serveFile, serveServiceWorker,
 	ALL_NOTES_FOLDER_ID, TRASH_FOLDER_ID,
 	allNotesFolder, trashFolder, selectedFolderForNav, normalizeStoredFolderId,
 } = require('./routes/_helpers');
@@ -559,7 +560,8 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 	// Static files
 		const filePath = path.join(publicDir, relativePath.replace(/^\/+/, ''));
 		if (filePath.startsWith(publicDir) && fileExists(filePath) && !relativePath.endsWith('/')) {
-			serveFile(response, filePath);
+			if (relativePath === '/service-worker.js') serveServiceWorker(response, filePath, assetVersion());
+			else serveFile(response, filePath);
 			return;
 		}
 

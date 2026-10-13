@@ -10,7 +10,11 @@ const {
 } = require('./shared');
 const { noteMetaFragment } = require('./fragments');
 
-const ASSET_VERSION = '20261013vpsync';
+const { assetVersion } = require('../assetVersion');
+const { themeColor } = require('../themeColors');
+
+// computed from the shipped files (app/assetVersion.js): never bump by hand
+const ASSET_VERSION = assetVersion();
 
 const noteFontFamilyCSS = (settings) => {
 	const f = settings.noteFontFamily || 'sans';
@@ -48,7 +52,7 @@ const layoutPage = (options = {}) => {
 <head>
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-	<meta name="theme-color" content="#0b0b0b" />
+	<meta name="theme-color" content="${themeColor('dark-grey')}" />
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="mobile-web-app-capable" content="yes" />
 	<meta name="apple-mobile-web-app-title" content="Joplock" />
@@ -92,7 +96,7 @@ const layoutPage = (options = {}) => {
 <head>
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-	<meta name="theme-color" content="#08110b" />
+	<meta name="theme-color" content="${themeColor(settings.theme)}" />
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="mobile-web-app-capable" content="yes" />
 	<meta name="apple-mobile-web-app-title" content="Joplock" />
@@ -113,6 +117,7 @@ const layoutPage = (options = {}) => {
 	<script>
 	window._joplockConfig={
 		debug:${debug ? 'true' : 'false'},
+		assetVersion:${JSON.stringify(ASSET_VERSION)},
 		noteOpenMode:${JSON.stringify(settings.noteOpenMode || 'markdown')},
 		folderSort:${JSON.stringify(settings.folderSort === 'recent' ? 'recent' : 'alpha')},
 		mobileStartup:${JSON.stringify(mobileStartup || null)},
@@ -371,7 +376,7 @@ const loggedOutPage = () => `<!DOCTYPE html>
 <head>
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-	<meta name="theme-color" content="#08110b" />
+	<meta name="theme-color" content="${themeColor('dark-grey')}" />
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="mobile-web-app-capable" content="yes" />
 	<meta name="apple-mobile-web-app-title" content="Joplock" />
@@ -445,7 +450,7 @@ const recoveryPage = (options = {}) => {
 <head>
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-	<meta name="theme-color" content="#0b0b0b" />
+	<meta name="theme-color" content="${themeColor('dark-grey')}" />
 	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
@@ -582,7 +587,7 @@ const mfaPage = (options = {}) => {
 <head>
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-	<meta name="theme-color" content="#0b0b0b" />
+	<meta name="theme-color" content="${themeColor('dark-grey')}" />
 	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />

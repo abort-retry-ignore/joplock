@@ -12,7 +12,11 @@ const {
 } = require('./shared');
 const { AI_PROVIDERS } = require('../settingsService');
 
-const ASSET_VERSION = '20260519pwa22';
+const { assetVersion } = require('../assetVersion');
+const { themeColor } = require('../themeColors');
+
+// computed from the shipped files (app/assetVersion.js): never bump by hand
+const ASSET_VERSION = assetVersion();
 
 const formatBytes = value => {
 	const bytes = Number(value || 0);
@@ -142,7 +146,7 @@ const settingsPage = (options = {}) => {
 <head>
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-	<meta name="theme-color" content="#08110b" />
+	<meta name="theme-color" content="${themeColor(settings.theme)}" />
 	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />

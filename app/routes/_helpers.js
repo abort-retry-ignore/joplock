@@ -146,6 +146,20 @@ const serveFile = (response, filePath) => {
 	fs.createReadStream(filePath).pipe(response);
 };
 
+// The service worker is a template: its cache name carries the asset version (app/assetVersion.js)
+// so a changed deployment is a byte-different worker the browser installs, with no hand-bumped
+// string. It is never cached by the browser or any proxy.
+const serveServiceWorker = (response, filePath, version) => {
+	const source = fs.readFileSync(filePath, 'utf8').replaceAll('__ASSET_VERSION__', version);
+	response.writeHead(200, {
+		'Cache-Control': 'no-cache',
+		'Content-Type': contentTypes['.js'],
+		'Content-Length': Buffer.byteLength(source),
+		'Service-Worker-Allowed': '/',
+	});
+	response.end(source);
+};
+
 // ─── Domain helpers ───────────────────────────────────────────────────────────
 
 const TRASH_FOLDER_ID = 'de1e7ede1e7ede1e7ede1e7ede1e7ede';
@@ -309,6 +323,7 @@ module.exports = {
 	parseBody,
 	// files
 	fileExists,
+	serveServiceWorker,
 	serveFile,
 	// domain
 	TRASH_FOLDER_ID,

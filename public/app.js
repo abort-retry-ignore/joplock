@@ -3,7 +3,7 @@
 (function(){
 var _cfg=window._joplockConfig||{};
 var _dbg=_cfg.debug||false;
-var _assetVersion='20260519pwa22';
+var _assetVersion=_cfg.assetVersion||'';
 var _openRouterEnabled=!!_cfg.openRouterEnabled;
 var _textExpanders=Array.isArray(_cfg.textExpanders)?_cfg.textExpanders.filter(function(e){return e&&e.trigger&&(e.action==='ai'||e.text!=null)}).map(function(e){return{id:String(e.id||''),trigger:String(e.trigger),action:e.action==='ai'?'ai':'text',profileId:String(e.profileId||''),text:String(e.text||'')}}):[];
 function _log(){if(!_dbg)return;var a=Array.prototype.slice.call(arguments);a.unshift('[joplock]');console.log.apply(console,a)}

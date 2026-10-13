@@ -422,7 +422,7 @@ the service that owns them (e.g. `app/settingsService.js` also carries the
 - `public/html-docx.js` — legacy client-side HTML→DOCX converter
 - `public/reference.docx` — pandoc reference document for DOCX export styling (regenerate with `scripts/build-reference-docx.sh`; referenced from `app/routes/api.js`)
 - `public/styles.css`
-- `public/service-worker.js` — shell-only cache. `CACHE_NAME` at the top of the file is the `joplock-shell-vN-<label>` string and must be bumped whenever shipped CSS/JS changes
+- `public/service-worker.js` — shell-only cache. It is a template: the server replaces `__ASSET_VERSION__` in `CACHE_NAME` with `app/assetVersion.js`'s value (a hash of the shipped files in `public/` plus `tinymce/tinymce.min.js`) when serving it, so a changed deployment is a byte-different worker. The same value is the `?v=` on script/stylesheet URLs and `_joplockConfig.assetVersion`. **Never bump a version by hand**; there is no version constant to edit.
 - `public/manifest.webmanifest` + `public/icons`, `public/apple-splash` — PWA assets (regenerate with `npm run generate:pwa-assets`)
 
 ### Bundle Build Sources
@@ -782,7 +782,7 @@ for admin settings). Adding a key to only one of the two silently does nothing.
 2. Allow the key in the `allowedKeys` array of `PUT /api/web/settings` in `app/routes/api.js` (or in the matching `/admin/*` route for admin-only settings)
 3. Add the UI in `settingsPage()` in `app/templates/settings.js`
 4. If needed, inject the normalized setting into `layoutPage()` / `_joplockConfig` in `app/templates/pages.js` for `public/app.js`
-5. Bump `CACHE_NAME` in `public/service-worker.js` if the change adds or changes shipped client JS/CSS
+5. Nothing to bump: the asset version and service worker cache name are computed from the shipped files (`app/assetVersion.js`)
 6. Rebuild with `./scripts/rebuild-dev.sh`
 
 ### Adding or editing a theme
@@ -803,7 +803,7 @@ Themes are CSS-only. Each theme is a class on `<body>` that sets a shared set of
 
 4. **`tests/settingsService.test.js`** — Add an assertion that `normalizeSettings({ theme: '<slug>' }).theme` is preserved and not normalized back to the default.
 
-5. **`public/service-worker.js`** — Bump `CACHE_NAME` (e.g., `joplock-shell-vN-...`) whenever theme CSS changes. The PWA can cache old `styles.css` aggressively, and the cache-name change forces browsers to fetch the new stylesheet.
+5. **Service worker / asset version** — nothing to do: `app/assetVersion.js` hashes the shipped files, so new theme CSS changes the version, the `?v=` URLs and the worker's cache name automatically. Add the theme's `--theme-color` in its CSS block (`app/themeColors.js` reads it for the page head; `tests/themeColors.test.js` fails if a selectable theme lacks one).
 
 6. Rebuild with `./scripts/rebuild-dev.sh`.
 

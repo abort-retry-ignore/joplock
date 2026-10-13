@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { keyboardVisible, isTypingElement } = require('../public/viewport.js');
+const { keyboardVisible, isTypingElement, shouldPin } = require('../public/viewport.js');
 
 const base = { coarse: true, typing: true, wasVisible: false, apiHeight: 0, vvScale: 1, remembered: 0 };
 
@@ -76,4 +76,13 @@ test('the stylesheet only changes .mobile-app while data-keyboard is set', () =>
 	assert.match(css, /html\[data-keyboard\] \.mobile-app/);
 	assert.match(css, /height: var\(--app-height\)/);
 	assert.match(css, /top: var\(--app-top, 0px\)/);
+});
+
+test('the page scroll is pinned only in the mobile shell, and never while pinch-zoomed', () => {
+	const scrolled = { shellShowing: true, scale: 1, scrollX: 0, scrollY: 268 };
+	assert.equal(shouldPin(scrolled), true);
+	assert.equal(shouldPin({ ...scrolled, scrollY: 0 }), false, 'nothing to put back');
+	assert.equal(shouldPin({ ...scrolled, shellShowing: false }), false, 'desktop shell / other pages scroll normally');
+	assert.equal(shouldPin({ ...scrolled, scale: 1.8 }), false, 'a zoomed page pans by scrolling: do not fight it');
+	assert.equal(shouldPin({ ...scrolled, scrollY: 0, scrollX: 40 }), true);
 });

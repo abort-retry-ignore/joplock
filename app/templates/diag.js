@@ -7,28 +7,32 @@
 // visualViewport while the keyboard is up, page scroll pinned at 0). No dependencies on app.js.
 'use strict';
 
+const { viewportMeta } = require('./shared');
+
 const SHELLS = ['current', 'vv'];
 
+// Defaults mirror the real app (viewport meta from shared.js). The switches exist to compare:
+// ?iw=0 drops interactive-widget=resizes-content, ?zoom=0 blocks zoom as the app used to.
 const diagOptions = query => {
 	const get = key => (query && typeof query.get === 'function' ? query.get(key) : (query || {})[key]);
 	const shell = SHELLS.includes(get('shell')) ? get('shell') : 'current';
-	return { shell, iw: get('iw') === '1', zoom: get('zoom') === '1' };
+	return { shell, iw: get('iw') !== '0', zoom: get('zoom') !== '0' };
 };
 
-const viewportContent = ({ iw, zoom }) => [
+const viewportContent = ({ iw, zoom }) => (iw && zoom ? viewportMeta : [
 	'width=device-width',
 	'initial-scale=1.0',
 	zoom ? null : 'maximum-scale=1.0',
 	zoom ? null : 'user-scalable=no',
 	'viewport-fit=cover',
 	iw ? 'interactive-widget=resizes-content' : null,
-].filter(Boolean).join(', ');
+].filter(Boolean).join(', '));
 
 const diagPage = (options = {}) => {
 	const { shell, iw, zoom } = diagOptions(options.query || options);
 	const config = JSON.stringify({ shell, iw, zoom });
 	const link = (label, params) => {
-		const active = params.shell === shell && (params.iw === '1') === iw && (params.zoom === '1') === zoom;
+		const active = params.shell === shell && (params.iw !== '0') === iw && (params.zoom !== '0') === zoom;
 		const href = `/diag?${Object.entries(params).map(([k, v]) => `${k}=${v}`).join('&')}`;
 		return `<a href="${href}"${active ? ' class="on"' : ''}>${label}</a>`;
 	};
@@ -84,9 +88,9 @@ details p{padding:2px 0}
 <i id="p-sl" style="height:env(safe-area-inset-left,0px)"></i><i id="p-sr" style="height:env(safe-area-inset-right,0px)"></i>
 </div>
 <div id="shell" class="shell-${shell}"${shell === 'vv' ? ' data-viewport-pin' : ''}>
-<div id="hdr"><a href="/settings?tab=about">&lsaquo; Back</a><b>Diagnostics &middot; ${shell}${iw ? ' + iw' : ''}${zoom ? ' + zoom' : ''}</b></div>
+<div id="hdr"><a href="/settings?tab=about">&lsaquo; Back</a><b>Diagnostics &middot; ${shell}${iw ? '' : ' - no iw'}${zoom ? '' : ' - no zoom'}</b></div>
 <div id="panel">
-<div id="variants">${link('current', { shell: 'current' })}${link('vv shell', { shell: 'vv' })}${link('vv + interactive-widget', { shell: 'vv', iw: '1' })}${link('current + zoom allowed', { shell: 'current', zoom: '1' })}</div>
+<div id="variants">${link('current shell', { shell: 'current' })}${link('vv shell (viewport.js)', { shell: 'vv' })}${link('current, no interactive-widget', { shell: 'current', iw: '0' })}${link('current, zoom blocked', { shell: 'current', zoom: '0' })}</div>
 <details><summary>How to test (tap)</summary>
 <p>Reports send themselves (two samples, 0.7s and 1.8s after each event) and are only logged on the server; nothing touches your notes. Run each variant link below; do it in the installed Home Screen app, and once in the browser tab.</p>
 <p>1. Open the page and leave it alone for 3s (<b>load</b>).</p>

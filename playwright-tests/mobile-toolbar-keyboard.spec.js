@@ -86,7 +86,7 @@ test.describe('Mobile markdown toolbar and the keyboard', () => {
 
 	test('viewport.js puts the page scroll back at 0 when the browser scrolls it (what iOS does for a caret under the keyboard)', async ({ page }, testInfo) => {
 		test.skip(testInfo.project.name !== 'mobile');
-		await page.setContent('<!doctype html><html><body style="margin:0"><div data-viewport-pin style="height:3000px">tall page</div><input id="f"></body></html>');
+		await page.setContent('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0"><div data-viewport-pin style="height:3000px">tall page</div><input id="f"></body></html>');
 		await page.addScriptTag({ path: path.join(__dirname, '..', 'public', 'viewport.js') });
 		expect(await page.evaluate(() => window.JoplockViewport.enabled)).toBe(true);
 		await page.evaluate(() => window.scrollTo(0, 340));
@@ -94,6 +94,18 @@ test.describe('Mobile markdown toolbar and the keyboard', () => {
 		const state = await page.evaluate(() => window.JoplockViewport.state());
 		expect(state.pins).toBeGreaterThanOrEqual(1);
 		expect(state.maxScroll).toBeGreaterThanOrEqual(300);
+	});
+
+	test('viewport.js leaves the scroll alone while the user is pinch-zoomed', async ({ page }, testInfo) => {
+		test.skip(testInfo.project.name !== 'mobile');
+		// no viewport meta: mobile Chromium lays the page out at 980px and scales it, a scale != 1
+		await page.setContent('<!doctype html><html><body style="margin:0"><div data-viewport-pin style="height:3000px">tall page</div></body></html>');
+		await page.addScriptTag({ path: path.join(__dirname, '..', 'public', 'viewport.js') });
+		expect(await page.evaluate(() => Math.abs(window.visualViewport.scale - 1) > 0.01)).toBe(true);
+		await page.evaluate(() => window.scrollTo(0, 340));
+		await page.waitForTimeout(400);
+		expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
+		expect((await page.evaluate(() => window.JoplockViewport.state())).pins).toBe(0);
 	});
 
 	test('the localStorage kill switch turns viewport.js off', async ({ page }, testInfo) => {

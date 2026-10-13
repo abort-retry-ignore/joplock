@@ -5,6 +5,7 @@ const {
 	escapeHtml,
 	escapeJsString,
 	appleSplashLinks,
+	viewportMeta,
 	themeOptions,
 	validDateFormats,
 	validDatetimeFormats,
@@ -145,7 +146,7 @@ const settingsPage = (options = {}) => {
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+	<meta name="viewport" content="${viewportMeta}" />
 	<meta name="theme-color" content="${themeColor(settings.theme)}" />
 	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />

@@ -12,7 +12,8 @@
  * What it does, only on a touch device (pointer: coarse):
  *  - html[data-keyboard] while a soft keyboard is up, plus --app-height / --app-top (px) that
  *    styles.css applies to .mobile-app only in that state; outside it nothing changes.
- *  - while the mobile shell is showing, any document scroll is put back to (0, 0).
+ *  - while the mobile shell is showing (and the user has not pinch-zoomed), any document scroll is
+ *    put back to (0, 0).
  *  - fires "joplock:viewport" on document when the keyboard state or geometry changes.
  *
  * Never guess a keyboard from innerHeight - visualViewport.height: an iOS home-screen app shrinks
@@ -60,7 +61,18 @@
 		return reference > 0 && reference - s.vvHeight > reference * OCCLUSION;
 	}
 
-	var pure = { OCCLUSION: OCCLUSION, isTypingElement: isTypingElement, keyboardVisible: keyboardVisible };
+	/**
+	 * Whether a document scroll should be put back at (0,0): only while the mobile shell is showing
+	 * (nothing in it scrolls the document) and never while the user has pinch-zoomed, when panning
+	 * the zoomed page legitimately moves the scroll position.
+	 */
+	function shouldPin(s) {
+		if (!s.shellShowing) return false;
+		if (Math.abs((s.scale || 1) - 1) > 0.01) return false;
+		return !!(s.scrollX || s.scrollY);
+	}
+
+	var pure = { OCCLUSION: OCCLUSION, isTypingElement: isTypingElement, keyboardVisible: keyboardVisible, shouldPin: shouldPin };
 	if (typeof module !== 'undefined' && module.exports) module.exports = pure;
 	if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
@@ -122,7 +134,7 @@
 		// iOS scrolls the document to reveal the caret. Nothing in the shell scrolls the document
 		// (body is position:fixed), so put it back, whether or not we think a keyboard is up.
 		var pinnedNow = false;
-		if (shellShowing() && (window.scrollY || window.scrollX)) {
+		if (shouldPin({ shellShowing: shellShowing(), scale: vv.scale, scrollX: window.scrollX, scrollY: window.scrollY })) {
 			pins++;
 			maxScroll = Math.max(maxScroll, Math.round(window.scrollY));
 			window.scrollTo(0, 0);

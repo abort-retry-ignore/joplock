@@ -1,5 +1,6 @@
 'use strict';
 
+const { viewportMeta } = require('../templates/shared');
 const { send, sendJson, readRawBody, parseMultipart, contentDispositionFilename, shouldInlineResource } = require('./_helpers');
 
 // Joplin Server rejects files over its formidable maxFileSize (200MB) with an
@@ -82,7 +83,7 @@ const handle = async (url, request, response, ctx) => {
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+	<meta name="viewport" content="${viewportMeta}" />
 	<meta name="theme-color" content="#08110b" />
 	<title>${title}</title>
 	<style>

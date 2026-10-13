@@ -4,6 +4,7 @@
 const {
 	escapeHtml,
 	appleSplashLinks,
+	viewportMeta,
 	themeOptions,
 	passwordField,
 	stripMarkdownForTitle,
@@ -51,7 +52,7 @@ const layoutPage = (options = {}) => {
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+	<meta name="viewport" content="${viewportMeta}" />
 	<meta name="theme-color" content="${themeColor('dark-grey')}" />
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="mobile-web-app-capable" content="yes" />
@@ -95,7 +96,7 @@ const layoutPage = (options = {}) => {
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+	<meta name="viewport" content="${viewportMeta}" />
 	<meta name="theme-color" content="${themeColor(settings.theme)}" />
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="mobile-web-app-capable" content="yes" />
@@ -375,7 +376,7 @@ const loggedOutPage = () => `<!DOCTYPE html>
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+	<meta name="viewport" content="${viewportMeta}" />
 	<meta name="theme-color" content="${themeColor('dark-grey')}" />
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="mobile-web-app-capable" content="yes" />
@@ -449,7 +450,7 @@ const recoveryPage = (options = {}) => {
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+	<meta name="viewport" content="${viewportMeta}" />
 	<meta name="theme-color" content="${themeColor('dark-grey')}" />
 	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
@@ -586,7 +587,7 @@ const mfaPage = (options = {}) => {
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+	<meta name="viewport" content="${viewportMeta}" />
 	<meta name="theme-color" content="${themeColor('dark-grey')}" />
 	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />

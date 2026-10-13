@@ -10,20 +10,22 @@ const routeDiag = require('../app/routes/diag');
 
 const scriptOf = html => html.split('<script>')[1].split('</script>')[0];
 
-test('diag options only accept known values', () => {
-	assert.deepEqual(diagOptions(new URLSearchParams('')), { shell: 'current', iw: false, zoom: false });
-	assert.deepEqual(diagOptions(new URLSearchParams('shell=vv&iw=1&zoom=1')), { shell: 'vv', iw: true, zoom: true });
+test('diag options only accept known values; defaults mirror the real app', () => {
+	assert.deepEqual(diagOptions(new URLSearchParams('')), { shell: 'current', iw: true, zoom: true });
+	assert.deepEqual(diagOptions(new URLSearchParams('shell=vv&iw=0&zoom=0')), { shell: 'vv', iw: false, zoom: false });
 	assert.equal(diagOptions(new URLSearchParams('shell=<script>')).shell, 'current');
 });
 
-test('viewport meta mirrors the app by default and varies only as requested', () => {
+test('viewport meta is the app\'s by default and varies only as requested', () => {
+	const { viewportMeta } = require('../app/templates/shared');
+	assert.equal(viewportContent({ iw: true, zoom: true }), viewportMeta);
 	assert.equal(viewportContent({ iw: false, zoom: false }), 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
-	assert.match(viewportContent({ iw: true, zoom: false }), /interactive-widget=resizes-content/);
-	assert.doesNotMatch(viewportContent({ iw: false, zoom: true }), /user-scalable|maximum-scale/);
+	assert.doesNotMatch(viewportContent({ iw: false, zoom: true }), /interactive-widget|user-scalable/);
+	assert.match(viewportContent({ iw: true, zoom: false }), /interactive-widget=resizes-content.*|user-scalable=no/);
 });
 
 test('diag page renders each variant and its script parses', () => {
-	for (const q of ['', 'shell=vv', 'shell=vv&iw=1', 'shell=current&zoom=1']) {
+	for (const q of ['', 'shell=vv', 'shell=vv&iw=0', 'shell=current&zoom=0']) {
 		const html = templates.diagPage({ query: new URLSearchParams(q) });
 		assert.match(html, /^<!DOCTYPE html>/);
 		assert.doesNotThrow(() => new vm.Script(scriptOf(html)), `script for "${q}" must parse`);

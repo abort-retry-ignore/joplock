@@ -24,6 +24,7 @@ const routeResources = require('./routes/resources');
 const routeFragments = require('./routes/fragments');
 const routeMobile = require('./routes/mobile');
 const routeShares = require('./routes/shares');
+const routeDiag = require('./routes/diag');
 const { createFolderOps } = require('./items/folderOps');
 const { sortFoldersByRecent, applyPinnedFirst } = require('./items/folderTree');
 const routeApi = require('./routes/api');
@@ -421,6 +422,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 			routeHistory,
 			routeResources,
 			routeMobile,
+			routeDiag,
 			routeFragments,
 			routeShares,
 			routeApi,

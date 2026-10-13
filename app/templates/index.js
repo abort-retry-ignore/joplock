@@ -7,6 +7,7 @@ const settings = require('./settings');
 const pages = require('./pages');
 const mobile = require('./mobile');
 const shares = require('./shares');
+const diag = require('./diag');
 
 module.exports = {
 	// shared
@@ -15,6 +16,9 @@ module.exports = {
 	renderInlineMarkdown: shared.renderInlineMarkdown,
 	renderMarkdown: shared.renderMarkdown,
 	passwordField: shared.passwordField,
+
+	// diagnostics (debug only)
+	diagPage: diag.diagPage,
 
 	// shares
 	shareDialog: shares.shareDialog,

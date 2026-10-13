@@ -466,6 +466,7 @@ const settingsPage = (options = {}) => {
 					<div class="about-info">
 						${joplockVersion ? `<div class="about-row"><span class="about-label">Joplock version</span><span class="about-value">${escapeHtml(joplockVersion)}</span></div>` : ''}
 						${joplinServerVersion ? `<div class="about-row"><span class="about-label">Joplin Server</span><span class="about-value">${escapeHtml(joplinServerVersion)}</span></div>` : ''}
+						${debug ? '<div class="about-row"><span class="about-label">Diagnostics</span><span class="about-value"><a href="/diag" class="about-link">Device &amp; viewport diagnostics</a></span></div>' : ''}
 						<div class="about-row"><span class="about-label">Author</span><span class="about-value">Igor Divjak</span></div>
 						<div class="about-row"><span class="about-label">Repository</span><span class="about-value"><a href="https://github.com/abort-retry-ignore/joplock" target="_blank" rel="noopener" class="about-link">github.com/abort-retry-ignore/joplock</a></span></div>
 					</div>

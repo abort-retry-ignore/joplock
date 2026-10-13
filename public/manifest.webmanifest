@@ -1,12 +1,12 @@
 {
+	"id": "/",
 	"name": "Joplock",
 	"short_name": "Joplock",
 	"start_url": "/",
 	"scope": "/",
 	"display": "standalone",
-	"orientation": "portrait",
-	"background_color": "#08110b",
-	"theme_color": "#08110b",
+	"background_color": "#1a1610",
+	"theme_color": "#1e1a12",
 	"description": "Thin-client web frontend for Joplin Server.",
 	"icons": [
 		{
@@ -39,5 +39,6 @@
 			"type": "image/png",
 			"purpose": "any"
 		}
-	]
+	],
+	"lang": "en"
 }

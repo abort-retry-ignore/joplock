@@ -1,4 +1,5 @@
 'use strict';
+// A write must change only what the user edited: docs/agents/joplin-fidelity.md (read before changing serialization)
 
 // Joplin item serialization, mirroring BaseItem.serialize / serialize_format from
 // the Joplin client so what Joplock writes is indistinguishable from what a Joplin

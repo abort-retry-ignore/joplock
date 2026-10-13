@@ -1,9 +1,10 @@
 /* joplock client application — extracted from templates.js */
 /* Server config is passed via window._joplockConfig set inline before this script loads */
+/* Contracts for this file (editor, saves, vaults, uploads, mobile shell, AI) are in docs/agents/: editor.md, vaults-and-save-safety.md, editor-uploads.md, pwa-mobile.md, ai-expander-ask.md. Read the one that matches your change first. */
 (function(){
 var _cfg=window._joplockConfig||{};
 var _dbg=_cfg.debug||false;
-var _assetVersion='20260519pwa22';
+var _assetVersion=_cfg.assetVersion||'';
 var _openRouterEnabled=!!_cfg.openRouterEnabled;
 var _textExpanders=Array.isArray(_cfg.textExpanders)?_cfg.textExpanders.filter(function(e){return e&&e.trigger&&(e.action==='ai'||e.text!=null)}).map(function(e){return{id:String(e.id||''),trigger:String(e.trigger),action:e.action==='ai'?'ai':'text',profileId:String(e.profileId||''),text:String(e.text||'')}}):[];
 function _log(){if(!_dbg)return;var a=Array.prototype.slice.call(arguments);a.unshift('[joplock]');console.log.apply(console,a)}
@@ -298,7 +299,14 @@ var _traceKey='joplock-debug-trace';
 // recomputed it inline; after a resize they could disagree and cause the
 // toolbar/readonly-default to be out of sync with the shell layout.
 var _mobileShellCached=null;
-function _computeMobileShell(){if(_uiMode==='mobile')return true;if(_uiMode==='desktop')return false;return viewportWidth()<=_mobileShellMaxWidth}
+// A phone is a touch device whose PHYSICAL screen has a short side <=500 CSS px (iPhone Pro Max 440,
+// Pixel 412; tablets start around 600-744). The screen, never the window: a soft keyboard shrinks the
+// window (iOS home-screen apps even shrink innerHeight), so a window-height test would flip an iPad to
+// the phone layout and reload the page while typing. This is what keeps a phone in LANDSCAPE
+// (812-956px wide) on the mobile shell. Must stay in step with the @media query in styles.css.
+var _phoneScreenMaxShortSide=500;
+function _isPhoneScreen(){try{return window.matchMedia('(pointer: coarse)').matches&&Math.min(window.screen.width,window.screen.height)<=_phoneScreenMaxShortSide}catch(e){return false}}
+function _computeMobileShell(){if(_uiMode==='mobile')return true;if(_uiMode==='desktop')return false;return viewportWidth()<=_mobileShellMaxWidth||_isPhoneScreen()}
 function isMobileShellMode(recompute){if(recompute||_mobileShellCached===null)_mobileShellCached=_computeMobileShell();return _mobileShellCached}
 function isDesktopMode(recompute){return !isMobileShellMode(recompute)}
 function _trace(){if(!_dbg)return;try{var line='['+new Date().toISOString().slice(11,23)+'] '+Array.prototype.slice.call(arguments).map(function(v){return typeof v==='string'?v:JSON.stringify(v)}).join(' ');var arr=JSON.parse(sessionStorage.getItem(_traceKey)||'[]');arr.push(line);if(arr.length>80)arr=arr.slice(arr.length-80);sessionStorage.setItem(_traceKey,JSON.stringify(arr));console.log('[trace]',line)}catch(_e){}}
@@ -2444,17 +2452,13 @@ function positionTinyMCEHost(){
 			top=slot.getBoundingClientRect().top;
 		}
 		var mobileApp=document.getElementById('mobile-app');
-		var mar=mobileApp?mobileApp.getBoundingClientRect():{left:0,width:window.innerWidth};
+		var mar=mobileApp?mobileApp.getBoundingClientRect():{left:0,width:window.innerWidth,bottom:window.innerHeight};
 		left=mar.left;
 		width=mar.width;
-		// Keep the host locked to the visible viewport while the keyboard is open,
-		// otherwise iOS may pan the outer page (dual-scroll effect).
-		// When keyboard is closed, prefer innerHeight to avoid rubber-band gaps.
-		if(vv&&window.innerHeight-vv.height>80){
-			vpH=vv.height+vv.offsetTop;
-		}else{
-			vpH=window.innerHeight;
-		}
+		// The host's bottom is the shell's bottom. public/viewport.js sizes .mobile-app to the
+		// visible area while the keyboard is up, so no innerHeight/visualViewport guess here
+		// (iOS home-screen apps shrink innerHeight with the keyboard, which fooled the old one).
+		vpH=mar.bottom;
 	}else{
 		var rect=slot.getBoundingClientRect();
 		if(rect.width===0||rect.height===0){
@@ -2664,7 +2668,7 @@ function askDisabledForActiveNote(){
 }
 // User-visible explanation for why /ask silently no-ops in vault notes. Shown
 // once per note-open so users don't keep re-typing hoping it will work. The
-// underlying policy (see AGENT_GUIDE "Ask Slash Command") is that plaintext
+// underlying policy (see docs/agents/ai-expander-ask.md) is that plaintext
 // context from an encrypted note must never leave the browser.
 var _askDisabledNotified={};
 function _notifyAskDisabledInVault(){
@@ -3620,9 +3624,11 @@ function _cmExtraHooks(){
 		htmlToMarkdown:_pasteHtmlToMarkdown
 	};
 }
+// The word-count / heading-outline bar is desktop-only: on the mobile shell it costs a row of
+// screen under the editor and recounts words on every keystroke, so it is not created at all.
 function _cmExtraExtensions(C){
 	if(!window.JoplockMd)return [];
-	try{return window.JoplockMd.createExtensions(C,_cmExtraHooks(),{inlineWidgets:_mdInlineWidgets,livePreview:_mdLivePreview,statusBar:_mdStatusBar,folding:_mdFolding})}
+	try{return window.JoplockMd.createExtensions(C,_cmExtraHooks(),{inlineWidgets:_mdInlineWidgets,livePreview:_mdLivePreview,statusBar:_mdStatusBar&&!isMobileShellMode(),folding:_mdFolding})}
 	catch(err){console.error('[joplock] markdown extras failed to initialise',err);return []}
 }
 function initCM(host,content){
@@ -5948,8 +5954,14 @@ function confirmLogout(event){
 			positionTinyMCEHost();
 			return;
 		}
+		// Markdown mode: this is the formatting bar (B I U S H3 ...). It is up when a note opens and
+		// stays up while editing, so "hide" requests are ignored: the viewport handler asks for one
+		// when it thinks the keyboard went away (wrong on iOS home-screen apps, where innerHeight
+		// shrinks together with the visual viewport, so an OPEN keyboard looks closed), and the rich
+		// editor's blur handler asks for one 200ms after a switch to markdown. Only a locked vault hides it.
 		var form=activeEditorForm();
-		if(form&&form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1')show=false;
+		var locked=!!(form&&form.dataset.encrypted==='1'&&form.dataset.vaultUnlocked!=='1');
+		show=!locked;
 		tb.style.display=show?'flex':'none';
 		// Reposition immediately, then again after a tick so the toolbar has a
 		// rendered height before positionTinyMCEHost measures the anchor bottom.
@@ -5971,21 +5983,17 @@ function confirmLogout(event){
 	// Show/hide toolbar on TinyMCE focus/blur.
 	(function initMobileToolbarGlobalListeners(){
 		function onVpChange(){
+			// Keyboard state comes from public/viewport.js (joplock:viewport); it also resizes the
+			// shell, so this only has to re-anchor the TinyMCE host. The markdown toolbar is permanent
+			// (setMobileToolbarVisible ignores hide in markdown mode), so no keyboard-gone logic.
 			stabilizeTinyMCEHostPosition();
-			// When the visual viewport returns to full height the keyboard has gone away.
-			// Hide the toolbar — user is no longer actively editing.
-			if(!inMobileEditor())return;
-			var vv=window.visualViewport;
-			var keyboardGone=!vv||(window.innerHeight-vv.height<80);
-			if(keyboardGone&&!(_tinymceEditor&&_tinymceEditor.hasFocus&&_tinymceEditor.hasFocus())){
-				setMobileToolbarVisible(false);
-			}
 		}
 		if(window.visualViewport){
 			window.visualViewport.addEventListener('resize',onVpChange);
 			window.visualViewport.addEventListener('scroll',positionTinyMCEHost);
 		}
 		window.addEventListener('resize',positionTinyMCEHost);
+		document.addEventListener('joplock:viewport',onVpChange);
 		// TinyMCE lives in an iframe; relay focus/blur via custom events from setup().
 		document.body.addEventListener('joplock:editor-focus',function(){
 			if(_tinymceSuppressEdits)return;

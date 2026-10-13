@@ -1,4 +1,5 @@
 'use strict';
+// Notebook rules and why: docs/agents/notebooks-and-sharing.md
 
 // Notebook operations that must be consistent across every entry point (the
 // htmx fragment routes, the JSON API and, on mobile, the same routes again).

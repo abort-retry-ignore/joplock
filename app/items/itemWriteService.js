@@ -1,3 +1,4 @@
+// A write must change only what the user edited: docs/agents/joplin-fidelity.md (read before changing what is written)
 const http = require('http');
 const { randomBytes } = require('crypto');
 const { serializeItem, MODEL_TYPE_NOTE, MODEL_TYPE_FOLDER, MODEL_TYPE_RESOURCE } = require('./joplinItem');

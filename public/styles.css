@@ -905,6 +905,7 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	box-shadow: 0 10px 30px var(--shadow);
 	/* a very short window: scroll the menu instead of letting items fall off the screen */
 	max-height: calc(100vh - 16px);
+	max-height: calc(100dvh - 16px);
 	overflow-y: auto;
 }
 
@@ -924,8 +925,10 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	color: var(--text);
 }
 
-.folder-context-item:hover {
-	background: var(--bg-hover);
+@media (hover: hover) {
+	.folder-context-item:hover {
+		background: var(--bg-hover);
+	}
 }
 
 /* display:block above beats the UA [hidden] rule; vault notebooks hide the
@@ -1014,7 +1017,9 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	border: none;
 	cursor: pointer;
 }
-.upload-close-btn:hover { color: var(--text); background: var(--bg-hover); }
+@media (hover: hover) {
+	.upload-close-btn:hover { color: var(--text); background: var(--bg-hover); }
+}
 .upload-drop-zone {
 	display: flex;
 	flex-direction: column;
@@ -1118,7 +1123,9 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	align-items: center;
 	justify-content: center;
 }
-.upload-file-del:hover { color: var(--danger); background: var(--bg-hover); }
+@media (hover: hover) {
+	.upload-file-del:hover { color: var(--danger); background: var(--bg-hover); }
+}
 
 .trash-folder-empty {
 	flex-shrink: 0;
@@ -1264,7 +1271,9 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	gap: 2px;
 }
 
-.history-item:hover { background: var(--bg-hover); color: var(--text); }
+@media (hover: hover) {
+	.history-item:hover { background: var(--bg-hover); color: var(--text); }
+}
 .history-item-active { background: var(--bg-active); color: var(--text); }
 
 .history-item-title {
@@ -1335,7 +1344,9 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	cursor: pointer;
 	font-family: inherit;
 }
-.notelist-load-more:hover { color: var(--text-primary); background: var(--bg-hover); }
+@media (hover: hover) {
+	.notelist-load-more:hover { color: var(--text-primary); background: var(--bg-hover); }
+}
 
 .btn-icon-sm {
 	width: 22px;
@@ -1349,7 +1360,9 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	color: var(--text-dim);
 	transition: background 0.1s;
 }
-.btn-icon-sm:hover { background: var(--bg-hover); color: var(--text); }
+@media (hover: hover) {
+	.btn-icon-sm:hover { background: var(--bg-hover); color: var(--text); }
+}
 
 /* Sidebar items */
 .sidebar-item {
@@ -1363,7 +1376,9 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	transition: background 0.1s;
 	margin-bottom: 1px;
 }
-.sidebar-item:hover { background: var(--bg-hover); }
+@media (hover: hover) {
+	.sidebar-item:hover { background: var(--bg-hover); }
+}
 .sidebar-item.active { background: var(--bg-active); }
 
 .sidebar-item-icon {
@@ -1443,7 +1458,9 @@ body.nav-dragging-folder.nav-drag-nested .nav-drop-root { display: block; }
 	flex: 1;
 }
 
-.notelist-item:hover { background: var(--bg-hover); }
+@media (hover: hover) {
+	.notelist-item:hover { background: var(--bg-hover); }
+}
 .notelist-item.active { background: var(--bg-active); }
 
 .notelist-item-title {
@@ -1602,7 +1619,9 @@ body.editor-markdown-mode .editor-toolbar {
 	color: var(--text-dim);
 	transition: background 0.1s, color 0.1s;
 }
-.tb:hover { background: var(--bg-hover); color: var(--text); }
+@media (hover: hover) {
+	.tb:hover { background: var(--bg-hover); color: var(--text); }
+}
 .tb:focus { outline: none; }
 
 .tb-div {
@@ -1636,7 +1655,9 @@ body.editor-markdown-mode .editor-toolbar {
 	border-radius: 4px;
 	background: transparent;
 }
-.export-menu button:hover { background: var(--bg-hover); }
+@media (hover: hover) {
+	.export-menu button:hover { background: var(--bg-hover); }
+}
 .export-menu .export-menu-cancel { color: var(--text-muted); margin-top: 2px; border-top: 1px solid var(--border); border-radius: 0 0 4px 4px; }
 
 /* Editor body (hidden textarea, used as sync target for form submission) */
@@ -1726,13 +1747,17 @@ body.editor-markdown-mode .editor-toolbar {
 .tox .tox-tbtn svg {
 	fill: var(--text-dim) !important;
 }
-.tox .tox-tbtn:hover {
-	background: var(--bg-hover) !important;
-	background-color: var(--bg-hover) !important;
-	color: var(--text) !important;
+@media (hover: hover) {
+	.tox .tox-tbtn:hover {
+		background: var(--bg-hover) !important;
+		background-color: var(--bg-hover) !important;
+		color: var(--text) !important;
+	}
 }
-.tox .tox-tbtn:hover svg {
-	fill: var(--text) !important;
+@media (hover: hover) {
+	.tox .tox-tbtn:hover svg {
+		fill: var(--text) !important;
+	}
 }
 .tox .tox-tbtn--active,
 .tox .tox-tbtn--enabled,
@@ -1791,11 +1816,13 @@ body.editor-markdown-mode .editor-toolbar {
 .tox .tox-split-button__chevron svg {
 	fill: var(--text-dim) !important;
 }
-.tox .tox-tbtn--select:hover .tox-tbtn__select-label,
-.tox .tox-split-button:hover .tox-tbtn__select-chevron svg,
-.tox .tox-tbtn--select:hover .tox-tbtn__select-chevron svg {
-	color: var(--text) !important;
-	fill: var(--text) !important;
+@media (hover: hover) {
+	.tox .tox-tbtn--select:hover .tox-tbtn__select-label,
+	.tox .tox-split-button:hover .tox-tbtn__select-chevron svg,
+	.tox .tox-tbtn--select:hover .tox-tbtn__select-chevron svg {
+		color: var(--text) !important;
+		fill: var(--text) !important;
+	}
 }
 /* Dropdown menus, context menus, popups */
 .tox .tox-menu,
@@ -1983,7 +2010,9 @@ body.editor-markdown-mode .editor-toolbar {
 	white-space: nowrap;
 	max-width: 26em;
 }
-.cm-host .cm-jl-chip:hover { border-color: var(--accent); background: var(--bg-active); }
+@media (hover: hover) {
+	.cm-host .cm-jl-chip:hover { border-color: var(--accent); background: var(--bg-active); }
+}
 .cm-host .cm-jl-chip-dl {
 	display: none;
 	align-items: center;
@@ -2001,7 +2030,9 @@ body.editor-markdown-mode .editor-toolbar {
 	cursor: pointer;
 }
 .cm-host .cm-jl-chip[data-kind="resource"] .cm-jl-chip-dl { display: inline-flex; }
-.cm-host .cm-jl-chip-dl:hover { color: #fff; background: var(--accent); }
+@media (hover: hover) {
+	.cm-host .cm-jl-chip-dl:hover { color: #fff; background: var(--accent); }
+}
 .cm-host .cm-jl-chip-label { overflow: hidden; text-overflow: ellipsis; }
 .cm-host .cm-jl-chip-icon::before { content: "\1F517"; font-size: 0.9em; }
 .cm-host .cm-jl-chip[data-kind="resource"] .cm-jl-chip-icon::before { content: "\1F4CE"; }
@@ -2020,7 +2051,9 @@ body.editor-markdown-mode .editor-toolbar {
 	cursor: pointer;
 	box-sizing: border-box;
 }
-.cm-host .cm-jl-check:hover { border-color: var(--accent); }
+@media (hover: hover) {
+	.cm-host .cm-jl-check:hover { border-color: var(--accent); }
+}
 .cm-host .cm-jl-check.checked { background: var(--accent); border-color: var(--accent); }
 .cm-host .cm-jl-check.checked::after {
 	content: "";
@@ -2062,7 +2095,9 @@ body.editor-markdown-mode .editor-toolbar {
 .cm-host .cm-jl-fold-marker { opacity: 0; font-size: 0.8em; color: var(--text-dim); transition: opacity 0.12s; }
 .cm-host .cm-gutters:hover .cm-jl-fold-marker,
 .cm-host .cm-jl-fold-marker.closed { opacity: 0.9; }
-.cm-host .cm-jl-fold-marker:hover { color: var(--accent); }
+@media (hover: hover) {
+	.cm-host .cm-jl-fold-marker:hover { color: var(--accent); }
+}
 .cm-host .cm-jl-fold-placeholder {
 	margin: 0 4px;
 	padding: 0 6px;
@@ -2102,7 +2137,9 @@ body.editor-markdown-mode .editor-toolbar {
 	cursor: pointer;
 	flex: 0 0 auto;
 }
-.cm-host .cm-jl-outline-btn:hover { color: var(--text); border-color: var(--accent); }
+@media (hover: hover) {
+	.cm-host .cm-jl-outline-btn:hover { color: var(--text); border-color: var(--accent); }
+}
 .cm-host .cm-jl-outline {
 	position: absolute;
 	right: 8px;
@@ -2135,7 +2172,9 @@ body.editor-markdown-mode .editor-toolbar {
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
-.cm-host .cm-jl-outline-item:hover { background: var(--bg-hover); }
+@media (hover: hover) {
+	.cm-host .cm-jl-outline-item:hover { background: var(--bg-hover); }
+}
 .cm-host .cm-jl-outline-empty { padding: 6px 12px; color: var(--text-dim); }
 
 /* Link hover info */
@@ -2182,9 +2221,11 @@ body.editor-markdown-mode .editor-toolbar {
 	background: var(--bg-active);
 	color: var(--text-heading);
 }
-.note-autocomplete-item:hover,
-.cm-tooltip-autocomplete ul > li:hover {
-	background: var(--bg-hover);
+@media (hover: hover) {
+	.note-autocomplete-item:hover,
+	.cm-tooltip-autocomplete ul > li:hover {
+		background: var(--bg-hover);
+	}
 }
 .note-autocomplete-item + .note-autocomplete-item,
 .cm-tooltip-autocomplete ul > li + li {
@@ -2324,7 +2365,9 @@ body.editor-markdown-mode .editor-toolbar {
 }
 .preview-img { display: block; max-width: 100%; height: auto; border-radius: 0; margin: 12px 0; cursor: default; }
 .editor-preview[contenteditable="true"] .preview-img { cursor: nwse-resize; border: 1px solid transparent; }
-.editor-preview[contenteditable="true"] .preview-img:hover { border-color: var(--accent); opacity: 0.95; }
+@media (hover: hover) {
+	.editor-preview[contenteditable="true"] .preview-img:hover { border-color: var(--accent); opacity: 0.95; }
+}
 .editor-preview[contenteditable="true"] .preview-img:active { border-color: var(--accent); }
 
 .preview-img-download-wrap {
@@ -2544,7 +2587,9 @@ body.editor-markdown-mode .editor-toolbar {
 	cursor: pointer;
 	transition: background 0.15s;
 }
-.disconnected-retry:hover { background: #222; }
+@media (hover: hover) {
+	.disconnected-retry:hover { background: #222; }
+}
 .disconnected-retry:disabled { opacity: 0.5; cursor: not-allowed; }
 .disconnected-logout {
 	padding: 8px 16px;
@@ -2557,7 +2602,9 @@ body.editor-markdown-mode .editor-toolbar {
 	cursor: pointer;
 	transition: color 0.15s, border-color 0.15s;
 }
-.disconnected-logout:hover { color: var(--danger); border-color: var(--danger); }
+@media (hover: hover) {
+	.disconnected-logout:hover { color: var(--danger); border-color: var(--danger); }
+}
 .is-disconnected .app-layout { display: none; }
 .is-disconnected #mobile-app { display: none; }
 .autosave-conflict { display: inline-flex; align-items: center; gap: 6px; }
@@ -2666,17 +2713,21 @@ body.editor-markdown-mode .editor-toolbar {
 	white-space: nowrap;
 }
 .btn[hidden] { display: none; }
-.btn:hover { background: var(--bg-hover); }
+@media (hover: hover) {
+	.btn:hover { background: var(--bg-hover); }
+}
 
 .btn-primary {
 	background: var(--accent);
 	color: var(--text-on-accent);
 	border-color: var(--accent);
 }
-.btn-primary:hover {
-	background: color-mix(in srgb, var(--accent) 88%, #fff);
-	border-color: color-mix(in srgb, var(--accent) 88%, #fff);
-	color: var(--text-on-accent);
+@media (hover: hover) {
+	.btn-primary:hover {
+		background: color-mix(in srgb, var(--accent) 88%, #fff);
+		border-color: color-mix(in srgb, var(--accent) 88%, #fff);
+		color: var(--text-on-accent);
+	}
 }
 
 .btn.active {
@@ -2701,14 +2752,22 @@ body.editor-markdown-mode .editor-toolbar {
 	color: var(--text-dim);
 	transition: background 0.1s;
 }
-.btn-icon:hover { background: var(--bg-hover); }
+@media (hover: hover) {
+	.btn-icon:hover { background: var(--bg-hover); }
+}
 #lock-toggle-btn { color: #FFC107; }
-#lock-toggle-btn:hover { color: #FFC107; }
+@media (hover: hover) {
+	#lock-toggle-btn:hover { color: #FFC107; }
+}
 .btn-icon.active { color: var(--accent); background: var(--bg-active); }
 .btn-icon-compact { width: 24px; height: 24px; font-size: 13px; }
 .btn-danger-soft { color: var(--danger); }
-.btn-danger-soft:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
-.btn-danger:hover { color: var(--danger); }
+@media (hover: hover) {
+	.btn-danger-soft:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+}
+@media (hover: hover) {
+	.btn-danger:hover { color: var(--danger); }
+}
 .mode-toggle-btn {
 	width: auto;
 	min-width: 52px;
@@ -2743,6 +2802,7 @@ body.editor-markdown-mode .editor-toolbar {
 	justify-content: center;
 	min-height: 100vh;
 	font-family: 'Cascadia Mono', monospace;
+	min-height: 100dvh;
 }
 
 .login-card { text-align: center; max-width: 360px; width: 100%; }
@@ -2826,6 +2886,7 @@ select.login-input option {
 .settings-page {
 	min-height: 100vh;
 	padding: calc(28px + env(safe-area-inset-top, 0px)) 20px calc(28px + env(safe-area-inset-bottom, 0px));
+	min-height: 100dvh;
 	background: var(--bg);
 }
 
@@ -2869,8 +2930,10 @@ select.login-input option {
 	text-decoration: none;
 }
 
-.about-link:hover {
-	text-decoration: underline;
+@media (hover: hover) {
+	.about-link:hover {
+		text-decoration: underline;
+	}
 }
 
 .settings-header {
@@ -3160,8 +3223,10 @@ select.login-input option {
 	opacity: 0.6;
 }
 
-.login-eye:hover {
-	opacity: 1;
+@media (hover: hover) {
+	.login-eye:hover {
+		opacity: 1;
+	}
 }
 
 .login-totp {
@@ -3182,7 +3247,14 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 0; }
 
 /* Responsive */
-@media (max-width: 768px) {
+/* The mobile shell. "Phone" = narrow window (<=768px) OR a touch device whose physical screen has a
+   short side <=500px. The second part is what makes a phone in LANDSCAPE (812-956px wide) keep the
+   mobile layout. It must be the screen, never the window height: a soft keyboard shrinks the window
+   (on iOS home-screen apps innerHeight shrinks with it), so a height test would flip an iPad to the
+   phone layout and reload the page while typing. iOS reports device-width as the portrait width in
+   both orientations and Android rotates it, hence both device-width and device-height.
+   public/app.js _computeMobileShell() must stay in step; tests/landscapeShell.test.js checks both. */
+@media (max-width: 768px), (pointer: coarse) and (max-device-width: 500px), (pointer: coarse) and (max-device-height: 500px) {
 	body { font-size: 12px; }
 	body { --statusbar-height: 36px; }
 	/* Prevent iOS auto-zoom: all inputs must be >= 16px */
@@ -3336,7 +3408,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	display: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-device-width: 500px), (pointer: coarse) and (max-device-height: 500px) {
 	/* Hide desktop layout on mobile */
 	.app, .nav-reopen-btn, .mobile-nav-backdrop { display: none !important; }
 	.app-statusbar { display: none; }
@@ -3354,8 +3426,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	.mobile-app {
 		display: flex;
 		position: fixed;
-		inset: 0;
-		top: env(safe-area-inset-top, 0px);
+		inset: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
 		overflow: hidden;
 		background: var(--bg);
 	}
@@ -3514,6 +3585,15 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 		-webkit-overflow-scrolling: touch;
 		overscroll-behavior: contain;
 	}
+	/* The folder and note lists end clear of the floating "+" (56px tall, 20px above the
+	   bottom edge, so 76px) plus breathing room and the home indicator. Without this the last
+	   row's count / "+" / chevron (or "Load more") sit under the button and cannot be scrolled
+	   out from beneath it. Scoped to the two list bodies: the editor body shares
+	   .mobile-screen-body and must not get padding. */
+	#mobile-folders-body,
+	#mobile-notes-body {
+		padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+	}
 	/* Editor body must not scroll at the outer level — TinyMCE scrolls internally.
 	   overflow:hidden + overscroll-behavior:none kills iOS rubber-band on the shell. */
 	.mobile-editor-body {
@@ -3648,7 +3728,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	.mobile-fab {
 		position: fixed;
 		bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-		right: 20px;
+		right: calc(20px + env(safe-area-inset-right, 0px));
 		width: 56px;
 		height: 56px;
 		border-radius: 50%;
@@ -3672,7 +3752,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	}
 	.mobile-fab-menu {
 		position: fixed;
-		right: 20px;
+		right: calc(20px + env(safe-area-inset-right, 0px));
 		bottom: calc(88px + env(safe-area-inset-bottom, 0px));
 		background: var(--bg-side);
 		border: 1px solid var(--border);
@@ -3712,7 +3792,7 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 		left: 0; right: 0; bottom: 0;
 		background: var(--bg-side);
 		border-radius: 0;
-		padding: 8px 0 calc(16px + env(safe-area-inset-bottom, 0px));
+		padding: 8px env(safe-area-inset-right, 0px) calc(16px + env(safe-area-inset-bottom, 0px)) env(safe-area-inset-left, 0px);
 		z-index: 201;
 		box-shadow: 0 -4px 24px var(--shadow);
 		animation: mobileCtxSlideUp 0.2s cubic-bezier(0.4,0,0.2,1);
@@ -3802,11 +3882,23 @@ body.force-mobile .mobile-editor-body > form {
 body.force-mobile .mobile-app {
 	display: flex !important;
 	position: fixed;
-	inset: 0;
+	/* left/right keep clear of a landscape notch or Dynamic Island (0 in portrait and in browsers) */
+	inset: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
 	overflow: hidden;
 	background: var(--bg);
 }
 body.force-mobile .mobile-fab { display: flex; }
+
+/* While a soft keyboard is up, public/viewport.js sizes the shell to the visible area and keeps it
+   at the top of that area (and pins the page scroll at 0). iOS then has nothing to scroll into
+   view, so the header and the markdown toolbar stay on screen. Outside that state .mobile-app is
+   inset:0 exactly as before. */
+html[data-keyboard] .mobile-app,
+html[data-keyboard] body.force-mobile .mobile-app {
+	top: var(--app-top, 0px);
+	bottom: auto;
+	height: var(--app-height);
+}
 
 /* Hide the custom toolbar in mobile rich (TinyMCE) mode — applies at any viewport width.
    TinyMCE's own built-in toolbar is rendered inside the editor host instead.
@@ -3830,7 +3922,7 @@ body.resizing .mobile-screen-left,
 body.resizing .mobile-screen-right { transition: none !important; }
 
 /* Mobile locked editor */
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-device-width: 500px), (pointer: coarse) and (max-device-height: 500px) {
 	.editor-locked {
 		padding: 60px 20px;
 	}
@@ -3858,12 +3950,14 @@ body.resizing .mobile-screen-right { transition: none !important; }
 	transition: color 0.15s, border-color 0.15s;
 	margin-bottom: -1px;
 }
-.settings-tab:hover { color: var(--text); }
+@media (hover: hover) {
+	.settings-tab:hover { color: var(--text); }
+}
 .settings-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .settings-tab-panel { display: none; }
 .settings-tab-panel.active { display: block; }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-device-width: 500px), (pointer: coarse) and (max-device-height: 500px) {
 	.settings-page {
 		padding: calc(16px + env(safe-area-inset-top, 0px)) 12px calc(20px + env(safe-area-inset-bottom, 0px));
 	}
@@ -3972,7 +4066,9 @@ body.resizing .mobile-screen-right { transition: none !important; }
 }
 .admin-table th { color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
 .admin-table tr:last-child td { border-bottom: none; }
-.admin-table tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+@media (hover: hover) {
+	.admin-table tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+}
 .admin-actions-cell { white-space: nowrap; }
 .admin-inline-form { display: inline; margin: 0; }
 .admin-backup-actions { display: inline-flex; align-items: center; gap: 6px; }
@@ -3994,6 +4090,7 @@ body.resizing .mobile-screen-right { transition: none !important; }
 	max-width: 420px;
 	width: calc(100% - 32px);
 	max-height: calc(100vh - 32px);
+	max-height: calc(100dvh - 32px);
 	overflow: hidden;
 	box-shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
@@ -4005,6 +4102,7 @@ body.resizing .mobile-screen-right { transition: none !important; }
 	display: flex;
 	flex-direction: column;
 	max-height: calc(100vh - 32px);
+	max-height: calc(100dvh - 32px);
 	overflow-y: auto;
 }
 .admin-modal-header {
@@ -4028,7 +4126,9 @@ body.resizing .mobile-screen-right { transition: none !important; }
 	cursor: pointer;
 	padding: 0 4px;
 }
-.admin-modal-close:hover { color: var(--text); }
+@media (hover: hover) {
+	.admin-modal-close:hover { color: var(--text); }
+}
 .admin-modal-user {
 	display: flex;
 	flex-direction: column;
@@ -4121,8 +4221,12 @@ body.resizing .mobile-screen-right { transition: none !important; }
 	transition: opacity 0.15s, color 0.15s;
 	line-height: 1.6;
 }
-.editor-preview pre:hover .pre-copy-btn { opacity: 1; }
-.pre-copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+@media (hover: hover) {
+	.editor-preview pre:hover .pre-copy-btn { opacity: 1; }
+}
+@media (hover: hover) {
+	.pre-copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+}
 
 mark.search-highlight {
 	background: #ffe066;
@@ -4154,7 +4258,9 @@ mark.search-highlight {
 	line-height: 1;
 	padding: 2px 5px;
 }
-.search-nav-btn:hover { border-color: #333; background: rgba(0,0,0,0.08); }
+@media (hover: hover) {
+	.search-nav-btn:hover { border-color: #333; background: rgba(0,0,0,0.08); }
+}
 .search-nav-close { margin-left: auto; }
 /* Remote-update bar reuses .search-nav-bar layout; this rule lets the message
    take the remaining space so the action buttons pack to the right. */
@@ -4291,9 +4397,11 @@ mark.search-highlight-active {
 	line-height: 1;
 	flex-shrink: 0;
 }
-.vault-folder-lock:hover {
-	opacity: 1;
-	color: #FFC107;
+@media (hover: hover) {
+	.vault-folder-lock:hover {
+		opacity: 1;
+		color: #FFC107;
+	}
 }
 
 /* SVG lock icons */
@@ -4326,4 +4434,103 @@ mark.search-highlight-active {
 }
 #link-copied-toast.visible {
 	opacity: 1;
+}
+
+/* ===== Touch devices =====
+   Controls are not text: a long press on a row, a tab or a button opens no loupe or link callout,
+   and a quick second tap does not zoom the page (pinch zoom stays; WCAG 1.4.4). Note text, fields
+   and the editors keep selection. */
+@media (hover: none) and (pointer: coarse) {
+	html {
+		-webkit-text-size-adjust: 100%;
+		text-size-adjust: 100%;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	a,
+	button,
+	input,
+	select,
+	textarea,
+	summary,
+	label,
+	[role="button"],
+	[role="tab"],
+	.mobile-folder-row,
+	.mobile-note-row,
+	.nav-folder-row,
+	.notelist-item {
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.mobile-header,
+	.mobile-folder-row,
+	.mobile-note-row,
+	.mobile-fab,
+	.mobile-fab-menu,
+	.mobile-ctx-sheet,
+	.editor-toolbar,
+	.nav-folder-row,
+	.notelist-item,
+	.settings-tab,
+	button,
+	[role="button"],
+	[role="tab"],
+	summary {
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-touch-callout: none;
+	}
+
+	input,
+	textarea,
+	[contenteditable],
+	.cm-content {
+		-webkit-user-select: text;
+		user-select: text;
+	}
+}
+
+/* Reduced motion: no slides, fades or pulses. The loading ring is progress, not decoration, so it
+   keeps turning. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition-duration: 0.01ms !important;
+		transition-delay: 0s !important;
+		scroll-behavior: auto !important;
+	}
+
+	*:not(.note-loading-ring) {
+		animation: none !important;
+	}
+}
+
+/* Short windows: a phone in landscape (about 390px tall), or any phone with the keyboard up. The
+   shell's fixed chrome (title bar 44px + toolbar 67px) is most of that, so tighten it. These
+   elements exist only in the mobile shell, so a tablet's desktop layout is unaffected. */
+@media (max-height: 500px) {
+	.mobile-header {
+		height: calc(36px + env(safe-area-inset-top, 0px));
+	}
+
+	.mobile-app .editor-toolbar {
+		padding: 4px 10px;
+	}
+
+	.mobile-app .editor-toolbar .tb {
+		min-width: 40px;
+		height: 34px;
+		font-size: 16px;
+	}
+}
+
+/* Landscape with the keyboard up leaves room for little more than the toolbar and a few lines of
+   text: the editor's title bar (back, search, menu) steps aside until the keyboard is dismissed. */
+@media (max-height: 500px) and (orientation: landscape) {
+	html[data-keyboard] #mobile-editor-header {
+		display: none;
+	}
 }

@@ -1,4 +1,5 @@
 'use strict';
+// Vault boundary rules, and why this guard is inert for stock Joplin clients today: docs/agents/vaults-and-save-safety.md, docs/agents/joplin-fidelity.md
 
 /**
  * vaultProxyGuard.js

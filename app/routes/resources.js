@@ -1,5 +1,6 @@
 'use strict';
 
+const { viewportMeta } = require('../templates/shared');
 const { send, sendJson, readRawBody, parseMultipart, contentDispositionFilename, shouldInlineResource } = require('./_helpers');
 
 // Joplin Server rejects files over its formidable maxFileSize (200MB) with an
@@ -82,19 +83,19 @@ const handle = async (url, request, response, ctx) => {
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+	<meta name="viewport" content="${viewportMeta}" />
 	<meta name="theme-color" content="#08110b" />
 	<title>${title}</title>
 	<style>
 		:root { color-scheme: dark; }
 		body { margin: 0; font-family: system-ui, sans-serif; background: #000; color: #fff; }
-		.resource-viewer-page { min-height: 100vh; display: flex; flex-direction: column; }
+		.resource-viewer-page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 		.resource-viewer-page-bar { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px; background: #111827; border-bottom: 1px solid rgba(255,255,255,0.12); }
 		.resource-viewer-page-btn { appearance: none; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); color: #fff; border-radius: 10px; padding: 8px 14px; font: inherit; }
 		.resource-viewer-page-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 		.resource-viewer-page-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #000; }
-		.resource-viewer-page-img { max-width: 100%; max-height: calc(100vh - 64px - env(safe-area-inset-top, 0px)); object-fit: contain; }
-		.resource-viewer-page-frame { width: 100%; height: calc(100vh - 64px - env(safe-area-inset-top, 0px)); border: 0; background: #fff; }
+		.resource-viewer-page-img { max-width: 100%; max-height: calc(100vh - 64px - env(safe-area-inset-top, 0px)); max-height: calc(100dvh - 64px - env(safe-area-inset-top, 0px)); object-fit: contain; }
+		.resource-viewer-page-frame { width: 100%; height: calc(100vh - 64px - env(safe-area-inset-top, 0px)); height: calc(100dvh - 64px - env(safe-area-inset-top, 0px)); border: 0; background: #fff; }
 		.resource-viewer-page-text { max-width: 100%; width: 100%; box-sizing: border-box; padding: 16px; margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; font-size: 14px; color: #e5e7eb; background: #111; overflow: auto; max-height: calc(100vh - 64px - env(safe-area-inset-top, 0px)); }
 		.resource-viewer-page-unsupported { display: flex; flex-direction: column; align-items: center; gap: 16px; color: #9ca3af; padding: 32px; text-align: center; }
 	</style>

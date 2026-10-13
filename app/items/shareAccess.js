@@ -1,4 +1,5 @@
 'use strict';
+// Sharing model and its known gaps: docs/agents/notebooks-and-sharing.md
 
 const deriveShareFieldsForMove = (targetFolder) => {
   const shareId = (targetFolder && targetFolder.shareId) ? targetFolder.shareId : '';

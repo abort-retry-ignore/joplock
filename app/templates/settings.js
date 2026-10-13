@@ -5,6 +5,7 @@ const {
 	escapeHtml,
 	escapeJsString,
 	appleSplashLinks,
+	viewportMeta,
 	themeOptions,
 	validDateFormats,
 	validDatetimeFormats,
@@ -12,7 +13,11 @@ const {
 } = require('./shared');
 const { AI_PROVIDERS } = require('../settingsService');
 
-const ASSET_VERSION = '20260519pwa22';
+const { assetVersion } = require('../assetVersion');
+const { themeColor } = require('../themeColors');
+
+// computed from the shipped files (app/assetVersion.js): never bump by hand
+const ASSET_VERSION = assetVersion();
 
 const formatBytes = value => {
 	const bytes = Number(value || 0);
@@ -141,8 +146,8 @@ const settingsPage = (options = {}) => {
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-	<meta name="theme-color" content="#08110b" />
+	<meta name="viewport" content="${viewportMeta}" />
+	<meta name="theme-color" content="${themeColor(settings.theme)}" />
 	<link rel="manifest" href="/manifest.webmanifest?v=${ASSET_VERSION}" />
 	<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -271,7 +276,7 @@ const settingsPage = (options = {}) => {
 							<label><input type="checkbox" id="settings-highlight-active-line" onchange="saveSetting('highlightActiveLine',this.checked?'1':'0')"${settings.highlightActiveLine !== false ? ' checked' : ''} /> Highlight current line in editor</label>
 							<label><input type="checkbox" id="settings-md-inline-widgets" onchange="saveSetting('mdInlineWidgets',this.checked?'1':'0')"${settings.mdInlineWidgets !== false ? ' checked' : ''} /> Show images, attachments, checkboxes and code Copy buttons inline</label>
 							<label><input type="checkbox" id="settings-md-live-preview" onchange="saveSetting('mdLivePreview',this.checked?'1':'0')"${settings.mdLivePreview === true ? ' checked' : ''} /> Hide formatting marks (#, **, links) on lines you are not editing</label>
-							<label><input type="checkbox" id="settings-md-status-bar" onchange="saveSetting('mdStatusBar',this.checked?'1':'0')"${settings.mdStatusBar !== false ? ' checked' : ''} /> Show word count and heading outline bar</label>
+							<label><input type="checkbox" id="settings-md-status-bar" onchange="saveSetting('mdStatusBar',this.checked?'1':'0')"${settings.mdStatusBar !== false ? ' checked' : ''} /> Show word count and heading outline bar (desktop; not shown on phones)</label>
 							<label><input type="checkbox" id="settings-md-folding" onchange="saveSetting('mdFolding',this.checked?'1':'0')"${settings.mdFolding !== false ? ' checked' : ''} /> Show fold arrows for headings, lists and code blocks</label>
 						</div>
 						</div>
@@ -466,6 +471,7 @@ const settingsPage = (options = {}) => {
 					<div class="about-info">
 						${joplockVersion ? `<div class="about-row"><span class="about-label">Joplock version</span><span class="about-value">${escapeHtml(joplockVersion)}</span></div>` : ''}
 						${joplinServerVersion ? `<div class="about-row"><span class="about-label">Joplin Server</span><span class="about-value">${escapeHtml(joplinServerVersion)}</span></div>` : ''}
+						${debug ? '<div class="about-row"><span class="about-label">Diagnostics</span><span class="about-value"><a href="/diag" class="about-link">Device &amp; viewport diagnostics</a></span></div>' : ''}
 						<div class="about-row"><span class="about-label">Author</span><span class="about-value">Igor Divjak</span></div>
 						<div class="about-row"><span class="about-label">Repository</span><span class="about-value"><a href="https://github.com/abort-retry-ignore/joplock" target="_blank" rel="noopener" class="about-link">github.com/abort-retry-ignore/joplock</a></span></div>
 					</div>

@@ -30,7 +30,8 @@ const getRaw = async (page, request, id) => (await request.get(`/joplin/api/item
 const delRaw = async (page, request, id) => request.delete(`/joplin/api/items/root:/${id}.md:`, { headers: { 'X-API-AUTH': await sessionId(page) } }).catch(() => null);
 
 const api = (page, method, url, body) => page.evaluate(async ([m, u, b]) => {
-	const res = await fetch(u, { method: m, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: b === undefined ? undefined : JSON.stringify(b) });
+	// bounded: an unanswered request must fail here, by name, not as a bare 90s test timeout
+	const res = await fetch(u, { method: m, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: b === undefined ? undefined : JSON.stringify(b), signal: AbortSignal.timeout(20000) });
 	const text = await res.text();
 	let data = null; try { data = JSON.parse(text); } catch { /* html */ }
 	return { status: res.status, data, text };
@@ -65,7 +66,7 @@ test.describe('HTML notes', () => {
 			const folderId = (await api(page, 'POST', '/api/web/folders', { title: folder, parentId: '' })).data.item.id;
 			await putRaw(page, request, noteId, `${title}\n\n${html}\n\n${noteProps(noteId, folderId, ['markup_language: 2'])}`);
 			const before = await getRaw(page, request, noteId);
-			await page.reload();
+			await page.reload({ timeout: 30000 });
 			await openNote(page, folder, title);
 
 			const form = page.locator('#editor-panel #note-editor-form[data-html-note="1"]');
@@ -111,7 +112,7 @@ test.describe('HTML notes', () => {
 		try {
 			const folderId = (await api(page, 'POST', '/api/web/folders', { title: folder, parentId: '' })).data.item.id;
 			await putRaw(page, request, noteId, `${title}\n\n<h3>Mobile heading</h3><p>body</p>\n\n${noteProps(noteId, folderId, ['markup_language: 2'])}`);
-			await page.reload();
+			await page.reload({ timeout: 30000 });
 			await expect(page.locator('#mobile-app[aria-hidden="false"]')).toBeVisible();
 			await page.locator('#mobile-folders-body .mobile-folder-row', { hasText: folder }).first().click();
 			await page.locator('#mobile-notes-body .mobile-note-row', { hasText: title }).first().click();
@@ -136,7 +137,7 @@ test.describe('HTML notes', () => {
 			const folderId = (await api(page, 'POST', '/api/web/folders', { title: folder, parentId: '' })).data.item.id;
 			await putRaw(page, request, htmlId, `An html note\n\n<p>html</p>\n\n${noteProps(htmlId, folderId, ['markup_language: 2'])}`);
 			await api(page, 'POST', '/api/web/notes', { title: 'A markdown note', body: '# md body', parentId: folderId });
-			await page.reload();
+			await page.reload({ timeout: 30000 });
 			await openNote(page, folder, 'An html note');
 			await expect(page.locator('#editor-panel #note-editor-form[data-html-note="1"]')).toBeVisible({ timeout: 15000 });
 			await page.locator('#nav-panel .notelist-item', { hasText: 'A markdown note' }).first().click();
@@ -163,7 +164,7 @@ test.describe('Joplin end-to-end encrypted notes', () => {
 			const folderId = (await api(page, 'POST', '/api/web/folders', { title: folder, parentId: '' })).data.item.id;
 			await putRaw(page, request, noteId, [`id: ${noteId}`, `parent_id: ${folderId}`, 'encryption_cipher_text: JED01000007fakeciphertextfakeciphertext', 'encryption_applied: 1', 'type_: 1'].join('\n'));
 			const before = await getRaw(page, request, noteId);
-			await page.reload();
+			await page.reload({ timeout: 30000 });
 			const f = page.locator(`#nav-panel .nav-folder[data-folder-title="${folder}"]`).first();
 			await expect(f).toBeVisible({ timeout: 15000 });
 			await f.locator(':scope > .nav-folder-row .nav-folder-toggle').click();

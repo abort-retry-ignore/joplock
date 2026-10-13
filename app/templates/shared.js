@@ -26,7 +26,17 @@ const escapeJsString = value => `${value || ''}`
 	.replaceAll('\n', '\\n')
 	.replaceAll('</', '<\\/');
 
+// One viewport for every page. Zoom stays available (WCAG 1.4.4; user-scalable=no also blocks
+// pinch zoom on Android). interactive-widget makes Android Chrome resize the layout viewport for
+// the soft keyboard like iOS-style layouts expect; iOS Safari ignores it, and public/viewport.js
+// handles the iOS keyboard. Double-tap zoom on controls is off through touch-action (styles.css).
+const viewportMeta = 'width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content';
+
 const appleSplashLinks = [
+	['1260x2736.png', 'screen and (device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'],
+	['2736x1260.png', 'screen and (device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)'],
+	['1206x2622.png', 'screen and (device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'],
+	['2622x1206.png', 'screen and (device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)'],
 	['1320x2868.png', 'screen and (device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'],
 	['2868x1320.png', 'screen and (device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)'],
 	['1290x2796.png', 'screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'],
@@ -144,6 +154,7 @@ const svgPin = '<svg class="pin-svg-icon" viewBox="0 0 24 24" fill="currentColor
 const svgLockOpen = '<svg class="vault-svg-icon" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="15" width="18" height="11" rx="2"/><path d="M7 15V8a5 5 0 0 1 10 0"/></svg>';
 
 module.exports = {
+	viewportMeta,
 	escapeHtml,
 	escapeJsString,
 	appleSplashLinks,

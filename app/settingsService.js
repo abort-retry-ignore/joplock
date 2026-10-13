@@ -1,3 +1,4 @@
+// A setting persists only if normalized here AND allow-listed in app/routes/api.js: docs/agents/settings-and-admin.md
 const validThemes = ['aritim-dark','dark','matrix-amber','matrix-blue','dark-fruit','dark-grey','matrix-orange','matrix-purple','dark-red','dracula','earth','fireball','fruit','grey','light','matrix','nord','oled-dark','solarized-dark','solarized-light','swamp-thing'];
 
 // Provider templates — preset URL and default model per service.

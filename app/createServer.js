@@ -8,7 +8,7 @@ const templates = require('./templates');
 const { assetVersion } = require('./assetVersion');
 
 const {
-	send, makeSendHtml, redirect, fileExists, serveFile, serveServiceWorker,
+	send, makeSendHtml, redirect, fileExists, serveFile, serveServiceWorker, warmStaticCache,
 	ALL_NOTES_FOLDER_ID, TRASH_FOLDER_ID,
 	allNotesFolder, trashFolder, selectedFolderForNav, normalizeStoredFolderId,
 } = require('./routes/_helpers');
@@ -337,6 +337,9 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 		request.pipe(upstreamRequest);
 	};
 
+	// gzip/brotli the app's own assets once, off the event loop (see serveFile)
+	warmStaticCache(publicDir);
+
 	return http.createServer(async (request, response) => {
 		const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
 		const reqStart = Date.now();
@@ -561,7 +564,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 		const filePath = path.join(publicDir, relativePath.replace(/^\/+/, ''));
 		if (filePath.startsWith(publicDir) && fileExists(filePath) && !relativePath.endsWith('/')) {
 			if (relativePath === '/service-worker.js') serveServiceWorker(response, filePath, assetVersion());
-			else serveFile(response, filePath);
+			else serveFile(response, filePath, request, { versioned: url.searchParams.has('v') });
 			return;
 		}
 

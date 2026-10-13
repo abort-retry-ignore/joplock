@@ -105,14 +105,14 @@ const layoutPage = (options = {}) => {
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	${appleSplashLinks}
 	<link rel="stylesheet" href="/styles.css?v=${ASSET_VERSION}" />
-	<script src="/htmx.min.js"></script>
-	<script src="/turndown.min.js"></script>
+	<script src="/htmx.min.js?v=${ASSET_VERSION}"></script>
+	<script src="/turndown.min.js?v=${ASSET_VERSION}"></script>
 	<script src="/codemirror.min.js?v=${ASSET_VERSION}"></script>
 	<script src="/cm-extras.js?v=${ASSET_VERSION}"></script>
-	<script src="/prism.min.js"></script>
-	<script src="/tinymce/tinymce.min.js"></script>
-	<script src="/hljs.min.js"></script>
-	<script src="/html-docx.js"></script>
+	<script src="/prism.min.js?v=${ASSET_VERSION}"></script>
+	<script src="/tinymce/tinymce.min.js?v=${ASSET_VERSION}"></script>
+	<script src="/hljs.min.js?v=${ASSET_VERSION}"></script>
+	<script src="/html-docx.js?v=${ASSET_VERSION}"></script>
 	<script>window.joplockStripNoteTitle=${stripMarkdownForTitle.toString()};</script>
 	<script>
 	window._joplockConfig={

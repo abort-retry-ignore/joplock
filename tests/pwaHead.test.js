@@ -70,3 +70,11 @@ test('every 100vh in the stylesheet has a 100dvh fallback line next to it (iOS h
 	});
 	assert.deepEqual(missing, []);
 });
+
+test('every local script and stylesheet in the app head is versioned, so the server can serve it immutable', () => {
+	const { assetVersion } = require('../app/assetVersion');
+	const html = templates.layoutPage({ user, navContent: '', editorContent: '', settings: {} });
+	const refs = [...html.matchAll(/<(?:script src|link rel="stylesheet" href)="(\/[^"]+)"/g)].map(m => m[1]);
+	assert.ok(refs.length >= 9, `expected the full script set, got ${refs.length}`);
+	for (const ref of refs) assert.ok(ref.endsWith(`?v=${assetVersion()}`), `${ref} must carry ?v=<asset version>`);
+});

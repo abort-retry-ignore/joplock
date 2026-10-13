@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const crypto = require('crypto');
 const { isEncryptedBody } = require('../items/itemService');
 
 // ─── Content types ────────────────────────────────────────────────────────────
@@ -134,16 +135,143 @@ const fileExists = filePath => {
 	}
 };
 
-const serveFile = (response, filePath) => {
+// Compressible text assets are served gzip/brotli (negotiated), with an ETag so a stale copy
+// revalidates with a 304 instead of re-downloading, and Vary: Accept-Encoding. Measured: the
+// shipped JS+CSS is 2.5 MB raw, 0.77 MB gzipped, and the reverse proxy in front does not compress
+// JS/CSS. A request carrying ?v=<asset version> (app/assetVersion.js changes it with any shipped
+// file) is immutable for a year; everything else revalidates after five minutes.
+const COMPRESSIBLE = new Set(['.css', '.js', '.json', '.svg', '.html', '.webmanifest']);
+const MIN_COMPRESS_BYTES = 1024;
+const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+
+const staticCache = new Map(); // filePath -> { mtimeMs, size, etag, body, gzip, br }
+
+const cacheEntry = (filePath, stat) => {
+	const cached = staticCache.get(filePath);
+	if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached;
+	const body = fs.readFileSync(filePath);
+	const entry = {
+		mtimeMs: stat.mtimeMs,
+		size: stat.size,
+		etag: `"${crypto.createHash('sha1').update(body).digest('hex').slice(0, 20)}"`,
+		body,
+		gzip: null,
+		br: null,
+	};
+	staticCache.set(filePath, entry);
+	return entry;
+};
+
+const encoded = (entry, encoding) => {
+	if (!entry[encoding]) {
+		entry[encoding] = new Promise((resolve, reject) => {
+			const done = (error, result) => (error ? reject(error) : resolve(result));
+			if (encoding === 'br') {
+				zlib.brotliCompress(entry.body, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: entry.body.length } }, done);
+			} else {
+				zlib.gzip(entry.body, { level: 9 }, done);
+			}
+		});
+	}
+	return entry[encoding];
+};
+
+const chooseEncoding = acceptEncoding => {
+	const accepted = `${acceptEncoding || ''}`.toLowerCase();
+	// "name" or "name;q=<non-zero>" as one list item; "name;q=0" means refused
+	const allows = name => new RegExp(`(^|,)\\s*${name}\\s*(;\\s*q=(?!0(\\.0*)?\\s*(,|$))[0-9.]+)?\\s*(,|$)`).test(accepted);
+	if (allows('br')) return 'br';
+	if (allows('gzip')) return 'gzip';
+	return null;
+};
+
+const matchesEtag = (ifNoneMatch, etag) => {
+	if (!ifNoneMatch) return false;
+	if (ifNoneMatch.trim() === '*') return true;
+	const bare = etag.replace(/^W\//, '');
+	return ifNoneMatch.split(',').some(candidate => candidate.trim().replace(/^W\//, '') === bare);
+};
+
+const cacheControlFor = (filePath, versioned) => {
+	const extension = path.extname(filePath).toLowerCase();
+	const name = path.basename(filePath);
+	if (extension === '.html') return 'no-store';
+	if (extension === '.woff2') return 'public, max-age=31536000, immutable';
+	if (name === 'service-worker.js' || extension === '.webmanifest') return 'no-cache';
+	if (versioned) return 'public, max-age=31536000, immutable';
+	return 'public, max-age=300';
+};
+
+// request is optional (without it the file is sent as is); versioned says the URL carried ?v=
+const serveFile = (response, filePath, request = null, { versioned = false } = {}) => {
 	const extension = path.extname(filePath).toLowerCase();
 	const contentType = contentTypes[extension] || 'application/octet-stream';
 	const stat = fs.statSync(filePath);
-	response.writeHead(200, {
-		'Cache-Control': extension === '.html' ? 'no-store' : (extension === '.woff2' ? 'public, max-age=31536000, immutable' : 'public, max-age=300'),
-		'Content-Length': stat.size,
+	const headers = {
+		'Cache-Control': cacheControlFor(filePath, versioned),
 		'Content-Type': contentType,
+	};
+	const buffered = COMPRESSIBLE.has(extension) && stat.size <= MAX_BUFFERED_BYTES;
+	if (!buffered) {
+		// images, fonts, big files: stream as is, with a cheap validator
+		headers['ETag'] = `W/"${stat.size.toString(16)}-${Math.round(stat.mtimeMs).toString(16)}"`;
+		if (request && matchesEtag(request.headers['if-none-match'], headers['ETag'])) {
+			response.writeHead(304, headers);
+			response.end();
+			return;
+		}
+		headers['Content-Length'] = stat.size;
+		response.writeHead(200, headers);
+		fs.createReadStream(filePath).pipe(response);
+		return;
+	}
+
+	const entry = cacheEntry(filePath, stat);
+	headers['Vary'] = 'Accept-Encoding';
+	const encoding = request && stat.size >= MIN_COMPRESS_BYTES ? chooseEncoding(request.headers['accept-encoding']) : null;
+	headers['ETag'] = encoding ? entry.etag.replace(/"$/, `-${encoding}"`) : entry.etag;
+	if (request && matchesEtag(request.headers['if-none-match'], headers['ETag'])) {
+		response.writeHead(304, headers);
+		response.end();
+		return;
+	}
+	const sendBody = (body, encodingName) => {
+		if (encodingName) headers['Content-Encoding'] = encodingName;
+		headers['Content-Length'] = body.length;
+		response.writeHead(200, headers);
+		response.end(body);
+	};
+	if (!encoding) {
+		sendBody(entry.body, null);
+		return;
+	}
+	encoded(entry, encoding).then(body => sendBody(body, encoding), () => {
+		entry[encoding] = null;
+		delete headers['ETag'];
+		headers['ETag'] = entry.etag;
+		sendBody(entry.body, null);
 	});
-	fs.createReadStream(filePath).pipe(response);
+};
+
+// Compress the app's own root-level assets once at startup (off the event loop), so the first
+// visitor does not pay brotli level 11 on a 800 KB file.
+const warmStaticCache = publicDir => {
+	let names = [];
+	try {
+		names = fs.readdirSync(publicDir);
+	} catch {
+		return;
+	}
+	for (const name of names) {
+		const filePath = path.join(publicDir, name);
+		try {
+			const stat = fs.statSync(filePath);
+			if (!stat.isFile() || !COMPRESSIBLE.has(path.extname(name).toLowerCase()) || stat.size < MIN_COMPRESS_BYTES || stat.size > MAX_BUFFERED_BYTES) continue;
+			const entry = cacheEntry(filePath, stat);
+			encoded(entry, 'br').catch(() => { entry.br = null; });
+			encoded(entry, 'gzip').catch(() => { entry.gzip = null; });
+		} catch { /* skip */ }
+	}
 };
 
 // The service worker is a template: its cache name carries the asset version (app/assetVersion.js)
@@ -308,6 +436,8 @@ const assertShareWriteAccess = async (itemService, userId, itemId) => {
 };
 
 module.exports = {
+	chooseEncoding,
+	matchesEtag,
 	publicItem,
 	publicItems,
 	// response
@@ -325,6 +455,7 @@ module.exports = {
 	fileExists,
 	serveServiceWorker,
 	serveFile,
+	warmStaticCache,
 	// domain
 	TRASH_FOLDER_ID,
 	ALL_NOTES_FOLDER_ID,

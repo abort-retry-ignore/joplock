@@ -154,3 +154,18 @@ Server + Joplock from source) and rebuild the app container after source edits:
 
 The Docker image copies `app/`, `public/`, and `server.js` at build time, so
 `docker compose restart joplock` does not pick up source changes.
+
+## License
+
+Copyright (C) 2026 Igor Divjak
+
+Joplock is free software: you can redistribute it and/or modify it under the terms of the
+GNU Affero General Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. See [`LICENSE`](./LICENSE).
+
+Because Joplock is a network service, the AGPL also applies to people who use a modified
+version over a network: if you run a modified Joplock for others, you must offer them the
+source of your version (section 13). The About tab in Settings links to the source.
+
+Joplock bundles third-party components under their own licenses (MIT, BSD, 0BSD, OFL, and
+TinyMCE under GPL-2.0-or-later); see [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).

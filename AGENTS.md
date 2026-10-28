@@ -35,6 +35,7 @@ This file is loaded on every task, so it is short on purpose. It gives the rules
 - Source edits need `./scripts/rebuild-dev.sh` (the image copies `app/`, `public/` and `server.js` at build time; a container restart is not enough). Browser tests (`npm run test:ui`) need that dev stack and `JOPLOCK_ADMIN_*` in the environment; see `docs/agents/testing-and-dev.md`.
 - `plans/` is gitignored local history, **not documentation**; `plans/README.md` lists what is stale. Trust the code and these docs over any plan.
 - Asset versions and the service worker cache name are computed (`app/assetVersion.js`): never hand-edit or "bump" them.
+- Joplock is **AGPL-3.0-or-later** (`LICENSE`). A new bundled or runtime library needs an AGPL-compatible license (permissive, or GPL "or later") and an entry in `THIRD_PARTY_NOTICES.md`; `tests/license.test.js` enforces both. Keep the source link on the About tab (AGPL section 13).
 - After large changes run `graft build` so the code index matches.
 
 ## Traps that have each broken real data or a real phone

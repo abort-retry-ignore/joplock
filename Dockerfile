@@ -13,6 +13,7 @@ RUN npm install --omit=dev
 COPY app ./app
 COPY server.js ./server.js
 COPY public ./public
+COPY LICENSE THIRD_PARTY_NOTICES.md ./
 
 RUN echo "$JOPLOCK_VERSION" > /app/version.txt
 

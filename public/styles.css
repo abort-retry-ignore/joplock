@@ -1692,7 +1692,9 @@ body.editor-markdown-mode .editor-toolbar {
 	z-index: 5;
 	display: none;
 	flex-direction: column;
-	background: var(--bg);
+	/* the note surface: the same --bg-editor the markdown editor sits on (.col-editor), so switching
+	   modes does not change the page colour (on light themes --bg is visibly warmer than white) */
+	background: var(--bg-editor);
 }
 .tinymce-host.tinymce-host-visible { display: flex; }
 .tinymce-slot {
@@ -1719,7 +1721,7 @@ body.editor-markdown-mode .editor-toolbar {
 .tox-statusbar { display: none !important; }
 .tox .tox-edit-area,
 .tox .tox-edit-area__iframe {
-	background: var(--bg) !important;
+	background: var(--bg-editor) !important;
 }
 
 /* TinyMCE theme integration — toolbar tinted per-theme via accent color */
@@ -3443,6 +3445,10 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 	.mobile-screen-active {
 		display: flex;
 		pointer-events: auto;
+	}
+	/* the note surface, as on desktop (.col-editor) and in rendered mode (.tinymce-host) */
+	#mobile-editor-screen {
+		background: var(--bg-editor);
 	}
 
 	/* Header bar */

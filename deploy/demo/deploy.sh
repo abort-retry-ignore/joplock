@@ -18,7 +18,7 @@ trap 'rm -rf "$stage"' EXIT
 cp -r "$here/app/." "$stage/"
 mkdir -p "$stage/seed/lib"
 cp "$repo/scripts/seed-demo.mjs" "$stage/seed/"
-cp "$repo/scripts/lib/seed-client.mjs" "$repo/scripts/lib/seed-content.mjs" "$stage/seed/lib/"
+cp "$repo/scripts/lib/seed-client.mjs" "$repo/scripts/lib/seed-content.mjs" "$repo/scripts/lib/seed-vault.mjs" "$stage/seed/lib/"
 
 echo "deploy: copying the stack to /opt/joplock-demo"
 rsync -az --delete --exclude .env --exclude golden.dump --exclude compose.override.yml \

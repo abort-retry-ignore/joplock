@@ -262,3 +262,44 @@ export const travelBody = () => `# Lisbon long weekend
 
 The trams fill up by mid-morning: ride the 28 before nine.
 `;
+
+// ---- the demo vault and the features note (scripts/seed-demo.mjs) ---------------------------
+
+export const DEMO_VAULT_TITLE = 'demo-vault';
+export const DEMO_VAULT_PASSWORD = 'demo';
+
+// what a visitor sees first (Joplock's own defaults are the earth theme and Markdown mode)
+export const DEMO_SETTINGS = Object.freeze({ theme: 'light', noteOpenMode: 'preview' });
+
+// Lives inside demo-vault, so a visitor reads it by unlocking the vault.
+export const vaultBody = () => `# What is a vault?
+
+A vault is a notebook whose notes are **encrypted in your browser** before they are saved. The server, and anyone who gets hold of its database, only ever sees scrambled text. You just unlocked this one with the password \`${DEMO_VAULT_PASSWORD}\`.
+
+- **Your password never leaves the browser.** It is turned into a key there (PBKDF2), and every save encrypts the note with it (AES-256-GCM).
+- **It locks itself** after 5 minutes without activity (adjustable in Settings), or straight away when you click the lock next to the notebook.
+- **There is no password reset.** The server keeps only a check value, so a forgotten password means nobody can read the notes again.
+- **Titles stay readable.** Notebook and note titles are not encrypted, so keep secrets in the text.
+- **Other Joplin apps** show an "encrypted by Joplock" notice instead of the text.
+
+To make your own, create a notebook and tick **Make this a vault (encrypted notebook)**.
+`;
+
+// In the pinned "Examples" notebook, beside Joplock's own "Start Here".
+export const featuresBody = () => `# Joplock's top 10 features
+
+Joplock is a web app for your own Joplin Server. Your notes stay on your server; the browser is only a window onto them.
+
+1. **Server-side rendering.** Pages are built on the server and updated in small pieces (htmx), so little code runs in your browser and it stays quick on old phones. Your session is checked on every request, autosaves included.
+2. **No copy of your notes on your device.** Notes, pages and attachments are sent with \`no-store\`, and the installed app caches only its own code. Offline you get an offline page, never a stale note, so a lost or borrowed computer has nothing to find.
+3. **Encrypted vaults.** Any top-level notebook can become a vault, encrypted in your browser with a key made from your password. The server never sees the password or the text. Try **demo-vault**, password \`${DEMO_VAULT_PASSWORD}\`.
+4. **Two-factor sign-in.** Add an authenticator app in Settings, Security. Sign-in attempts are rate-limited, the session cookie cannot be read by page scripts, and automatic sign-out is one setting away. (Two-factor is off in this shared demo.)
+5. **Backups and note history.** Admins back up the whole server, Joplin's own data included, with one click, then download or restore the file. Every note also keeps up to 50 earlier versions you can restore.
+6. **21 themes.** Light, dark, OLED black, Nord, Dracula, Solarized, Matrix and more, in Settings, Appearance.
+7. **Export to Word, PDF, HTML or Markdown.** Use the 💾 button in the note toolbar.
+8. **Markdown or rendered, your choice.** Switch any note between the Markdown source and a rendered editor with the MD and 👁 buttons. Checklists, tables, highlighted code, images, attachments and links between notes work in both.
+9. **Works with your Joplin apps.** Joplock runs beside an unmodified Joplin Server, so the desktop, mobile and command-line apps keep syncing. If another app changes a note while you edit it, Joplock stops and asks: overwrite, or save yours as a copy.
+10. **Made for phones too.** A layout of its own on small screens, and it installs to the home screen like an app.
+
+Also: sharing notebooks with other people, AI writing help with the provider of your choice, live search, and nested and pinned notebooks. Sharing and AI are switched off in this shared demo.
+`;

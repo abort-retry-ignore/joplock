@@ -18,6 +18,7 @@ test('every seeded body keeps checklist items plain text', async () => {
 	const bodies = {
 		mainBody: content.mainBody(ids), backupBody: content.backupBody(), recipeBody: content.recipeBody(),
 		roadmapBody: content.roadmapBody(), kickoffBody: content.kickoffBody(), syncBody: content.syncBody(), travelBody: content.travelBody(),
+		vaultBody: content.vaultBody(), featuresBody: content.featuresBody(),
 	};
 	let checklistLines = 0;
 	for (const [name, body] of Object.entries(bodies)) {
@@ -31,9 +32,9 @@ test('every seeded body keeps checklist items plain text', async () => {
 
 test('every seeded note starts with its title, and the seeds take titles from the bodies', async () => {
 	const content = await load();
-	const bodies = [content.mainBody(ids), content.backupBody(), content.recipeBody(), content.roadmapBody(), content.kickoffBody(), content.syncBody(), content.travelBody()];
+	const bodies = [content.mainBody(ids), content.backupBody(), content.recipeBody(), content.roadmapBody(), content.kickoffBody(), content.syncBody(), content.travelBody(), content.vaultBody(), content.featuresBody()];
 	const titles = bodies.map(content.titleOf);
-	assert.deepEqual(titles, ['Home server setup', 'Backup routine', 'Weeknight lemon pasta', 'Q3 roadmap', 'Project kickoff', 'Weekly sync', 'Lisbon long weekend']);
+	assert.deepEqual(titles, ['Home server setup', 'Backup routine', 'Weeknight lemon pasta', 'Q3 roadmap', 'Project kickoff', 'Weekly sync', 'Lisbon long weekend', 'What is a vault?', "Joplock's top 10 features"]);
 	bodies.forEach((body, i) => {
 		assert.equal(body.split('\n')[0], `# ${titles[i]}`, `${titles[i]}: first line`);
 		assert.equal(editorTitle(body), titles[i], `${titles[i]}: the editor would rename it`);

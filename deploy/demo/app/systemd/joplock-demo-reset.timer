@@ -1,0 +1,10 @@
+[Unit]
+Description=Reset the Joplock demo every 30 minutes (:00 and :30 UTC; the in-app countdown assumes this)
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00 UTC
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

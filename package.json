@@ -14,6 +14,7 @@
 		"test:ui": "playwright test",
 		"test:ui:headed": "playwright test --headed",
 		"generate:pwa-assets": "node ./scripts/generatePwaAssets.mjs",
+		"seed:showcase": "node ./scripts/seed-showcase.mjs",
 		"docker:build": "docker build -t joplock .",
 		"docker:up": "docker compose up -d",
 		"docker:down": "docker compose down",

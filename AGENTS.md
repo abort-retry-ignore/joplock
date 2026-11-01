@@ -19,6 +19,7 @@ This file is loaded on every task, so it is short on purpose. It gives the rules
 | settings, themes, admin, backup/recovery, MFA, debug logging | `docs/agents/settings-and-admin.md` |
 | server shape, htmx/fragment conventions, routes, data model, or you are unsure where something belongs | `docs/agents/architecture.md` |
 | tests, Playwright, the dev stack, "my change does not show up" | `docs/agents/testing-and-dev.md` |
+| demo mode, the public demo (`deploy/demo/`), the login page or account-changing routes, the default-admin guard | `docs/agents/demo.md` |
 
 ## Rules that always apply
 
@@ -47,6 +48,7 @@ One line each; the topic file has the detail.
 - **The markdown <-> TinyMCE round trip must be idempotent**, or notes show a phantom "Edited" on open and get re-saved (`editor.md`).
 - **Do not decode `items.content` for every item in SQL**: it also holds binary resources and one attachment aborts the statement (`notebooks-and-sharing.md`).
 - **iOS home-screen apps**: never set `apple-mobile-web-app-status-bar-style: black-translucent`; never guess a keyboard from `innerHeight - visualViewport.height`; decide mobile vs desktop from the physical screen, never the window height (`pwa-mobile.md`). Chromium cannot reproduce any of this: measure on a device with `/diag`.
+- **Joplin Server's default `admin@localhost` / `admin` makes anyone a Joplin admin.** Joplock locks it at startup while it still has that password (`app/defaultAdminGuard.js`); do not remove that (`demo.md`).
 - **DOM ids and classes are a contract with inline JS and tests.** Rename them deliberately.
 - **Floating menus need an opaque background and edge clamping**; pure `:hover` styles go inside `@media (hover: hover)` (`architecture.md`, `pwa-mobile.md`).
 

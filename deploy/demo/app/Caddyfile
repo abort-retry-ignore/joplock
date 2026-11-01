@@ -1,0 +1,30 @@
+# Automatic HTTPS (Let's Encrypt) in front of Joplock. While the demo resets (Joplock is stopped for
+# a few seconds) visitors get a "resetting" page that reloads itself instead of an error.
+{$DEMO_HOSTNAME} {
+	# Joplock enforces its own 5 MB demo limit; this stops bigger bodies before they reach it
+	request_body {
+		max_size 6MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# visitor-written notes are public for up to 30 minutes: keep them out of search engines
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	reverse_proxy joplock:3001
+
+	handle_errors {
+		@down expression `{err.status_code} in [502, 503, 504]`
+		handle @down {
+			root * /srv/static
+			rewrite * /resetting.html
+			header Cache-Control "no-store"
+			header Retry-After "10"
+			file_server
+		}
+	}
+}

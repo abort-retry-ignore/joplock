@@ -1692,7 +1692,9 @@ body.editor-markdown-mode .editor-toolbar {
 	z-index: 5;
 	display: none;
 	flex-direction: column;
-	background: var(--bg);
+	/* the note surface: the same --bg-editor the markdown editor sits on (.col-editor), so switching
+	   modes does not change the page colour (on light themes --bg is visibly warmer than white) */
+	background: var(--bg-editor);
 }
 .tinymce-host.tinymce-host-visible { display: flex; }
 .tinymce-slot {
@@ -1719,7 +1721,7 @@ body.editor-markdown-mode .editor-toolbar {
 .tox-statusbar { display: none !important; }
 .tox .tox-edit-area,
 .tox .tox-edit-area__iframe {
-	background: var(--bg) !important;
+	background: var(--bg-editor) !important;
 }
 
 /* TinyMCE theme integration — toolbar tinted per-theme via accent color */
@@ -3444,6 +3446,10 @@ body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 		display: flex;
 		pointer-events: auto;
 	}
+	/* the note surface, as on desktop (.col-editor) and in rendered mode (.tinymce-host) */
+	#mobile-editor-screen {
+		background: var(--bg-editor);
+	}
 
 	/* Header bar */
 	.mobile-header {
@@ -4534,3 +4540,55 @@ mark.search-highlight-active {
 		display: none;
 	}
 }
+
+/* ===== Demo mode (JOPLOCK_DEMO_MODE, app/demoMode.js) ===== */
+.login-demo {
+	margin: 0 auto 18px;
+	padding: 12px 14px;
+	max-width: 320px;
+	text-align: left;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--bg-elevated);
+}
+.login-demo-row {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 3px 0;
+	color: var(--text-dim);
+}
+.login-demo-row code {
+	font-size: 1.15em;
+	font-weight: 700;
+	color: var(--text-heading);
+	user-select: all;
+}
+.login-demo-note {
+	margin-top: 8px;
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--text-muted);
+}
+.status-demo {
+	font-size: 11px;
+	color: var(--accent);
+	white-space: nowrap;
+}
+.mobile-demo-strip {
+	flex: 0 0 auto;
+	padding: 6px 14px;
+	font-size: 12px;
+	color: var(--accent);
+	background: var(--bg-side);
+	border-bottom: 1px solid var(--border);
+}
+.mobile-demo-strip:empty,
+.status-demo:empty { display: none; }
+.settings-demo {
+	border: 1px solid var(--border);
+	background: var(--bg-elevated);
+	color: var(--text);
+}
+.settings-tab-panel.demo-locked { opacity: 0.55; }

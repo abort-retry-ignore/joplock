@@ -137,7 +137,7 @@ const renderMarkdown = renderMarkdownImpl;
 // Special case: if opts.id is set, the eye button on the login page uses getElementById
 // because the input is not a direct sibling but shares a wrapper.
 const passwordField = (name, opts = {}) => {
-	const { placeholder = '', id = '', autocomplete = '', required = true, extraClass = '' } = opts;
+	const { placeholder = '', id = '', autocomplete = '', required = true, extraClass = '', value = '' } = opts;
 	const idAttr = id ? ` id="${escapeHtml(id)}"` : '';
 	const autocompleteAttr = autocomplete ? ` autocomplete="${escapeHtml(autocomplete)}"` : '';
 	const requiredAttr = required ? ' required' : '';
@@ -145,7 +145,8 @@ const passwordField = (name, opts = {}) => {
 	const eyeTarget = id
 		? `var p=document.getElementById('${escapeHtml(id)}')`
 		: `var p=this.parentNode.querySelector('input')`;
-	return `<input type="password" name="${escapeHtml(name)}"${idAttr} placeholder="${escapeHtml(placeholder)}" class="${classes}"${autocompleteAttr}${requiredAttr} />` +
+	const valueAttr = value ? ` value="${escapeHtml(value)}"` : '';
+	return `<input type="password" name="${escapeHtml(name)}"${idAttr} placeholder="${escapeHtml(placeholder)}" class="${classes}"${valueAttr}${autocompleteAttr}${requiredAttr} />` +
 		`<button type="button" class="login-eye" onclick="${eyeTarget};if(p.type==='password'){p.type='text';this.innerHTML='&#128065;'}else{p.type='password';this.innerHTML='&#128064;'}" title="Show/hide password">&#128064;</button>`;
 };
 

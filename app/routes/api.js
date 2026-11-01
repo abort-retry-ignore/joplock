@@ -1,6 +1,7 @@
 'use strict';
 
 const { sendJson, parseBody, normalizeStoredFolderId, assertVaultNoteBodyEncrypted, publicItem, publicItems } = require('./_helpers');
+const { DEMO_BLOCKED_SETTINGS } = require('../demoMode');
 const {
 	resolveItemShareAccess, resolveFolderShareState, assertCanWrite, assertOwnerForDestructive, deriveShareFieldsForMove,
 } = require('../items/shareAccess');
@@ -215,6 +216,8 @@ const handle = async (url, request, response, ctx) => {
 			for (const key of allowedKeys) {
 				if (body[key] !== undefined) updates[key] = body[key];
 			}
+			// demo: AI keys/profiles would be shown to the next visitor (app/demoMode.js)
+			if (ctx.demo && ctx.demo.enabled) for (const key of DEMO_BLOCKED_SETTINGS) delete updates[key];
 			if (Object.keys(updates).length > 0) {
 				await settingsService.saveSettings(auth.user.id, { ...current, ...updates });
 			}

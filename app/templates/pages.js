@@ -43,6 +43,8 @@ const formatBytes = value => {
 // layoutPage: the main app shell (or login page when user is null)
 const layoutPage = (options = {}) => {
 	const { user, navContent, editorContent, loginError, debug = false, mobileStartup = null, mobileEditorContent = '' } = options;
+	// demo mode: the login page shows the published demo login (app/demoMode.js)
+	const demoLogin = options.demo && options.demo.enabled ? options.demo : null;
 	const settings = options.settings || {};
 	const maxUploadMb = Number.isFinite(options.maxUploadMb) ? options.maxUploadMb : 200;
 	const loggedIn = !!user;
@@ -77,14 +79,26 @@ const layoutPage = (options = {}) => {
 		<div class="login-card">
 			<img src="/icon-192.png" alt="Joplock" class="login-logo" width="96" height="96" />
 			<h1 class="login-title login-brand">JOPLOCK</h1>
-			<p class="login-sub login-tagline">Sign in with your Joplin Server credentials.</p>
+${demoLogin ? `<p class="login-sub login-tagline">A live demo with example notes. No sign-up.</p>
+			<div class="login-demo" role="note">
+				<div class="login-demo-row"><span>Login</span><code>${escapeHtml(demoLogin.login)}</code></div>
+				<div class="login-demo-row"><span>Password</span><code>${escapeHtml(demoLogin.loginPassword)}</code></div>
+				<p class="login-demo-note">Anyone can use this account at the same time. Every ${escapeHtml(demoLogin.resetMinutes)} minutes everything is wiped and the example notes come back.</p>
+			</div>
+			<form class="login-form" method="POST" action="/login">
+				<input type="text" name="email" placeholder="Login" value="${escapeHtml(demoLogin.login)}" class="login-input" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+				<div class="login-password-wrap">
+					${passwordField('password', { id: 'login-password', placeholder: 'Password', value: demoLogin.loginPassword, autocomplete: 'current-password' })}
+				</div>
+				<div class="login-error" id="login-error">${loginError ? escapeHtml(loginError) : ''}</div>
+				<button type="submit" class="btn btn-primary login-btn">Try the demo</button>` : `			<p class="login-sub login-tagline">Sign in with your Joplin Server credentials.</p>
 			<form class="login-form" method="POST" action="/login">
 				<input type="email" name="email" placeholder="Email" class="login-input" required autofocus />
 				<div class="login-password-wrap">
 					${passwordField('password', { id: 'login-password', placeholder: 'Password' })}
 				</div>
 				<div class="login-error" id="login-error">${loginError ? escapeHtml(loginError) : ''}</div>
-				<button type="submit" class="btn btn-primary login-btn">Login</button>
+				<button type="submit" class="btn btn-primary login-btn">Login</button>`}
 			</form>
 		</div>
 	</div>
@@ -119,6 +133,7 @@ const layoutPage = (options = {}) => {
 	window._joplockConfig={
 		debug:${debug ? 'true' : 'false'},
 		assetVersion:${JSON.stringify(ASSET_VERSION)},
+		demo:${demoLogin ? JSON.stringify({ resetMinutes: demoLogin.resetMinutes }) : 'null'},
 		noteOpenMode:${JSON.stringify(settings.noteOpenMode || 'markdown')},
 		folderSort:${JSON.stringify(settings.folderSort === 'recent' ? 'recent' : 'alpha')},
 		mobileStartup:${JSON.stringify(mobileStartup || null)},
@@ -178,6 +193,7 @@ const layoutPage = (options = {}) => {
 				<input class="mobile-search-input" id="mobile-search-input" type="text" placeholder="Search notes..." autocomplete="off"
 					oninput="mobileSearchQuery(this.value)" />
 			</div>
+			${demoLogin ? '<div class="mobile-demo-strip" data-demo-countdown></div>' : ''}
 			<div class="mobile-screen-body" id="mobile-folders-body">
 				<div class="empty-hint">Loading...</div>
 			</div>
@@ -304,6 +320,7 @@ const layoutPage = (options = {}) => {
 		<a href="/settings" class="btn btn-icon status-settings-link" title="Settings">&#9881;</a>
 		<span class="status-user">${escapeHtml(user.fullName || user.email)}</span>
 		${noteMetaFragment({ createdTime: 0, updatedTime: 0 }, 'status-note-meta')}
+		${demoLogin ? '<span class="status-demo" data-demo-countdown title="Shared demo account"></span>' : ''}
 		<span class="status-spacer"></span>
 		<select class="theme-picker" onchange="setTheme(this.value)">
 			${themeOptions.map(function(t){return '<option value="'+t[0]+'"'+((settings.theme||'earth')===t[0]?' selected':'')+'>'+t[1]+'</option>'}).join('')}

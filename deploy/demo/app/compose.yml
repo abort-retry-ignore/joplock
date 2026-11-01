@@ -1,0 +1,87 @@
+# The public Joplock demo (deploy/demo/README.md). Only Caddy is reachable from outside: Joplin
+# Server and Postgres sit on the internal network, so Joplin's own login page, API and default
+# admin account are never exposed. Secrets come from .env (created by install.sh, never in git).
+name: joplock-demo
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: joplin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run install.sh}
+      POSTGRES_DB: joplin
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U joplin -d joplin"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  server:
+    image: ${JOPLIN_IMAGE:-joplin/server:latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_PORT: 22300
+      APP_BASE_URL: https://${DEMO_HOSTNAME:?run install.sh}/joplin
+      SIGNUP_ENABLED: "false"
+      DB_CLIENT: pg
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: joplin
+      POSTGRES_USER: joplin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+  joplock:
+    image: ${JOPLOCK_IMAGE:-ghcr.io/abort-retry-ignore/joplock:latest}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      - server
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3001
+      JOPLOCK_PUBLIC_BASE_URL: https://${DEMO_HOSTNAME}
+      JOPLIN_SERVER_ORIGIN: http://server:22300
+      JOPLIN_SERVER_PUBLIC_URL: https://${DEMO_HOSTNAME}/joplin
+      # empty: Joplock does not proxy Joplin Server at all (no sync clients, no Joplin web UI)
+      JOPLIN_PUBLIC_BASE_PATH: ""
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: joplin
+      POSTGRES_USER: joplin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      JOPLOCK_DEMO_MODE: "true"
+      JOPLOCK_DEMO_LOGIN: demo
+      JOPLOCK_DEMO_LOGIN_PASSWORD: demo
+      JOPLOCK_DEMO_ACCOUNT_EMAIL: demo@${DEMO_HOSTNAME}
+      JOPLOCK_DEMO_ACCOUNT_PASSWORD: ${DEMO_ACCOUNT_PASSWORD:?run install.sh}
+      JOPLOCK_DEMO_RESET_MINUTES: "30"
+      JOPLOCK_DEMO_MAX_UPLOAD_MB: "5"
+      DEBUG: "false"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - joplock
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DEMO_HOSTNAME: ${DEMO_HOSTNAME}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./static:/srv/static:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db:
+  caddy_data:
+  caddy_config:

@@ -133,7 +133,12 @@ test('the demo seed creates the demo-vault vault, the features note and the demo
 	// ten numbered features, and the facts in it that the code can check
 	const features = content.featuresBody();
 	assert.deepEqual([...features.matchAll(/^(\d+)\. \*\*/gm)].map(m => Number(m[1])), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-	for (const topic of [/server-side rendering/i, /no copy of your notes/i, /two-factor/i, /backups/i, /word, pdf/i, /demo-vault/]) assert.match(features, topic);
+	for (const topic of [/docker compose/i, /PWA/, /server-side rendering/i, /no copy of your notes/i, /two-factor/i, /backups/i, /word, pdf/i, /demo-vault/]) assert.match(features, topic);
+	// "one docker compose file" runs the whole stack: the full example has the database, the sync server and Joplock
+	const fullCompose = fs.readFileSync(path.join(__dirname, '..', 'docker-compose.example-full.yml'), 'utf8');
+	for (const image of ['image: postgres:', 'image: joplin/server:', 'image: ghcr.io/abort-retry-ignore/joplock:']) assert.ok(fullCompose.includes(image), `docker-compose.example-full.yml lacks ${image}`);
+	// Joplin is a compatibility note at the end, not a numbered feature
+	assert.doesNotMatch(features.split('\nAlso:')[0], /Joplin/);
 	assert.match(features, new RegExp(`\\*\\*${validThemes.length} themes\\.\\*\\*`), 'the theme count matches app/settingsService.js');
 	assert.match(features, /up to 50 earlier versions/);
 	assert.match(fs.readFileSync(path.join(__dirname, '..', 'app', 'historyService.js'), 'utf8'), /const MAX_SNAPSHOTS = 50;/);

@@ -288,18 +288,18 @@ To make your own, create a notebook and tick **Make this a vault (encrypted note
 // In the pinned "Examples" notebook, beside Joplock's own "Start Here".
 export const featuresBody = () => `# Joplock's top 10 features
 
-Joplock is a web app for your own Joplin Server. Your notes stay on your server; the browser is only a window onto them.
+Joplock is a self-hosted notes app. One docker compose file runs the whole thing on your own server, and you use it from any browser, on a desktop or a phone.
 
-1. **Server-side rendering.** Pages are built on the server and updated in small pieces (htmx), so little code runs in your browser and it stays quick on old phones. Your session is checked on every request, autosaves included.
-2. **No copy of your notes on your device.** Notes, pages and attachments are sent with \`no-store\`, and the installed app caches only its own code. Offline you get an offline page, never a stale note, so a lost or borrowed computer has nothing to find.
-3. **Encrypted vaults.** Any top-level notebook can become a vault, encrypted in your browser with a key made from your password. The server never sees the password or the text. Try **demo-vault**, password \`${DEMO_VAULT_PASSWORD}\`.
-4. **Two-factor sign-in.** Add an authenticator app in Settings, Security. Sign-in attempts are rate-limited, the session cookie cannot be read by page scripts, and automatic sign-out is one setting away. (Two-factor is off in this shared demo.)
-5. **Backups and note history.** Admins back up the whole server, Joplin's own data included, with one click, then download or restore the file. Every note also keeps up to 50 earlier versions you can restore.
-6. **21 themes.** Light, dark, OLED black, Nord, Dracula, Solarized, Matrix and more, in Settings, Appearance.
-7. **Export to Word, PDF, HTML or Markdown.** Use the 💾 button in the note toolbar.
-8. **Markdown or rendered, your choice.** Switch any note between the Markdown source and a rendered editor with the MD and 👁 buttons. Checklists, tables, highlighted code, images, attachments and links between notes work in both.
-9. **Works with your Joplin apps.** Joplock runs beside an unmodified Joplin Server, so the desktop, mobile and command-line apps keep syncing. If another app changes a note while you edit it, Joplock stops and asks: overwrite, or save yours as a copy.
-10. **Made for phones too.** A layout of its own on small screens, and it installs to the home screen like an app.
+1. **One docker compose file.** The web app, its database and its sync server start together with \`docker compose up\`. Your notes live on your own machine, not in someone else's cloud.
+2. **Desktop, phone and installable app.** A full desktop layout, a layout of its own on phones, and it installs to the home screen like a native app (a PWA). No app store needed.
+3. **Server-side rendering.** Pages are built on the server and updated in small pieces (htmx), so little code runs in your browser and it stays quick on old phones. Your session is checked on every request, autosaves included.
+4. **No copy of your notes on your device.** Notes, pages and attachments are sent with \`no-store\`, and the installed app caches only its own code. Offline you get an offline page, never a stale note, so a lost or borrowed computer has nothing to find.
+5. **Encrypted vaults.** Any top-level notebook can become a vault, encrypted in your browser with a key made from your password. The server never sees the password or the text. Try **demo-vault**, password \`${DEMO_VAULT_PASSWORD}\`.
+6. **Two-factor sign-in.** Add an authenticator app in Settings, Security. Sign-in attempts are rate-limited, the session cookie cannot be read by page scripts, and automatic sign-out is one setting away. (Two-factor is off in this shared demo.)
+7. **Backups and note history.** Admins back up the whole database with one click, then download or restore the file. Every note also keeps up to 50 earlier versions you can restore.
+8. **21 themes.** Light, dark, OLED black, Nord, Dracula, Solarized, Matrix and more, in Settings, Appearance.
+9. **Export to Word, PDF, HTML or Markdown.** Use the 💾 button in the note toolbar.
+10. **Markdown or rendered, your choice.** Switch any note between the Markdown source and a rendered editor with the MD and 👁 buttons. Checklists, tables, highlighted code, images, attachments and links between notes work in both.
 
-Also: sharing notebooks with other people, AI writing help with the provider of your choice, live search, and nested and pinned notebooks. Sharing and AI are switched off in this shared demo.
+Also: Joplin compatible, so the Joplin desktop and mobile apps can sync the same notes; sharing notebooks with other people; AI writing help with the provider of your choice; live search; nested and pinned notebooks. Sharing and AI are switched off in this shared demo.
 `;

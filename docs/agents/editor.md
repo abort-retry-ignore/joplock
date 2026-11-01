@@ -33,6 +33,7 @@ Text-expander is now wired for BOTH modes:
 - Switching modes: markdown→rich calls `cmSyncToTA()` then POSTs the markdown to `/fragments/preview` and loads the rendered HTML into TinyMCE; rich→markdown calls `tinyMCESyncToTA()` then mounts CM6 from the textarea. There is no client-side markdown→TinyMCE-HTML converter — that direction round-trips through the server.
 - File/image uploads should alter markdown first, then refresh rendered preview from markdown; do not treat preview-only DOM insertion as authoritative state.
 - The title is mirrored between `.editor-title`, hidden title input, and mobile title header when applicable.
+- **A note's title is its first line of text.** On every edit `autoTitle()` (markdown) / `autoTitleFromTinyMCE()` (rendered) set the title to the first non-image line, heading marks and markdown removed, unless the user edited the title by hand. So any note Joplock writes itself (starter notes in `app/starterContent.js`, the seed scripts) must start with `# <title>`; otherwise the first edit or mode switch replaces the title with that line (`tests/starterContent.test.js`, `tests/seedContent.test.js`).
 
 ## Save lifecycle
 

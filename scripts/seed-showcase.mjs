@@ -14,7 +14,7 @@
 // content see scripts/seed-demo.mjs.
 
 import { createClient } from './lib/seed-client.mjs';
-import { bannerSvg, backupBody, mainBody, inventoryCsv } from './lib/seed-content.mjs';
+import { titleOf, bannerSvg, backupBody, mainBody, inventoryCsv } from './lib/seed-content.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 && args[i + 1] ? args[i + 1] : fallback; };
@@ -45,14 +45,14 @@ const main = async () => {
 	if (existing && args.includes('--update')) {
 		const headers = ((await api.json('/api/web/notes/headers')).items || []).filter(n => n.parentId === existing.id);
 		const byTitle = title => headers.find(n => n.title === title);
-		const main = byTitle('Home server setup'), backup = byTitle('Backup routine');
+		const main = byTitle(titleOf(mainBody({}))), backup = byTitle(titleOf(backupBody()));
 		if (!main || !backup) throw new Error(`"${NOTEBOOK}" exists but its two notes were not found; delete the notebook and seed again`);
 		const current = (await api.json(`/api/web/notes/${encodeURIComponent(main.id)}`)).item.body;
 		const bannerId = (/!\[[^\]]*\]\(:\/([0-9a-f]{32})\)/.exec(current) || [])[1];
 		const csvId = (/\[server-inventory\.csv\]\(:\/([0-9a-f]{32})\)/.exec(current) || [])[1];
 		if (!bannerId || !csvId) throw new Error('could not find the existing image/attachment ids in the note');
-		await api.json(`/api/web/notes/${encodeURIComponent(backup.id)}`, 'PUT', { title: 'Backup routine', body: backupBody() });
-		await api.json(`/api/web/notes/${encodeURIComponent(main.id)}`, 'PUT', { title: 'Home server setup', body: mainBody({ bannerId, csvId, backupNoteId: backup.id }) });
+		await api.json(`/api/web/notes/${encodeURIComponent(backup.id)}`, 'PUT', { title: titleOf(backupBody()), body: backupBody() });
+		await api.json(`/api/web/notes/${encodeURIComponent(main.id)}`, 'PUT', { title: titleOf(mainBody({})), body: mainBody({ bannerId, csvId, backupNoteId: backup.id }) });
 		console.log(`Updated "${NOTEBOOK}": ${main.id}, ${backup.id} (image ${bannerId}, attachment ${csvId} kept)`);
 		return;
 	}
@@ -65,8 +65,8 @@ const main = async () => {
 	const bannerId = await api.upload('mountain-lake.jpg', 'image/jpeg', banner);
 	const csvId = await api.upload('server-inventory.csv', 'text/csv', Buffer.from(inventoryCsv));
 	const folder = (await api.json('/api/web/folders', 'POST', { title: NOTEBOOK, parentId: '' })).item;
-	const backup = (await api.json('/api/web/notes', 'POST', { title: 'Backup routine', body: backupBody(), parentId: folder.id })).item;
-	const note = (await api.json('/api/web/notes', 'POST', { title: 'Home server setup', body: mainBody({ bannerId, csvId, backupNoteId: backup.id }), parentId: folder.id })).item;
+	const backup = (await api.json('/api/web/notes', 'POST', { title: titleOf(backupBody()), body: backupBody(), parentId: folder.id })).item;
+	const note = (await api.json('/api/web/notes', 'POST', { title: titleOf(mainBody({})), body: mainBody({ bannerId, csvId, backupNoteId: backup.id }), parentId: folder.id })).item;
 	console.log(JSON.stringify({ base: BASE, notebook: { id: folder.id, title: folder.title }, notes: [{ id: note.id, title: note.title }, { id: backup.id, title: backup.title }], resources: { banner: bannerId, bannerBytes: banner.length, csv: csvId } }, null, 2));
 };
 

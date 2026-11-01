@@ -8,6 +8,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { editorTitle } = require('./support/editorTitle');
 
 const load = () => import(path.join(__dirname, '..', 'scripts', 'lib', 'seed-content.mjs'));
 const ids = { bannerId: 'a'.repeat(32), csvId: 'b'.repeat(32), backupNoteId: 'c'.repeat(32) };
@@ -28,10 +29,25 @@ test('every seeded body keeps checklist items plain text', async () => {
 	assert.ok(checklistLines >= 25, `expected the demo checklists, found ${checklistLines} items`);
 });
 
+test('every seeded note starts with its title, and the seeds take titles from the bodies', async () => {
+	const content = await load();
+	const bodies = [content.mainBody(ids), content.backupBody(), content.recipeBody(), content.roadmapBody(), content.kickoffBody(), content.syncBody(), content.travelBody()];
+	const titles = bodies.map(content.titleOf);
+	assert.deepEqual(titles, ['Home server setup', 'Backup routine', 'Weeknight lemon pasta', 'Q3 roadmap', 'Project kickoff', 'Weekly sync', 'Lisbon long weekend']);
+	bodies.forEach((body, i) => {
+		assert.equal(body.split('\n')[0], `# ${titles[i]}`, `${titles[i]}: first line`);
+		assert.equal(editorTitle(body), titles[i], `${titles[i]}: the editor would rename it`);
+	});
+	// a hard-coded title can drift from its body again
+	const script = name => fs.readFileSync(path.join(__dirname, '..', 'scripts', name), 'utf8');
+	assert.doesNotMatch(script('seed-demo.mjs'), /note\('/);
+	assert.doesNotMatch(script('seed-showcase.mjs'), /title: '/);
+});
+
 test('the showcase note references exactly the uploaded image, attachment and linked note', async () => {
 	const { mainBody } = await load();
 	const body = mainBody(ids);
-	assert.ok(body.startsWith(`![Mountain lake at dawn](:/${ids.bannerId})`));
+	assert.ok(body.startsWith(`# Home server setup\n\n![Mountain lake at dawn](:/${ids.bannerId})`));
 	assert.ok(body.includes(`[server-inventory.csv](:/${ids.csvId})`));
 	assert.ok(body.includes(`[Backup routine](:/${ids.backupNoteId})`));
 	assert.equal((body.match(/\(:\/[0-9a-f]{32}\)/g) || []).length, 3);

@@ -2,6 +2,11 @@
 // Plain data and string builders only: no dependencies, so the demo seed runs in a bare Node image.
 // Checklist items stay plain text: rendered mode does not yet format inline markdown inside "- [ ]".
 
+// Joplock's editor takes a note's title from its first line of text, so every body starts with
+// "# <title>" and the seed scripts derive the title from it (titleOf): a title that differs from the
+// first line would be replaced by that line at the first edit.
+export const titleOf = body => body.split('\n').find(line => line.trim()).replace(/^#+\s*/, '').trim();
+
 export const bannerSvg = () => {
 	const W = 1600, H = 640, horizon = 430;
 	const stars = Array.from({ length: 70 }, (_, i) => {
@@ -47,7 +52,9 @@ export const bannerSvg = () => {
 </svg>`;
 };
 
-export const backupBody = () => `Run on the first Sunday of every month. It takes about ten minutes.
+export const backupBody = () => `# Backup routine
+
+Run on the first Sunday of every month. It takes about ten minutes.
 
 ## Checklist
 
@@ -70,7 +77,9 @@ psql -d joplin_restore_test \\
 > If the count looks wrong, stop and compare it with last month's number in the log.
 `;
 
-export const mainBody = ({ bannerId, csvId, backupNoteId }) => `![Mountain lake at dawn](:/${bannerId})
+export const mainBody = ({ bannerId, csvId, backupNoteId }) => `# Home server setup
+
+![Mountain lake at dawn](:/${bannerId})
 
 A small, quiet home server that keeps my notes **private**, *synced* and reachable from every device. Everything runs on one mini PC with \`docker compose\`, and the phone uses Joplock as a home-screen app.
 
@@ -139,7 +148,9 @@ router,network,MediaTek,1,0
 
 // ---- the rest of the public demo (scripts/seed-demo.mjs) ------------------------------------
 
-export const recipeBody = () => `Twenty minutes, one pot, and it scales well for guests.
+export const recipeBody = () => `# Weeknight lemon pasta
+
+Twenty minutes, one pot, and it scales well for guests.
 
 ## Ingredients (serves 2)
 
@@ -169,7 +180,9 @@ export const recipeBody = () => `Twenty minutes, one pot, and it scales well for
 > **Tip:** keep a cup of pasta water before draining. It is what makes the sauce silky.
 `;
 
-export const roadmapBody = () => `## Goals
+export const roadmapBody = () => `# Q3 roadmap
+
+## Goals
 
 1. Ship the mobile layout improvements.
 2. Halve the cold-start time on slow connections.
@@ -192,7 +205,9 @@ export const roadmapBody = () => `## Goals
 Meeting notes live in the **Meetings** notebook inside this one.
 `;
 
-export const kickoffBody = () => `**Attendees:** Alex, Priya, Sam
+export const kickoffBody = () => `# Project kickoff
+
+**Attendees:** Alex, Priya, Sam
 
 ## Decisions
 
@@ -208,7 +223,9 @@ export const kickoffBody = () => `**Attendees:** Alex, Priya, Sam
 - [ ] Collect feedback by Friday
 `;
 
-export const syncBody = () => `## Done since last week
+export const syncBody = () => `# Weekly sync
+
+## Done since last week
 
 - Static assets are compressed and cached.
 - Phones keep the mobile layout in landscape.
@@ -223,7 +240,9 @@ None this week.
 - [ ] Check the reset timer after a reboot
 `;
 
-export const travelBody = () => `## Packing
+export const travelBody = () => `# Lisbon long weekend
+
+## Packing
 
 - [x] Passport
 - [x] Charger and adapter

@@ -13,7 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient } from './lib/seed-client.mjs';
-import { backupBody, mainBody, inventoryCsv, recipeBody, roadmapBody, kickoffBody, syncBody, travelBody } from './lib/seed-content.mjs';
+import { titleOf, backupBody, mainBody, inventoryCsv, recipeBody, roadmapBody, kickoffBody, syncBody, travelBody } from './lib/seed-content.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 && args[i + 1] ? args[i + 1] : fallback; };
@@ -31,26 +31,26 @@ const main = async () => {
 		return;
 	}
 	const folder = async (title, parentId = '') => (await api.json('/api/web/folders', 'POST', { title, parentId })).item;
-	const note = async (title, body, parentId) => (await api.json('/api/web/notes', 'POST', { title, body, parentId })).item;
+	const note = async (body, parentId) => (await api.json('/api/web/notes', 'POST', { title: titleOf(body), body, parentId })).item;
 
 	const bannerId = await api.upload('mountain-lake.jpg', 'image/jpeg', await readFile(BANNER));
 	const csvId = await api.upload('server-inventory.csv', 'text/csv', Buffer.from(inventoryCsv));
 
 	const homelab = await folder('Homelab');
-	const backup = await note('Backup routine', backupBody(), homelab.id);
-	const showcase = await note('Home server setup', mainBody({ bannerId, csvId, backupNoteId: backup.id }), homelab.id);
+	const backup = await note(backupBody(), homelab.id);
+	const showcase = await note(mainBody({ bannerId, csvId, backupNoteId: backup.id }), homelab.id);
 
 	const recipes = await folder('Recipes');
-	await note('Weeknight lemon pasta', recipeBody(), recipes.id);
+	await note(recipeBody(), recipes.id);
 
 	const work = await folder('Work');
-	await note('Q3 roadmap', roadmapBody(), work.id);
+	await note(roadmapBody(), work.id);
 	const meetings = await folder('Meetings', work.id);
-	await note('Project kickoff', kickoffBody(), meetings.id);
-	await note('Weekly sync', syncBody(), meetings.id);
+	await note(kickoffBody(), meetings.id);
+	await note(syncBody(), meetings.id);
 
 	const travel = await folder('Travel');
-	await note('Lisbon long weekend', travelBody(), travel.id);
+	await note(travelBody(), travel.id);
 
 	// the starter notebook's "AI Features" note would point visitors at something the demo turns off
 	const headers = (await api.json('/api/web/notes/headers')).items || [];

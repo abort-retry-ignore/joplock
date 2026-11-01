@@ -2,6 +2,8 @@
 
 A secure, fast web client for [Joplin Server](https://github.com/laurent22/joplin).
 
+**Live demo: [joplock.bazooda.com](https://joplock.bazooda.com)** (login `demo` / password `demo`; shared by everyone and reset to the example notes every 30 minutes).
+
 Joplock runs as a sidecar alongside an unmodified Joplin Server instance, sharing the same Postgres database, sessions, notes, folders, and resources. It gives you a lightweight browser-based interface to your Joplin notes without modifying Joplin Server itself.  Keep using the other Joplin clients too, this won't interfere.
 
 ### Key Features

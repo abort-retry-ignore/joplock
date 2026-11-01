@@ -1255,7 +1255,7 @@ function _tinyMCEContentFontStyle(){
 	var fontSize=rs.getPropertyValue(isMobileShellMode()?'--font-size-note-mobile':'--font-size-note').trim()||'15px';
 	var fontSizeCode=rs.getPropertyValue('--font-size-code').trim()||'13px';
 	return ''
-		+'body{font-family:'+fontFamily+';font-size:'+fontSize+';line-height:1.7;color:var(--text);background:var(--bg)}'
+		+'body{font-family:'+fontFamily+';font-size:'+fontSize+';line-height:1.7;color:var(--text);background:var(--bg-editor,var(--bg))}'
 		+'html{scrollbar-width:thin;scrollbar-color:var(--scrollbar) transparent}'
 		+'::-webkit-scrollbar{width:6px;height:6px}'
 		+'::-webkit-scrollbar-track{background:transparent}'
@@ -1303,7 +1303,7 @@ function _syncTinyMCEThemeVars(){
 		var iframeDoc=_tinymceEditor.getDoc();
 		if(!iframeDoc||!iframeDoc.documentElement)return;
 		var rs=getComputedStyle(document.body);
-		var vars=['--bg','--text','--text-dim','--text-heading','--accent','--border','--bg-hover','--bg-elevated','--toolbar-bg','--scrollbar'];
+		var vars=['--bg','--bg-editor','--text','--text-dim','--text-heading','--accent','--border','--bg-hover','--bg-elevated','--toolbar-bg','--scrollbar'];
 		for(var i=0;i<vars.length;i++){
 			var val=rs.getPropertyValue(vars[i]).trim();
 			if(val)iframeDoc.documentElement.style.setProperty(vars[i],val);

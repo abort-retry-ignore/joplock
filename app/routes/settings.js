@@ -113,6 +113,7 @@ const handle = async (url, request, response, ctx) => {
 			user: auth.user,
 			settings,
 			debug,
+			demo: ctx.demo,
 			userTotpEnabled,
 			userTotpSetupSeed,
 			userTotpSetupQr,

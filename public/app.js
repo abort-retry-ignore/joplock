@@ -5,6 +5,10 @@
 var _cfg=window._joplockConfig||{};
 var _dbg=_cfg.debug||false;
 var _assetVersion=_cfg.assetVersion||'';
+// Demo mode: "resets in N min". The server resets on a wall-clock schedule (every N minutes from
+// the epoch, i.e. *:00 and *:30 UTC for 30), so the next reset is computable here.
+function _demoResetText(now,minutes){var period=minutes*60000;var left=Math.ceil(now/period)*period-now;var m=Math.ceil(left/60000);return m<=1?'Demo \u00b7 resets in under a minute':'Demo \u00b7 resets in '+m+' min'}
+if(_cfg.demo&&_cfg.demo.resetMinutes){(function(){function tick(){var t=_demoResetText(Date.now(),_cfg.demo.resetMinutes);document.querySelectorAll('[data-demo-countdown]').forEach(function(el){el.textContent=t})}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',tick);else tick();setInterval(tick,15000)})()}
 var _openRouterEnabled=!!_cfg.openRouterEnabled;
 var _textExpanders=Array.isArray(_cfg.textExpanders)?_cfg.textExpanders.filter(function(e){return e&&e.trigger&&(e.action==='ai'||e.text!=null)}).map(function(e){return{id:String(e.id||''),trigger:String(e.trigger),action:e.action==='ai'?'ai':'text',profileId:String(e.profileId||''),text:String(e.text||'')}}):[];
 function _log(){if(!_dbg)return;var a=Array.prototype.slice.call(arguments);a.unshift('[joplock]');console.log.apply(console,a)}

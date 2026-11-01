@@ -6,6 +6,7 @@ const { sessionIdFromHeaders } = require('./auth/cookies');
 const { createRateLimitService } = require('./auth/rateLimitService');
 const templates = require('./templates');
 const { assetVersion } = require('./assetVersion');
+const { demoRefusal } = require('./demoMode');
 
 const {
 	send, makeSendHtml, redirect, fileExists, serveFile, serveServiceWorker, warmStaticCache,
@@ -54,6 +55,7 @@ const createServer = options => {
 		sessionCookieMaxAge = 31536000,
 		debug = false,
 		joplockVersion = '',
+		demo = { enabled: false },
 	} = options;
 
 	const isJoplockAdmin = user => !!(
@@ -409,6 +411,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 			debug: effectiveDebug,
 			isDebug,
 			refreshDebugLogging,
+			demo,
 		};
 
 		// Health check
@@ -431,6 +434,16 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 			routeShares,
 			routeApi,
 		];
+
+		// Demo mode: one choke point for everything a visitor may not do (app/demoMode.js)
+		if (demo.enabled) {
+			const refusal = demoRefusal(url.pathname, request.method);
+			if (refusal) {
+				if (url.pathname.startsWith('/settings/')) redirect(response, `/settings?error=${encodeURIComponent(refusal.message)}&tab=${refusal.tab || 'security'}`);
+				else send(response, 403, JSON.stringify({ error: refusal.message }), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+				return;
+			}
+		}
 
 		for (const route of routes) {
 			if (await route.handle(url, request, response, ctx)) return;
@@ -513,6 +526,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 						if (app && Number.isFinite(app.maxUploadMb)) maxUploadMb = app.maxUploadMb;
 					}
 				} catch { /* keep default */ }
+				if (demo.enabled) maxUploadMb = Math.min(maxUploadMb, demo.maxUploadMb);
 				try { await ensureStarterContent(auth.user, request); } catch {}
 				let { folders, counts } = await navData(auth.user.id);
 				let selectedFolderId = '';
@@ -542,7 +556,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 						await settingsService.saveSettings(auth.user.id, { ...settings, lastNoteId: '', lastNoteFolderId: '' });
 					}
 				}
-				sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug,
+				sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug, demo,
 					user: auth.user,
 					settings,
 					maxUploadMb,
@@ -555,7 +569,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 				}));
 } catch (err) {
 			process.stderr.write(`[joplock] GET / SSR error: ${err && err.stack ? err.stack : err}\n`);
-			sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug, user: null, joplinBasePath: joplinPublicBasePath, joplockVersion }));
+			sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug, demo, user: null, joplinBasePath: joplinPublicBasePath, joplockVersion }));
 		}
 		return;
 	}
@@ -577,7 +591,7 @@ Joplock can call an AI provider (OpenRouter, or any OpenAI-compatible API) to he
 			}
 			const settings = await userSettings(auth.user.id);
 			const { folders, counts } = await navData(auth.user.id);
-			sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug,
+			sendHtml(response, 200, templates.layoutPage({ debug: effectiveDebug, demo,
 				user: auth.user,
 				settings,
 				navContent: templates.navigationFragment(folders, counts, '', ''),

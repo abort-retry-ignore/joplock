@@ -5,6 +5,7 @@ const { sessionIdFromHeaders } = require('../auth/cookies');
 const { verifyWithSeed } = require('../auth/mfaService');
 const { redirect, expiredSessionCookie, send, parseBody } = require('./_helpers');
 const templates = require('../templates');
+const { demoCredentials } = require('../demoMode');
 
 const handle = async (url, request, response, ctx) => {
 	const { sendHtml, sessionService, settingsService, itemWriteService, upstreamRequestContext,
@@ -23,7 +24,7 @@ const handle = async (url, request, response, ctx) => {
 	};
 
 	const sendLoginRateLimited = retryAfterSec => {
-		sendHtmlWithHeaders(429, templates.layoutPage({ debug,
+		sendHtmlWithHeaders(429, templates.layoutPage({ debug, demo: ctx.demo,
 			user: null,
 			joplinBasePath: ctx.joplinPublicBasePath,
 			settings: null,
@@ -109,7 +110,7 @@ const handle = async (url, request, response, ctx) => {
 	// GET /login
 	if (url.pathname === '/login' && request.method === 'GET') {
 		if (url.searchParams.get('loggedOut') === '1') {
-			sendHtml(response, 200, templates.layoutPage({ debug,
+			sendHtml(response, 200, templates.layoutPage({ debug, demo: ctx.demo,
 				user: null,
 				joplinBasePath: ctx.joplinPublicBasePath,
 				settings: null,
@@ -123,7 +124,7 @@ const handle = async (url, request, response, ctx) => {
 			redirect(response, '/');
 			return true;
 		}
-		sendHtml(response, 200, templates.layoutPage({ debug,
+		sendHtml(response, 200, templates.layoutPage({ debug, demo: ctx.demo,
 			user: null,
 			joplinBasePath: ctx.joplinPublicBasePath,
 			settings: null,
@@ -150,12 +151,25 @@ const handle = async (url, request, response, ctx) => {
 				redirect(response, `/login?error=${encodeURIComponent('Email and password are required')}`);
 				return true;
 			}
+			// Demo mode: only the published demo login, mapped to the real demo account
+			let upstreamEmail = email;
+			let upstreamPassword = password;
+			if (ctx.demo && ctx.demo.enabled) {
+				const mapped = demoCredentials(ctx.demo, email, password);
+				if (!mapped) {
+					rateLimitService.recordFailure(clientIp, `login:${email}`, maxAttempts);
+					redirect(response, `/login?error=${encodeURIComponent(`Use the demo login: ${ctx.demo.login} / ${ctx.demo.loginPassword}`)}`);
+					return true;
+				}
+				upstreamEmail = mapped.email;
+				upstreamPassword = mapped.password;
+			}
 			const apiUrl = new URL('/api/sessions', joplinServerOrigin);
 			const requestContext = upstreamRequestContext(request);
 			const publicUrl = new URL(joplinServerPublicUrl);
 			const origin = publicUrl.origin;
 			const referer = `${publicUrl.origin}${publicUrl.pathname.replace(/\/$/, '')}/login`;
-			const payload = JSON.stringify({ email, password });
+			const payload = JSON.stringify({ email: upstreamEmail, password: upstreamPassword });
 			const loginResult = await new Promise((resolve, reject) => {
 				const upstreamRequest = http.request({
 					hostname: apiUrl.hostname,

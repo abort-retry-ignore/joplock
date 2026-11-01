@@ -1,6 +1,7 @@
 'use strict';
 
 const { viewportMeta } = require('../templates/shared');
+const { demoUploadCapBytes } = require('../demoMode');
 const { send, sendJson, readRawBody, parseMultipart, contentDispositionFilename, shouldInlineResource } = require('./_helpers');
 
 // Joplin Server rejects files over its formidable maxFileSize (200MB) with an
@@ -10,7 +11,7 @@ const { send, sendJson, readRawBody, parseMultipart, contentDispositionFilename,
 const JOPLIN_HARD_CAP_BYTES = 200 * 1024 * 1024 - 1024 * 1024; // 199MB, just under Joplin's 200MB cap
 const humanBytes = n => n >= 1048576 ? `${(n / 1048576).toFixed(0)}MB` : `${(n / 1024).toFixed(0)}KB`;
 
-const resolveMaxUploadBytes = async settingsService => {
+const resolveMaxUploadBytes = async (settingsService, demo = null) => {
 	let mb = 200;
 	try {
 		if (settingsService && settingsService.appSettings) {
@@ -18,7 +19,7 @@ const resolveMaxUploadBytes = async settingsService => {
 			if (app && Number.isFinite(app.maxUploadMb)) mb = app.maxUploadMb;
 		}
 	} catch { /* fall back to default */ }
-	return Math.min(mb * 1024 * 1024, JOPLIN_HARD_CAP_BYTES);
+	return Math.min(mb * 1024 * 1024, JOPLIN_HARD_CAP_BYTES, demoUploadCapBytes(demo));
 };
 
 const escapeHtml = value => `${value}`
@@ -156,7 +157,7 @@ const handle = async (url, request, response, ctx) => {
 
 			// Reject oversized uploads early using the declared Content-Length so we
 			// don't buffer huge files just to fail. parseMultipart also enforces below.
-			const maxBytes = await resolveMaxUploadBytes(settingsService);
+			const maxBytes = await resolveMaxUploadBytes(settingsService, ctx.demo);
 			const declaredLen = Number(request.headers['content-length'] || 0);
 			if (declaredLen && declaredLen > maxBytes + 4096) {
 				sendJson(response, 413, { error: `File too large. Maximum upload size is ${humanBytes(maxBytes)}.` });

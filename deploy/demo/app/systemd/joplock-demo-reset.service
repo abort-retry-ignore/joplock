@@ -1,0 +1,9 @@
+[Unit]
+Description=Reset the Joplock demo to its example notes
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/joplock-demo/reset.sh
+TimeoutStartSec=900

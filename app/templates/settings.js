@@ -129,7 +129,7 @@ const adminUserRow = (u, currentUserId) => {
 };
 
 const settingsPage = (options = {}) => {
-	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', orphanedResources = null, dbCompression = null, joplockVersion = '', joplinServerVersion = null, flash = '', flashError = '', activeTab = 'appearance', hasExplicitTab = false, debug = false } = options;
+	const { user, settings = {}, appSettings = {}, userTotpEnabled = false, userTotpSetupSeed = '', userTotpSetupQr = '', isAdmin = false, isDockerAdmin = false, adminUsers = null, backups = [], backupEnabled = false, backupBusy = false, maintenanceMode = false, activeOperation = '', orphanedResources = null, dbCompression = null, joplockVersion = '', joplinServerVersion = null, flash = '', flashError = '', activeTab = 'appearance', hasExplicitTab = false, debug = false, demo = null } = options;
 	const validTabs = ['appearance', 'ai', 'expander', 'profile', 'security', 'about'];
 	if (isAdmin) validTabs.push('admin');
 	const tab = validTabs.includes(activeTab) ? activeTab : 'appearance';
@@ -167,6 +167,7 @@ const settingsPage = (options = {}) => {
 			</div>
 			${flash ? `<div class="settings-flash settings-flash-ok">${escapeHtml(flash)}</div>` : ''}
 			${flashError ? `<div class="settings-flash settings-flash-err">${escapeHtml(flashError)}</div>` : ''}
+			${demo && demo.enabled ? `<div class="settings-flash settings-demo" role="note">This is the shared demo account. Profile, password, two-factor, session and AI settings are fixed, and sharing is off. Everything else works, is seen by other visitors, and is wiped every ${escapeHtml(demo.resetMinutes)} minutes.</div>` : ''}
 			${maintenanceMode ? `<div class="settings-flash settings-flash-err">Maintenance mode is active${activeOperation ? ` (${escapeHtml(activeOperation)})` : ''}.</div>` : ''}
 			<div class="settings-tabs" role="tablist">
 				<button type="button" role="tab" class="settings-tab${tab === 'appearance' ? ' active' : ''}" data-tab="appearance" onclick="switchTab('appearance')">Appearance</button>
@@ -285,7 +286,7 @@ const settingsPage = (options = {}) => {
 			</div>
 
 			<!-- Tab: AI -->
-			<div class="settings-tab-panel${tab === 'ai' ? ' active' : ''}" id="tab-ai">
+			<div class="settings-tab-panel${tab === 'ai' ? ' active' : ''}${demo && demo.enabled ? ' demo-locked" inert="' : ''}" id="tab-ai">
 				<section class="settings-section">
 					<h2 class="settings-section-title">AI Autocomplete</h2>
 					<p class="settings-section-sub">Multi-provider AI prose and note suggestions — changes are saved automatically.</p>
@@ -332,7 +333,7 @@ const settingsPage = (options = {}) => {
 			</div>
 
 			<!-- Tab: Profile -->
-			<div class="settings-tab-panel${tab === 'profile' ? ' active' : ''}" id="tab-profile">
+			<div class="settings-tab-panel${tab === 'profile' ? ' active' : ''}${demo && demo.enabled ? ' demo-locked" inert="' : ''}" id="tab-profile">
 				<form class="settings-form" method="POST" action="/settings/profile">
 				<section class="settings-section">
 					<h2 class="settings-section-title">Profile</h2>
@@ -353,7 +354,7 @@ const settingsPage = (options = {}) => {
 			</div>
 
 			<!-- Tab: Security -->
-			<div class="settings-tab-panel${tab === 'security' ? ' active' : ''}" id="tab-security">
+			<div class="settings-tab-panel${tab === 'security' ? ' active' : ''}${demo && demo.enabled ? ' demo-locked" inert="' : ''}" id="tab-security">
 				<section class="settings-section">
 					<h2 class="settings-section-title">Note Encryption</h2>
 					<p class="settings-section-sub">Control auto-lock behavior for encrypted notes.</p>

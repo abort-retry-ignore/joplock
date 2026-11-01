@@ -1,0 +1,2 @@
+# copy to terraform.tfvars (git-ignored) and set your address
+admin_cidrs = ["203.0.113.7/32"]

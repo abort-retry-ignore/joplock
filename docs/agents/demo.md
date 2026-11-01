@@ -29,6 +29,7 @@ Joplin Server creates `admin@localhost` with the password `admin` and expects it
 - `build-golden.sh` builds the snapshot on a fresh database at every deploy (images may change the schema) and **refuses to save it if any admin account is enabled**. `reset.sh` restores it, waits for Joplin Server (over HTTP), Joplock, and a real demo login, and ends visitors' sessions.
 - Joplin Server answers only requests whose `Host` matches `APP_BASE_URL`; probes from inside the network must send it (see `server_up` in `deploy/demo/app/lib.sh`). A plain `127.0.0.1` request gets a 404 "Invalid origin".
 - The seed signs in with the demo login, so the build waits until the demo account exists first: failed retries would count against the login rate limit.
+- One reset or build at a time (a lock file): a **reset skips** when the lock is busy (the next is 30 minutes away), a **golden build waits** for it. A skipped build would let a deploy report success while the old snapshot stayed.
 - Stopping containers uses `-t 2`: the database is replaced next, and the default 10-second graceful stop doubled the reset time.
 - Caddy replaces a client-sent `X-Forwarded-For` (it trusts no upstream proxy), so Joplock's per-IP login rate limit sees real client addresses. Behind proxies that *append* to that header the first entry is client-controlled (known issue, not specific to the demo).
 - Host hardening lives in `deploy/demo/terraform/`: no IAM role, IMDSv2 with hop limit 1 (containers cannot reach instance metadata), SSH from `admin_cidrs` only.

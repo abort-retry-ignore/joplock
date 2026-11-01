@@ -4,7 +4,7 @@
 # Visitors see the "resetting" page while it runs (a minute or two).
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
-take_lock
+take_lock wait
 cd "$DEMO_DIR"
 started=$SECONDS
 host=$(env_value DEMO_HOSTNAME)

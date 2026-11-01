@@ -12,9 +12,15 @@ log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 env_value() { sed -n "s/^$1=//p" "$DEMO_DIR/.env" | tail -1; }
 
 # one reset/build at a time (the timer and a deploy can overlap)
-take_lock() {
+# A reset skips when another reset or a build holds the lock (the next one is 30 minutes away). A build
+# waits its turn instead: skipping would let a deploy report success while the old snapshot stays.
+take_lock() { # take_lock [wait]
 	exec 9>"$LOCK_FILE"
-	if ! flock -n 9; then log "another reset or build is running; skipping"; exit 0; fi
+	if [ "${1:-}" = wait ]; then
+		flock -w 300 9 || { log "timed out waiting for the lock"; exit 1; }
+	elif ! flock -n 9; then
+		log "another reset or build is running; skipping"; exit 0
+	fi
 }
 
 wait_for() { # wait_for <description> <timeout seconds> <command...>

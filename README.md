@@ -2,7 +2,9 @@
 
 A secure, fast web client for [Joplin Server](https://github.com/laurent22/joplin).
 
-**Live demo: [joplock.bazooda.com](https://joplock.bazooda.com)** (login `demo` / password `demo`; shared by everyone and reset to the example notes every 30 minutes).
+**Try it: [joplock.bazooda.com](https://joplock.bazooda.com)**, login `demo`, password `demo` (details in [Live demo](#live-demo)).
+
+![Joplock in a desktop browser: the notebook tree on the left, a note with a banner image, checklists and formatting in rendered mode](docs/screenshots/demo-desktop.png)
 
 Joplock runs as a sidecar alongside an unmodified Joplin Server instance, sharing the same Postgres database, sessions, notes, folders, and resources. It gives you a lightweight browser-based interface to your Joplin notes without modifying Joplin Server itself.  Keep using the other Joplin clients too, this won't interfere.
 
@@ -28,6 +30,32 @@ Joplock runs as a sidecar alongside an unmodified Joplin Server instance, sharin
 - **Near-instant autosave** -- debounced saves with conflict detection, hash-based deduplication, and an undo ring buffer with full note history snapshots. Restoring a snapshot updates the open editor immediately without a page refresh
 - **PWA support** -- installable as a home screen app on mobile and desktop, with splash screens, a mobile layout that follows the phone in both orientations (display-cutout safe), and compressed, cached static assets. Notes are never stored offline: with no connection you get an offline page, not a cached note
 - **Server-side rendering** -- SSR with htmx for minimal client-side JavaScript
+
+## Live demo
+
+**[joplock.bazooda.com](https://joplock.bazooda.com)**: sign in with `demo` / `demo`, or press **Try the demo**. No sign-up.
+
+What is in it:
+
+- **Example notebooks**: Homelab (a note with an image, checklists, a table, code blocks, an attachment and a link to another note), Recipes, Work with a nested Meetings notebook, and Travel.
+- **demo-vault**: an encrypted vault. Unlock it with the password `demo` and the note inside is decrypted in your browser.
+- **Joplock's top 10 features**, in the pinned Examples notebook.
+- The light theme, with notes opening rendered. Press **MD** for the Markdown source, or pick one of the 21 themes in the status bar.
+
+Good to know:
+
+- **Everyone shares one account**, so you may see what other visitors did. Do not type anything private.
+- **Everything resets every 30 minutes**, on the hour and at half past (UTC). The countdown in the status bar shows when.
+- **Turned off in the demo**: changing the account (password, email, two-factor sign-in), AI features and sharing. Uploads are limited to 5 MB.
+- It runs on one small ARM server with docker compose, behind Caddy for HTTPS. The whole setup, including the reset, is in [`deploy/demo/`](deploy/demo/README.md).
+
+| Markdown editor | The same section rendered, Nord theme |
+|---|---|
+| ![The Markdown editor showing a pipe table and a highlighted docker-compose.yml code block](docs/screenshots/demo-markdown.png) | ![The same table and code block in rendered mode with the dark Nord theme](docs/screenshots/demo-theme-nord.png) |
+| **A vault, locked** | **Unlocked with its password** |
+| ![The demo-vault note asking for the vault password](docs/screenshots/demo-vault-locked.png) | ![The decrypted vault note explaining how vaults work](docs/screenshots/demo-vault-unlocked.png) |
+
+<p align="center"><img src="docs/screenshots/demo-phone.png" width="560" alt="Joplock on a phone: the notebook list with the demo countdown, and a note in rendered mode"></p>
 
 ## Runtime Model
 

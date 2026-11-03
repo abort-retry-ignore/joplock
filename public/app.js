@@ -1191,6 +1191,7 @@ function _setTinyMCEContent(html,noteId){
 	_dbgline('_setTinyMCEContent begin len='+((html||'').length));
 	_tinymceSuppressEdits=true;
 	_tinymceUserTypedSinceLoad=false;
+	_tinymceEditableSinceLoad=!_tinymceReadonly;
 	try{
 		_tinymceEditor.setContent(html||'');
 		if(_tinymceEditor.undoManager)_tinymceEditor.undoManager.clear();
@@ -1335,6 +1336,18 @@ function _setSpellcheckEnabled(on){
 // markEdited, so the UI showed "Edited" -> "Saved" while formHash() never
 // changed and no save was ever sent. Force desktop editable to avoid that.
 var _tinymceReadonly=false;
+// Has the rendered editor been editable at any point since its content was loaded? A read-only view
+// (the phone's default for rendered notes) never has, so it holds nothing #note-body lacks.
+var _tinymceEditableSinceLoad=true;
+// The leave/flush/mode-switch paths convert the rendered editor back to markdown in case it holds an
+// unsynced edit. HTML -> markdown is not exact (`|---|` becomes `| --- |`, `1. ` becomes `1.  `, the
+// final newline goes), so converting a view that was never editable rewrote the note and saved it as an
+// edit nobody made, moving its modified time for every Joplin app. Real edits always made the editor
+// editable first (the pencil), so they still convert (tests: mobile-readonly-no-save.spec.js).
+function _syncTinyMCEIfEditable(){
+	if(!_tinymceEditableSinceLoad){_log('tinyMCESyncToTA skipped: read-only since the note loaded');return false}
+	return tinyMCESyncToTA();
+}
 function _tinymceReadonlyDefault(){return isMobileShellMode()}
 // Push the current _tinymceReadonly flag into the live editor + sync the
 // jop_edit toggle button. Safe to call before/after init.
@@ -1345,6 +1358,7 @@ function _applyTinyMCEReadonly(editor){
 	editor=editor||_tinymceEditor;
 	if(!editor)return;
 	if(_isHtmlNoteActive())_tinymceReadonly=true;
+	if(!_tinymceReadonly)_tinymceEditableSinceLoad=true;
 	try{
 		if(editor.mode&&editor.mode.set)editor.mode.set(_tinymceReadonly?'readonly':'design');
 		else if(editor.setMode)editor.setMode(_tinymceReadonly?'readonly':'design');
@@ -1377,6 +1391,7 @@ function _applyTinyMCEReadonly(editor){
 }
 function _setTinyMCEReadonly(on){
 	_tinymceReadonly=!!on;
+	if(!_tinymceReadonly)_tinymceEditableSinceLoad=true;
 	_applyTinyMCEReadonly(_tinymceEditor);
 	_applyFormReadonly(_tinymceReadonly);
 }
@@ -4699,7 +4714,7 @@ function setEditorMode(mode){
 	// entering edit mode can honor the preference, but never write it back.
 	if(mode==='markdown'||mode==='md'){
 		// Markdown mode: sync latest rich content back to the textarea, then mount CM6.
-		tinyMCESyncToTA();
+		_syncTinyMCEIfEditable();
 		applyEditorModeVisibility('markdown');
 		mountMarkdownEditor(ta?ta.value:'');
 		_editorMode='markdown';
@@ -5250,7 +5265,7 @@ function dismissRemoteUpdateBanner(){var bar=queryActiveEditor('#remote-update-b
 function showRemoteUpdateBanner(kind){var bar=queryActiveEditor('#remote-update-bar')||document.getElementById('remote-update-bar');if(!bar)return;var scope=bar;var text=scope.querySelector('#remote-update-text');var useBtn=scope.querySelector('#remote-update-use-server-btn');var owBtn=scope.querySelector('#remote-update-overwrite-btn');if(kind==='deleted'){if(text)text.textContent='This note was deleted in another window.';if(useBtn)useBtn.hidden=true;if(owBtn)owBtn.hidden=true}else{if(text)text.textContent='A newer version of this note exists on the server.';if(useBtn)useBtn.hidden=false;if(owBtn)owBtn.hidden=false}bar.hidden=false}
 function reloadCurrentNoteFromServer(){var noteId=_activeEditorNoteId();if(!noteId)return;var folderId=_activeEditorCurrentFolderId();var targetSel=inMobileEditor()?'#mobile-editor-body':'#editor-panel';var target=document.querySelector(targetSel);if(!target)return;dismissRemoteUpdateBanner();var url='/fragments/editor/'+encodeURIComponent(noteId)+(folderId?'?currentFolderId='+encodeURIComponent(folderId):'');_log('reloadCurrentNoteFromServer',url);htmx.ajax('GET',url,{target:targetSel,swap:'innerHTML'}).catch(function(){})}
 function overwriteWithLocalEdits(){var form=activeEditorForm();if(!form)return;dismissRemoteUpdateBanner();// Sync preview/CM into the textarea so the body in the form is current
-var pv=getPV();if(pv)syncPV();else if(_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA();syncTitleToHidden({silent:true});// Set forceSave=1 so the server skips the optimistic-concurrency guard
+var pv=getPV();if(pv)syncPV();else if(_editorMode!=='markdown'&&_editorMode!=='md')_syncTinyMCEIfEditable();syncTitleToHidden({silent:true});// Set forceSave=1 so the server skips the optimistic-concurrency guard
 var fs=form.querySelector('[name="forceSave"]');if(fs)fs.value='1';setSaveState('<span class="autosave-saving">Saving...</span>','Saving...');_log('overwriteWithLocalEdits forcing save');htmx.trigger(form,'joplock:save')}
 function checkNoteFreshness(){if(_noteFreshnessBusy)return;var noteId=_activeEditorNoteId();if(!noteId)return;if(document.hidden)return;if(_anyModalOpen())return;var form=activeEditorForm();if(!form||form.dataset.encrypted==='1')return;// Skip while a vault note is locked or unlock UI is showing
 if(form.dataset.unlocking==='1')return;var base=_activeEditorBaseUpdatedTime();if(!base)return;// Editor doesn't have a baseline yet (fresh new note); nothing to compare
@@ -5268,7 +5283,7 @@ document.addEventListener('keydown',function(e){var mac=navigator.platform&&navi
 		if(!form){_log('flushSave skip (no form)');if(callback)callback(true);return}
 		if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null}
 		if(_saveTitleTimer){clearTimeout(_saveTitleTimer);_saveTitleTimer=null}
-		if(_pvSyncTimer){clearTimeout(_pvSyncTimer);_pvSyncTimer=null;_syncPVInFlight=true;syncPV();_syncPVInFlight=false}else{var pv=getPV();if(pv&&_previewDirty)syncPV();else if(!pv&&_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA()}
+		if(_pvSyncTimer){clearTimeout(_pvSyncTimer);_pvSyncTimer=null;_syncPVInFlight=true;syncPV();_syncPVInFlight=false}else{var pv=getPV();if(pv&&_previewDirty)syncPV();else if(!pv&&_editorMode!=='markdown'&&_editorMode!=='md')_syncTinyMCEIfEditable()}
 		syncTitleToHidden({silent:true});
 		var run=function(){
 			var h=formHash(form);
@@ -6657,7 +6672,7 @@ function buildFlushRequest(form){
 	// whatever content raced into this stale form.
 	if(!_plaintextSaveIdentityOk(form)){_log('buildFlushRequest aborted: save identity check failed (displayed=',_displayedNoteId,', form=',_formNoteId(form),')');return Promise.resolve(null)}
 	var pv=getPV();
-	if(pv)syncPV();else if(_editorMode!=='markdown'&&_editorMode!=='md')tinyMCESyncToTA();
+	if(pv)syncPV();else if(_editorMode!=='markdown'&&_editorMode!=='md')_syncTinyMCEIfEditable();
 	syncTitle();
 	// Read the plaintext from the CAPTURED form's textarea, not the global
 	// getTA() — otherwise a background editor swap could point us at the

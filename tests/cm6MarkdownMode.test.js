@@ -133,7 +133,9 @@ test('setEditorMode markdown branch mounts CM6 and syncs from TinyMCE', () => {
 	const src = extractFn('setEditorMode');
 	assert.ok(src.includes("mode==='markdown'"), 'setEditorMode must handle markdown mode');
 	assert.ok(src.includes('mountMarkdownEditor('), 'markdown mode must mount the CM6 editor');
-	assert.ok(src.includes('tinyMCESyncToTA()'), 'markdown mode must sync rich content back to textarea first');
+	// through the guard: a view that has been read-only since it loaded holds nothing to sync, and converting
+	// it anyway rewrote the note (tests/tinymceReadonlySync.test.js)
+	assert.ok(src.includes('_syncTinyMCEIfEditable()'), 'markdown mode must sync rich content back to textarea first');
 });
 
 test('setEditorMode rich branch syncs CM6 back to the textarea before switching', () => {

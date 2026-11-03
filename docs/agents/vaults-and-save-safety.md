@@ -1,6 +1,6 @@
 # Vaults, encryption and save safety
 
-> Read this before: touching vaults/encryption, ANY autosave or save path, note history/restore, or code that reads the editor DOM during a note switch. These guards each exist because a real note was overwritten.
+> Read this before: touching vaults/encryption, ANY autosave or save path (including the read-only rendered view), note history/restore, or code that reads the editor DOM during a note switch. These guards each exist because a real note was overwritten.
 > This file records *why* and *what not to regress*. It deliberately does not say where code lives (ask the code index, or grep): maps go stale, reasons do not.
 
 ## Vault / Encryption Model
@@ -56,6 +56,15 @@ Client (`public/app.js`) rules:
 - **Shell-scoped banner**: both shells render `#remote-update-bar` with duplicate ids; `showRemoteUpdateBanner`/`dismissRemoteUpdateBanner` resolve the bar via `queryActiveEditor('#remote-update-bar')` first — `getElementById` alone returns the desktop shell's bar, which is `display:none` in the mobile shell (banner invisible exactly when mobile users need it).
 
 Tests: `tests/saveIdentityGuard.test.js` locks the guard wiring, the flushSave header handling, and the shell-scoped banner; `tests/createServer.test.js` asserts the `X-Note-Updated-Time` header; `tests/templates.test.js` asserts the mobile sync-state; `tests/tinymceOnEditSync.test.js` has a provenance test for the sync refusal.
+
+### Read-only rendered view never converts (do not remove)
+
+Reported: just opening a note on a phone and going back re-saved it, with `|---|` turned into `| --- |`, `1. ` into `1.  `, the final newline dropped, and a new modified time that every Joplin app then synced. On the phone a rendered note opens **read-only**, so the post-load reconcile (which re-baselines the hash after lossy load normalisation) skips it; but `flushSave`, `buildFlushRequest`, `overwriteWithLocalEdits` and `setEditorMode('markdown')` converted the rendered HTML back to markdown regardless, and HTML -> markdown is not exact.
+
+- Those just-in-case paths convert only through `_syncTinyMCEIfEditable()`, which does nothing while `_tinymceEditableSinceLoad` is false: the editor has been read-only since its content loaded, so it holds nothing `#note-body` lacks.
+- `_setTinyMCEContent` resets the flag from the current read-only state; becoming editable (`_setTinyMCEReadonly(false)`, `_applyTinyMCEReadonly`) sets it and nothing clears it until the next load. So "pencil on, type, pencil off before the autosave" still converts and saves the edit. Keep it "editable since load", not "edited since load": any edit path that bypasses `onEdit` is still covered.
+- Deliberate edits made in the rendered editor (AI ask, text expanders, autocomplete) keep calling `tinyMCESyncToTA()` directly; they need an editable editor anyway.
+- Desktop TinyMCE is always editable, so desktop behaviour is unchanged. Coverage: `tests/tinymceReadonlySync.test.js`, `playwright-tests/mobile-readonly-no-save.spec.js`.
 
 ### Note-history restore
 

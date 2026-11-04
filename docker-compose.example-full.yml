@@ -1,22 +1,28 @@
-# Full-stack example: Postgres + Joplin Server + Joplock
+# Full stack: Postgres + Joplin Server + Joplock, all from published images. Needs only Docker.
 #
-# Zero-setup rollout for users who don't have an existing Joplin Server.
-# Pulls pre-built images — no source checkout required.
+# Try it:
+#   1. Set JOPLOCK_ADMIN_EMAIL and JOPLOCK_ADMIN_PASSWORD below. REQUIRED: this is the account you
+#      sign in with. The password needs 12+ characters using 3 of: lower case, upper case, digits,
+#      symbols; with a weaker one Joplock stops with an error (docker compose ... logs joplock).
+#   2. docker compose -f docker-compose.example-full.yml up -d
+#   3. Open http://localhost:5444 (or http://<this machine>:5444 from another device) and sign in.
+#      The first start takes about half a minute while Joplin Server creates its database.
 #
-# Usage:
-#   1. Set JOPLOCK_PUBLIC_BASE_URL to the actual reachable URL for this host, such
-#      as a hostname served from a reverse proxy.
-#      (e.g. http://myhost:5444 or a Tailscale DNS name)
-#   2. Set JOPLOCK_ADMIN_EMAIL and JOPLOCK_ADMIN_PASSWORD for the admin account
-#   3. docker compose -f docker-compose.example-full.yml up -d
+# Joplin Server's own default account (admin@localhost / admin) is locked automatically: use the
+# account from step 1.
+#
+# Before keeping real notes in it, also change:
+#   - POSTGRES_PASSWORD, the same value in db, server and joplock (the database is not reachable
+#     from outside Docker, but do not keep the example password)
+#   - the host port in '5444:3001' if 5444 is taken
+#   - JOPLOCK_PUBLIC_BASE_URL once Joplock sits behind a reverse proxy; to sync the Joplin desktop
+#     and mobile apps through it, see "Vault Safety With Sync Clients" in the README
 #
 # Joplock UI:      http://localhost:5444
-# Joplin Server:   internal only (not exposed to host by default)
+# Joplin Server:   internal only (not exposed to the host)
 #
 # Note: On WSL2, the raw WSL IP may not be reliably reachable from browsers.
 # A Windows host port proxy or a Tailscale DNS name can work better.
-#
-# To connect desktop/mobile Joplin clients, use the Joplin Server URL if exposed
 
 services:
   db:
@@ -59,9 +65,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 3001
-      # Public URL where Joplock is reachable.
-      # Use the real browser-reachable host here, such as a LAN hostname,
-      # reverse-proxy URL, or Tailscale DNS name.
+      # Public URL where Joplock is reachable. Not needed to try it (other devices on
+      # your network work as is); set it to the reverse-proxy URL when there is one.
       JOPLOCK_PUBLIC_BASE_URL: http://localhost:5444
       # Internal URL Joplock uses to talk to Joplin Server
       JOPLIN_SERVER_ORIGIN: http://server:22300
@@ -75,7 +80,8 @@ services:
       POSTGRES_DATABASE: joplin
       POSTGRES_USER: joplin
       POSTGRES_PASSWORD: joplin
-      # Admin account — set both to enable the admin panel
+      # REQUIRED: the account you sign in with, created on first start (an admin).
+      # Password: 12+ characters using 3 of lower case, upper case, digits, symbols.
       JOPLOCK_ADMIN_EMAIL: ''
       JOPLOCK_ADMIN_PASSWORD: ''
       # Set to true to skip MFA check for the admin account defined above

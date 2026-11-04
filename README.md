@@ -88,8 +88,9 @@ plaintext, or put its ciphertext in a different note/vault.
 
 ## Requirements
 
-- docker
-- an existing Joplin Server instance, or run the fullstack option
+- Docker, with Docker Compose (`docker compose`)
+
+That is all: the [full stack](#full-stack-try-it-yourself) runs its own Postgres and Joplin Server. An existing Joplin Server is only needed for the [sidecar install](#sidecar-install-existing-joplin-server).
 
 The published image already contains everything the app shells out to:
 `postgresql18-client` (backups), `pandoc` (DOCX/PDF export), and `weasyprint`
@@ -121,18 +122,52 @@ Important:
 Published container image:
 - `ghcr.io/abort-retry-ignore/joplock:latest`
 
-### Sidecar Install
+### Full stack: try it yourself
 
-Use this when you already have Joplin Server and Postgres running elsewhere. Edit the environment values in `docker-compose.yml` to point at your existing setup, or copy into your existing compose. Then:
+One compose file runs everything: Postgres, Joplin Server and Joplock, all from published images.
 
-```bash
-docker compose up -d
-```
+1. Download the compose file:
 
-This pulls the pre-built image from GitHub Container Registry. To build from source instead, use the full-stack build variant (Postgres + Joplin Server + Joplock, Joplock built locally):
+   ```bash
+   mkdir joplock && cd joplock
+   curl -fsSLO https://raw.githubusercontent.com/abort-retry-ignore/joplock/master/docker-compose.example-full.yml
+   ```
+
+2. Edit the two required values in `docker-compose.example-full.yml`:
+
+   | Field | Set it to |
+   |---|---|
+   | `JOPLOCK_ADMIN_EMAIL` | the email you will sign in with |
+   | `JOPLOCK_ADMIN_PASSWORD` | at least 12 characters, using 3 of: lower case, upper case, digits, symbols. With a weaker one Joplock stops with an error (`docker compose -f docker-compose.example-full.yml logs joplock`). |
+
+3. Start it:
+
+   ```bash
+   docker compose -f docker-compose.example-full.yml up -d
+   ```
+
+4. Open `http://localhost:5444` (or `http://<this machine>:5444` from another device) and sign in with that email and password. The first start takes about half a minute while Joplin Server creates its database.
+
+Joplin Server's own default account, `admin@localhost` / `admin`, is locked automatically: sign in with the account from step 2.
+
+Before keeping real notes in it, also change:
+
+- `POSTGRES_PASSWORD`, the same value in the `db`, `server` and `joplock` services. The database is not reachable from outside Docker, but do not keep the example password.
+- The host port in `'5444:3001'`, if 5444 is already taken.
+- `JOPLOCK_PUBLIC_BASE_URL`, once Joplock sits behind a reverse proxy. Joplin Server is internal-only in this file; to sync the Joplin desktop and mobile apps through Joplock, see [Vault Safety With Sync Clients](#vault-safety-with-sync-clients).
+
+To build Joplock from source instead, from a checkout of this repository (same two required values):
 
 ```bash
 docker compose -f docker-compose.example-full-build.yml up -d --build
+```
+
+### Sidecar install (existing Joplin Server)
+
+Use this when you already run Joplin Server and Postgres. Edit the environment values in `docker-compose.yml` to point at your existing setup, or paste the `joplock` service into your existing compose file. Then:
+
+```bash
+docker compose up -d
 ```
 
 On Linux, the compose files map `host.docker.internal` to the host gateway so Joplock can reach host services by default.
@@ -157,18 +192,6 @@ Before restoring:
 1. Stop or quiesce Joplin Server if possible.
 2. Stop active sync clients.
 3. Expect the entire shared Postgres database to be replaced.
-
-### Full Example Stack
-
-Use this as a reference/demo stack with Postgres, Joplin Server, and Joplock together. Edit the values in `docker-compose.example-full.yml` as needed, then:
-
-```bash
-docker compose -f docker-compose.example-full.yml up -d
-```
-
-The full example uses the public `joplin/server:latest` image. Joplock is exposed on `http://localhost:5444` by default. Joplin Server is internal-only unless you add a port mapping.
-
-The full example is meant as a working reference compose file. Adjust it for your real deployment.
 
 ### Development
 

@@ -3,8 +3,10 @@
 # Same as docker-compose.example-full.yml but builds Joplock from source
 # instead of pulling the pre-built image.
 #
-# Usage:
-#   docker compose -f docker-compose.example-full-build.yml up -d --build
+# Usage (from a checkout of the repository):
+#   1. Set JOPLOCK_ADMIN_EMAIL and JOPLOCK_ADMIN_PASSWORD below (REQUIRED, see
+#      docker-compose.example-full.yml for the password rules)
+#   2. docker compose -f docker-compose.example-full-build.yml up -d --build
 #
 # Joplock UI:      http://localhost:5444
 # Joplin Server:   internal only (not exposed to host by default)
@@ -18,7 +20,9 @@ services:
       POSTGRES_PASSWORD: joplin
       POSTGRES_DB: joplin
     volumes:
-      - db_data:/var/lib/postgresql/data
+      # postgres 18 keeps its data in /var/lib/postgresql/18/docker: mount the parent, or the
+      # database lands in an anonymous volume and is gone after 'docker compose down'
+      - db_data:/var/lib/postgresql
 
   server:
     image: joplin/server:latest

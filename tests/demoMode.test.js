@@ -236,6 +236,35 @@ test('the default-admin guard can be turned off', () => {
 	guard.stop();
 });
 
+test('the guard checks every 15 s until Joplin has created the account, then every 10 minutes', async () => {
+	// On a fresh install Joplin creates admin@localhost after Joplock starts. Checking only every 10 minutes
+	// let the default login work for those minutes and then locked it under whoever had signed in.
+	let clock = 0;
+	const queue = [];
+	const timers = { setTimeout: (fn, ms) => { const t = { fn, ms, unref() {} }; queue.push(t); return t; }, clearTimeout: t => { const i = queue.indexOf(t); if (i >= 0) queue.splice(i, 1); } };
+	const fire = async () => { const next = queue.shift(); clock += next.ms; await next.fn(); return next.ms; };
+	const rows = {};
+	const logs = [];
+	const guard = startDefaultAdminGuard({ database: fakeDb(rows), env: {}, log: l => logs.push(l), now: () => clock, timers, pendingForMs: 60000 });
+	assert.equal(await fire(), 2000, 'first check shortly after startup');
+	assert.equal(queue[0].ms, 15000, 'account not there yet: look again in 15 s');
+	await fire();
+	assert.equal(queue[0].ms, 15000);
+	rows['admin@localhost'] = { id: 'root', password: bcrypt.hashSync('admin', 4) };
+	await fire();
+	assert.match(logs[0], /SECURITY: .*admin@localhost/, 'locked within 15 s of Joplin creating it');
+	assert.equal(queue[0].ms, 10 * 60 * 1000, 'then every 10 minutes');
+	guard.stop();
+	assert.equal(queue.length, 0);
+
+	// an account that never appears (deleted by a Joplin admin) stops the fast checks after pendingForMs
+	clock = 0;
+	const lonely = startDefaultAdminGuard({ database: fakeDb({}), env: {}, now: () => clock, timers, pendingForMs: 60000 });
+	while (clock < 60000) await fire();
+	assert.equal(queue[0].ms, 10 * 60 * 1000);
+	lonely.stop();
+});
+
 test('the demo account is created when missing, repaired when tampered with, left alone when right', async () => {
 	const config = readDemoConfig(DEMO_ENV);
 	const missing = fakeDb({});

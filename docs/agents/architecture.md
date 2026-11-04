@@ -110,6 +110,16 @@ column changes — tables are created lazily with `CREATE TABLE IF NOT EXISTS` i
 the service that owns them (e.g. `app/settingsService.js` also carries the
 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS totp_seed` migration).
 
+**Table creation must survive a startup race (do not regress).** The first use can come before
+Postgres accepts connections: a fresh install, or a host reboot starting every container at once
+(`depends_on` orders starts, it does not wait for readiness). Each service wraps its DDL in
+`createTableInit()` (`app/tableInit.js`): a failure is retried after 5 s, never remembered. The old
+code remembered it until Joplock restarted, so settings saves were silently dropped (the API still
+answered 204), note history was skipped, and vault notebooks looked like ordinary ones, so the server
+stopped refusing plain text in them. `ensureIndexesWhenReady()` does the same for the search
+indexes on Joplin's `items` table, which exists only after Joplin Server's migrations.
+Coverage: `tests/tableInit.test.js`.
+
 ### How Reads vs Writes Work
 
 - Reads come from the shared Postgres DB for speed and to match the current server state

@@ -1,3 +1,4 @@
+const { createTableInit } = require('../tableInit');
 const { Pool } = require('pg');
 
 const createPoolFromEnv = env => {
@@ -11,22 +12,17 @@ const createPoolFromEnv = env => {
 };
 
 const createSessionService = database => {
-	let _tableReady = null;
-
-	const ensureTable = async () => {
-		if (_tableReady !== null) return;
-		try {
-			await database.query(`
-				CREATE TABLE IF NOT EXISTS joplock_sessions (
-					session_id VARCHAR(64) PRIMARY KEY,
-					last_seen BIGINT NOT NULL
-				)
-			`);
-			_tableReady = true;
-		} catch {
-			_tableReady = false;
-		}
-	};
+	// created on first use, retried if Postgres is not ready yet (app/tableInit.js)
+	let _tableReady = false;
+	const tableReady = createTableInit(async () => {
+		await database.query(`
+			CREATE TABLE IF NOT EXISTS joplock_sessions (
+				session_id VARCHAR(64) PRIMARY KEY,
+				last_seen BIGINT NOT NULL
+			)
+		`);
+	});
+	const ensureTable = async () => { _tableReady = await tableReady(); };
 
 	return {
 		async userBySessionId(sessionId) {

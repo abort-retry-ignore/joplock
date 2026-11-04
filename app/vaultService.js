@@ -1,4 +1,5 @@
 'use strict';
+const { createTableInit } = require('./tableInit');
 
 // vaultService: manages vault metadata (encrypted folder registry)
 // A vault is a Joplin folder with encryption enabled.
@@ -6,27 +7,22 @@
 // Salt + verify blob stored in joplock_vaults table (not in Joplin's items table).
 
 const createVaultService = database => {
-	let _tableAvailable = null;
-
-	const ensureTable = async () => {
-		if (_tableAvailable !== null) return;
-		try {
-			await database.query(`
-				CREATE TABLE IF NOT EXISTS joplock_vaults (
-					id         SERIAL PRIMARY KEY,
-					user_id    VARCHAR(64) NOT NULL,
-					folder_id  VARCHAR(64) NOT NULL,
-					salt       TEXT NOT NULL,
-					verify     TEXT NOT NULL,
-					created_at TIMESTAMPTZ DEFAULT NOW(),
-					UNIQUE (user_id, folder_id)
-				)
-			`);
-			_tableAvailable = true;
-		} catch {
-			_tableAvailable = false;
-		}
-	};
+	// created on first use, retried if Postgres is not ready yet (app/tableInit.js)
+	let _tableAvailable = false;
+	const tableReady = createTableInit(async () => {
+		await database.query(`
+			CREATE TABLE IF NOT EXISTS joplock_vaults (
+				id         SERIAL PRIMARY KEY,
+				user_id    VARCHAR(64) NOT NULL,
+				folder_id  VARCHAR(64) NOT NULL,
+				salt       TEXT NOT NULL,
+				verify     TEXT NOT NULL,
+				created_at TIMESTAMPTZ DEFAULT NOW(),
+				UNIQUE (user_id, folder_id)
+			)
+		`);
+	});
+	const ensureTable = async () => { _tableAvailable = await tableReady(); };
 
 	return {
 		// Create a vault for a folder. salt and verify are base64 strings.

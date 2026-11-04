@@ -1,3 +1,4 @@
+const { createTableInit } = require('./tableInit');
 const MAX_SNAPSHOTS = 50;
 const MIN_INTERVAL_MS = 30000; // minimum 30s between snapshots for a given note
 
@@ -11,31 +12,26 @@ const hashBody = str => {
 const nowMs = () => Date.now();
 
 const createHistoryService = database => {
-	let _tableAvailable = null;
-
-	const ensureTable = async () => {
-		if (_tableAvailable !== null) return;
-		try {
-			await database.query(`
-				CREATE TABLE IF NOT EXISTS joplock_history (
-					id BIGSERIAL PRIMARY KEY,
-					note_id VARCHAR(32) NOT NULL,
-					user_id VARCHAR(32) NOT NULL,
-					title TEXT NOT NULL DEFAULT '',
-					body TEXT NOT NULL DEFAULT '',
-					body_hash VARCHAR(16) NOT NULL DEFAULT '',
-					saved_time BIGINT NOT NULL
-				)
-			`);
-			await database.query(`
-				CREATE INDEX IF NOT EXISTS joplock_history_note_time
-				ON joplock_history (note_id, saved_time DESC)
-			`);
-			_tableAvailable = true;
-		} catch {
-			_tableAvailable = false;
-		}
-	};
+	// created on first use, retried if Postgres is not ready yet (app/tableInit.js)
+	let _tableAvailable = false;
+	const tableReady = createTableInit(async () => {
+		await database.query(`
+			CREATE TABLE IF NOT EXISTS joplock_history (
+				id BIGSERIAL PRIMARY KEY,
+				note_id VARCHAR(32) NOT NULL,
+				user_id VARCHAR(32) NOT NULL,
+				title TEXT NOT NULL DEFAULT '',
+				body TEXT NOT NULL DEFAULT '',
+				body_hash VARCHAR(16) NOT NULL DEFAULT '',
+				saved_time BIGINT NOT NULL
+			)
+		`);
+		await database.query(`
+			CREATE INDEX IF NOT EXISTS joplock_history_note_time
+			ON joplock_history (note_id, saved_time DESC)
+		`);
+	});
+	const ensureTable = async () => { _tableAvailable = await tableReady(); };
 
 	return {
 		/**

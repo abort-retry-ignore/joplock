@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const { createPoolFromEnv, createSessionService } = require('./app/auth/sessionService');
 
-const { createItemService, ensureIndexes } = require('./app/items/itemService');
+const { createItemService, ensureIndexesWhenReady } = require('./app/items/itemService');
 const { createItemWriteService } = require('./app/items/itemWriteService');
 const { createSettingsService } = require('./app/settingsService');
 const { createHistoryService } = require('./app/historyService');
@@ -114,10 +114,8 @@ if (demo.enabled) {
 // Lock Joplin Server's default admin@localhost while it still has the password "admin"
 startDefaultAdminGuard({ database: databasePool, log: line => process.stderr.write(`${line}\n`) });
 
-// Create DB indexes (non-blocking, best-effort)
-ensureIndexes(databasePool).catch(err => {
-	process.stderr.write(`[joplock] Index creation error: ${err.message}\n`);
-});
+// Create DB indexes (non-blocking, best-effort; retried until Joplin Server has created its tables)
+ensureIndexesWhenReady(databasePool, { log: line => process.stderr.write(`${line}\n`) });
 
 const server = createServer({
 	publicDir,

@@ -1,3 +1,4 @@
+const { createTableInit } = require('./tableInit');
 // A setting persists only if normalized here AND allow-listed in app/routes/api.js: docs/agents/settings-and-admin.md
 const validThemes = ['aritim-dark','dark','matrix-amber','matrix-blue','dark-fruit','dark-grey','matrix-orange','matrix-purple','dark-red','dracula','earth','fireball','fruit','grey','light','matrix','nord','oled-dark','solarized-dark','solarized-light','swamp-thing'];
 
@@ -264,28 +265,23 @@ const normalizeAppSettings = settings => ({
 });
 
 const createSettingsService = database => {
-	let _tableAvailable = null;
-
-	const ensureTable = async () => {
-		if (_tableAvailable !== null) return;
-		try {
-			await database.query(`
-				CREATE TABLE IF NOT EXISTS joplock_settings (
-					user_id VARCHAR(32) PRIMARY KEY,
-					settings JSONB NOT NULL DEFAULT '{}',
-					updated_time BIGINT NOT NULL,
-					totp_seed VARCHAR(64)
-				)
-			`);
-			// Add totp_seed column if missing (migration for existing tables)
-			await database.query(`
-				ALTER TABLE joplock_settings ADD COLUMN IF NOT EXISTS totp_seed VARCHAR(64)
-			`).catch(() => {});
-			_tableAvailable = true;
-		} catch {
-			_tableAvailable = false;
-		}
-	};
+	// created on first use, retried if Postgres is not ready yet (app/tableInit.js)
+	let _tableAvailable = false;
+	const tableReady = createTableInit(async () => {
+		await database.query(`
+			CREATE TABLE IF NOT EXISTS joplock_settings (
+				user_id VARCHAR(32) PRIMARY KEY,
+				settings JSONB NOT NULL DEFAULT '{}',
+				updated_time BIGINT NOT NULL,
+				totp_seed VARCHAR(64)
+			)
+		`);
+		// Add totp_seed column if missing (migration for existing tables)
+		await database.query(`
+			ALTER TABLE joplock_settings ADD COLUMN IF NOT EXISTS totp_seed VARCHAR(64)
+		`).catch(() => {});
+	});
+	const ensureTable = async () => { _tableAvailable = await tableReady(); };
 
 	return {
 		async settingsByUserId(userId) {

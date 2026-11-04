@@ -501,6 +501,26 @@ const createItemService = database => {
 	};
 };
 
+// The indexes are on Joplin's items table, which exists only once Postgres accepts connections and Joplin
+// Server has run its migrations. On a fresh install Joplock starts first, and a single attempt left the
+// indexes missing until the next restart. So keep trying for a while (about 10 minutes by default).
+const ensureIndexesWhenReady = async (database, { attempts = 40, delayMs = 15000, log = () => {}, sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) => {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			await ensureIndexes(database);
+			if (attempt > 1) log('[joplock] Indexes created.');
+			return true;
+		} catch (err) {
+			if (attempt >= attempts) {
+				log(`[joplock] Index creation error: ${err.message}`);
+				return false;
+			}
+			if (attempt === 1) log(`[joplock] Database not ready for indexes yet (${err.message}); retrying every ${Math.round(delayMs / 1000)}s`);
+			await sleep(delayMs);
+		}
+	}
+};
+
 module.exports = {
 	MODEL_TYPE_FOLDER,
 	MODEL_TYPE_NOTE,
@@ -511,6 +531,7 @@ module.exports = {
 	VIRTUAL_TRASH_ID,
 	createItemService,
 	ensureIndexes,
+	ensureIndexesWhenReady,
 	decodeItemContent,
 	isEncryptedBody,
 	buildNoteSearchConditions,

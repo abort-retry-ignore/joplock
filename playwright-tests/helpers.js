@@ -147,8 +147,14 @@ async function trashDesktopNote(page) {
 async function createDesktopNote(page, folderName) {
 	const button = page.locator(`.nav-folder[data-folder-title="${folderName}"] .nav-folder-add`).first();
 	await expect(button).toBeVisible();
+	// A note may already be open (resume last note). Waiting only for "an editor is visible" returned
+	// before the new note's editor replaced it, so the next action hit the outgoing form (flaky:
+	// depended on which note the account last had open). Wait for the new note, initialised.
+	const before = await getActiveNoteId(page);
 	await button.click();
 	await expect(desktopEditor(page)).toBeVisible();
+	await expect.poll(() => getActiveNoteId(page), { timeout: 15000 }).not.toBe(before);
+	await expect(page.locator('#editor-panel #note-editor-form[data-editor-init="1"]')).toBeVisible();
 }
 
 async function openDesktopNote(page, noteTitle) {
